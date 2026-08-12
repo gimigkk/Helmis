@@ -108,15 +108,31 @@ def get_memory_context_summary() -> str:
     tasks = mem.get("tasks", [])
     active_tasks = [t for t in tasks if t.get("status") != "completed"]
 
+    def format_task_line(t: dict[str, Any]) -> str:
+        due = t.get("due", "No deadline")
+        title = t.get("title", "")
+        assignee = t.get("assignee", "Gilang")
+        if t.get("reminded"):
+            remind_status = f" | [REMINDER SENT to {assignee} at {t.get('reminded_at', 'earlier')}]"
+        else:
+            remind_status = " | [Reminder NOT sent yet]"
+        return f"- [{due}] {title} (Assignee: {assignee}){remind_status}"
+
     tasks_summary = (
-        "\n".join(
-            [
-                f"- [{t.get('due', 'No deadline')}] {t.get('title')} (Assignee: {t.get('assignee', 'Gilang')})"
-                for t in active_tasks
-            ]
-        )
+        "\n".join([format_task_line(t) for t in active_tasks])
         if active_tasks
         else "No active tasks recorded yet. (Do NOT invent fake tasks!)"
+    )
+
+    # Activity log of recent messages/reminders sent by Helmis
+    activity_log = mem.get("activity_log", [])
+    recent_activities = activity_log[-6:]
+    activity_summary = (
+        "\n".join(
+            [f"- [{a.get('time', '')}] {a.get('summary', '')}" for a in recent_activities]
+        )
+        if recent_activities
+        else "No recent proactive messages logged."
     )
 
     people = mem.get("people", {})
@@ -139,13 +155,28 @@ def get_memory_context_summary() -> str:
 - Current Local Time: {now_str}
 - Current Time of Day: {period_info}
 - Temporal Rule: Always respect the current time of day. NEVER greet with 'Selamat pagi' during sore/malam!
-- Active Tasks:
+- Active Tasks & Reminder Status:
 {tasks_summary}
+- Recent Messages & Reminders Dispatched by Helmis:
+{activity_summary}
 - People Directory:
 {people_summary}
 - Shared Notes:
 {notes_summary}
 """
+
+
+def log_activity(summary: str) -> None:
+    """Log an action or sent reminder into memory activity log."""
+    mem = load_memory()
+    entry = {
+        "time": get_current_time_str(),
+        "summary": summary.strip(),
+    }
+    log_list = mem.setdefault("activity_log", [])
+    log_list.append(entry)
+    mem["activity_log"] = log_list[-50:]
+    save_memory(mem)
 
 
 def add_task(title: str, due: str = "", assignee: str = "Gilang") -> dict[str, Any]:

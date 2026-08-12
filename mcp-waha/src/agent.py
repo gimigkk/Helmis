@@ -545,6 +545,10 @@ async def execute_tool_call(
                 quote_id = str(quote_id).strip()
 
             await client.send_message(chat_id=target_jid, text=text, reply_to_message_id=quote_id)
+            from .memory import log_activity
+
+            log_activity(f"Direct message sent to {recipient} ({target_jid}): \"{text}\"")
+
             log.info(
                 "Agent sent direct WhatsApp message to %s (quote: %s): %s",
                 target_jid,

@@ -119,11 +119,17 @@ Only output valid JSON, nothing else.
             log.info("Sending proactive reminder to %s (%s): %s", assignee, target_jid, msg_text)
             await client.send_message(chat_id=target_jid, text=msg_text)
 
-            # Mark task as reminded in memory
+            # Mark task as reminded in memory and log activity
             for t in tasks:
                 if t.get("title", "").lower() == str(title).lower():
                     t["reminded"] = True
                     t["reminded_at"] = now_str
+
+            from .memory import log_activity
+
+            log_activity(
+                f"Proactive reminder sent to {assignee} for '{title}': \"{msg_text}\""
+            )
 
         save_memory(mem)
         log.info("Proactive reminders successfully sent and saved to disk.")
