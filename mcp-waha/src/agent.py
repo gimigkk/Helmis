@@ -1,0 +1,595 @@
+"""
+agent.py — Autonomous ReAct Agent Loop, Tool Dispatcher, and Gemini LLM Client.
+"""
+
+import logging
+import os
+from typing import Any
+
+import httpx
+
+from .client import WahaClient
+from .history import build_multi_turn_contents
+from .memory import (
+    add_person,
+    add_task,
+    complete_task,
+    delete_task,
+    get_memory_context_summary,
+    get_person,
+    list_tasks,
+    save_note,
+    search_memory,
+)
+
+log = logging.getLogger("helmis-agent")
+
+# Gemini API Keys pool
+GEMINI_KEYS = [
+    k
+    for k in [
+        os.environ.get("GEMINI_KEY_2"),
+        os.environ.get("GEMINI_KEY_3"),
+        os.environ.get("GEMINI_KEY_1"),
+    ]
+    if k
+]
+
+
+def fetch_available_gemini_models() -> list[str]:
+    """Dynamically query Google API for all available models supporting generateContent."""
+    discovered: list[str] = []
+    for key in GEMINI_KEYS:
+        try:
+            resp = httpx.get(
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={key}", timeout=5.0
+            )
+            if resp.status_code == 200:
+                raw_models = resp.json().get("models", [])
+                for m in raw_models:
+                    name = m.get("name", "").replace("models/", "")
+                    methods = m.get("supportedGenerationMethods", [])
+                    if "generateContent" in methods and not any(
+                        skip in name
+                        for skip in [
+                            "tts",
+                            "image",
+                            "banana",
+                            "robotics",
+                            "computer-use",
+                            "research",
+                            "clip",
+                        ]
+                    ):
+                        if name not in discovered:
+                            discovered.append(name)
+                if discovered:
+                    break
+        except Exception as e:
+            log.warning("Could not fetch models dynamically with key: %s", e)
+
+    if not discovered:
+        # Fallback list if offline
+        return [
+            "gemini-3.1-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-flash-lite-latest",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-2.5-flash",
+            "gemini-flash-latest",
+            "gemini-3.1-pro-preview",
+            "gemini-2.5-pro",
+            "gemini-pro-latest",
+        ]
+
+    # Sort: Flash-Lite first (sub-second speed), then Flash, then Gemma, then Pro
+    def score_model(m: str) -> int:
+        m_lower = m.lower()
+        if "flash-lite" in m_lower or "flash_lite" in m_lower:
+            return 1
+        elif "flash" in m_lower:
+            return 2
+        elif "gemma" in m_lower:
+            return 3
+        elif "pro" in m_lower:
+            return 4
+        return 5
+
+    discovered.sort(key=score_model)
+    return discovered
+
+
+# Dynamically Discovered Model Cascade
+GEMINI_MODELS = fetch_available_gemini_models()
+log.info(
+    "Initialized dynamic Gemini model cascade with %d models: %s", len(GEMINI_MODELS), GEMINI_MODELS
+)
+
+# Agentic Tool Declarations
+GEMINI_TOOLS = [
+    {
+        "function_declarations": [
+            {
+                "name": "add_task",
+                "description": "Save a task, appointment, deadline, or reminder to Helmis persistent storage.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {
+                            "type": "STRING",
+                            "description": "The task or reminder description",
+                        },
+                        "due": {
+                            "type": "STRING",
+                            "description": "Date and time in WIB, e.g. '2026-08-26 18:00 WIB'",
+                        },
+                        "assignee": {
+                            "type": "STRING",
+                            "description": "Person responsible: 'Gilang' or 'Bunga'",
+                        },
+                    },
+                    "required": ["title", "due"],
+                },
+            },
+            {
+                "name": "list_tasks",
+                "description": "List current tasks and reminders from storage to inspect pending or scheduled items.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "status": {
+                            "type": "STRING",
+                            "description": "Filter by status: 'pending', 'completed', or 'all'",
+                        }
+                    },
+                },
+            },
+            {
+                "name": "complete_task",
+                "description": "Mark an active task as finished/completed when user says it is done ('sudah selesai', 'udah beres', 'done').",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {
+                            "type": "STRING",
+                            "description": "Task title or keyword to mark completed",
+                        }
+                    },
+                    "required": ["title"],
+                },
+            },
+            {
+                "name": "delete_task",
+                "description": "Delete or cancel a task from storage entirely.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {
+                            "type": "STRING",
+                            "description": "Task title or keyword to delete",
+                        }
+                    },
+                    "required": ["title"],
+                },
+            },
+            {
+                "name": "add_person",
+                "description": "Save or update a person in the contacts directory (friends, colleagues, managers, doctors, family).",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "name": {"type": "STRING", "description": "Person's name or alias"},
+                        "phone": {"type": "STRING", "description": "Phone number if provided"},
+                        "role": {
+                            "type": "STRING",
+                            "description": "Role or relationship (e.g. 'Gilang manager', 'Bunga sister')",
+                        },
+                        "notes": {
+                            "type": "STRING",
+                            "description": "Important context, preferences, or details",
+                        },
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "get_person",
+                "description": "Look up contact details and notes for a person by name from the directory.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "name": {"type": "STRING", "description": "Name of the person to look up"}
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "save_note",
+                "description": "Save a shared note, memo, or key fact to persistent storage.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {"type": "STRING", "description": "Note title"},
+                        "content": {"type": "STRING", "description": "Note body"},
+                    },
+                    "required": ["title", "content"],
+                },
+            },
+            {
+                "name": "search_memory",
+                "description": "Search across all tasks, contacts, and notes for any keyword.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "Keyword to search across memory",
+                        }
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "send_whatsapp_message",
+                "description": "Send a WhatsApp message directly to a recipient ('Gilang', 'Bunga', 'group', or phone number). Optionally quote a specific message ID for clarification or context.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "recipient": {
+                            "type": "STRING",
+                            "description": "Target: 'Gilang', 'Bunga', 'group', or phone number",
+                        },
+                        "text": {
+                            "type": "STRING",
+                            "description": "Message content in WhatsApp markdown with ZERO EMOJIS",
+                        },
+                        "quote_message_id": {
+                            "type": "STRING",
+                            "description": "Optional WhatsApp message ID to quote (e.g. for clarification or replying to a specific question)",
+                        },
+                    },
+                    "required": ["recipient", "text"],
+                },
+            },
+        ]
+    }
+]
+
+
+_key_index = 0
+
+
+def get_next_gemini_key() -> str:
+    """Round-robin rotation across available Gemini keys."""
+    global _key_index
+    if not GEMINI_KEYS:
+        raise ValueError("No GEMINI_KEY configured in environment")
+    key = GEMINI_KEYS[_key_index % len(GEMINI_KEYS)]
+    _key_index += 1
+    return key
+
+
+def load_system_prompt() -> str:
+    """Load system prompt from config."""
+    prompt_path = os.environ.get("SYSTEM_PROMPT_PATH", "/hermes-config/system-prompt.md")
+    if not os.path.exists(prompt_path):
+        prompt_path = "config/system-prompt.md"
+    try:
+        with open(prompt_path, encoding="utf-8") as f:
+            return f.read()
+    except Exception as e:
+        log.warning("Could not read system prompt file (%s), using default: %s", prompt_path, e)
+        return "You are Helmis, personal AI secretary for Gilang and Bunga. Address them by name and be proactive and concise."
+
+
+def load_all_skills() -> str:
+    """Load all markdown skills defined under /hermes-config/skills or config/skills."""
+    skills_dir = os.environ.get("SKILLS_DIR", "/hermes-config/skills")
+    if not os.path.exists(skills_dir):
+        skills_dir = "config/skills"
+    if not os.path.exists(skills_dir):
+        return ""
+
+    skill_texts = []
+    for root, _, files in os.walk(skills_dir):
+        for file in files:
+            if file.endswith(".md"):
+                full_path = os.path.join(root, file)
+                try:
+                    with open(full_path, encoding="utf-8") as f:
+                        skill_name = os.path.basename(os.path.dirname(full_path))
+                        skill_texts.append(f"### SKILL: {skill_name}\n{f.read()}")
+                except Exception as ex:
+                    log.warning("Could not load skill %s: %s", full_path, ex)
+
+    if not skill_texts:
+        return ""
+    return "\n\n## ACTIVE SKILLS & BEHAVIORAL PLAYBOOKS:\n" + "\n\n---\n\n".join(skill_texts)
+
+
+async def execute_tool_call(
+    func_name: str,
+    args: dict[str, Any],
+    default_sender: str,
+    client: WahaClient | None = None,
+) -> dict[str, Any]:
+    """Execute local memory function and return structured result or error message."""
+    log.info("Agent executing tool: %s with args: %s", func_name, args)
+    try:
+        if func_name == "add_task":
+            title = args.get("title", "")
+            due = args.get("due", "")
+            assignee = args.get("assignee", default_sender)
+            if not title:
+                return {
+                    "status": "error",
+                    "error": "Judul task tidak boleh kosong.",
+                    "help_needed": "Minta user menyebutkan nama task yang ingin dicatat.",
+                }
+            task = add_task(title=title, due=due, assignee=assignee)
+            return {
+                "status": "success",
+                "task": task,
+                "message": f"Task '{title}' berhasil disimpan dengan deadline '{due}' untuk {assignee}.",
+            }
+
+        elif func_name == "list_tasks":
+            status = args.get("status", "pending")
+            tasks = list_tasks(status=status)
+            return {"status": "success", "count": len(tasks), "tasks": tasks}
+
+        elif func_name == "complete_task":
+            title = args.get("title", "")
+            completed = complete_task(title)
+            if completed:
+                return {
+                    "status": "success",
+                    "task": completed,
+                    "message": f"Task '{completed.get('title')}' berhasil ditandai selesai.",
+                }
+            return {
+                "status": "not_found",
+                "error": f"Tidak ditemukan task pending dengan nama '{title}'.",
+            }
+
+        elif func_name == "delete_task":
+            title = args.get("title", "")
+            deleted = delete_task(title)
+            if deleted:
+                return {
+                    "status": "success",
+                    "message": f"Task dengan kata kunci '{title}' berhasil dihapus.",
+                }
+            return {
+                "status": "not_found",
+                "error": f"Tidak ditemukan task dengan nama '{title}'.",
+                "help_needed": "Tanyakan judul task yang tepat kepada user.",
+            }
+
+        elif func_name == "add_person":
+            name = args.get("name", "")
+            phone = args.get("phone", "")
+            role = args.get("role", "")
+            notes = args.get("notes", "")
+            person = add_person(name=name, phone=phone, role=role, notes=notes)
+            return {
+                "status": "success",
+                "person": person,
+                "message": f"Kontak '{name}' berhasil disimpan.",
+            }
+
+        elif func_name == "get_person":
+            name = args.get("name", "")
+            found_person = get_person(name)
+            if found_person:
+                return {"status": "success", "person": found_person}
+            return {
+                "status": "not_found",
+                "error": f"Kontak '{name}' belum ada di direktori.",
+                "help_needed": "Tanyakan detail kontak baru kepada user jika ingin disimpan.",
+            }
+
+        elif func_name == "save_note":
+            title = args.get("title", "")
+            content = args.get("content", "")
+            note = save_note(title=title, content=content)
+            return {
+                "status": "success",
+                "note": note,
+                "message": f"Catatan '{title}' berhasil disimpan.",
+            }
+
+        elif func_name == "search_memory":
+            query = args.get("query", "")
+            results = search_memory(query)
+            return {"status": "success", "results": results}
+
+        elif func_name == "send_whatsapp_message":
+            recipient = str(args.get("recipient", "")).strip()
+            text = str(args.get("text", "")).strip()
+            if not text:
+                return {"status": "error", "error": "Teks pesan tidak boleh kosong."}
+            if not client:
+                return {"status": "error", "error": "WAHA client tidak tersedia."}
+
+            gilang_phone = (
+                os.environ.get("GILANG_PHONE", "6281932062070")
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+            bunga_phone = (
+                os.environ.get("BUNGA_PHONE", "6281398971445")
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+            trio_group = os.environ.get("TRIO_GROUP_JID", "120363411261097957@g.us")
+
+            target_jid: str
+            if "gilang" in recipient.lower():
+                target_jid = f"{gilang_phone}@c.us"
+            elif "bunga" in recipient.lower():
+                target_jid = f"{bunga_phone}@c.us"
+            elif "group" in recipient.lower() or "trio" in recipient.lower():
+                target_jid = trio_group
+            else:
+                clean = recipient.replace("+", "").replace(" ", "").replace("-", "")
+                target_jid = f"{clean}@c.us"
+
+            quote_id = args.get("quote_message_id")
+            if quote_id:
+                quote_id = str(quote_id).strip()
+
+            await client.send_message(chat_id=target_jid, text=text, reply_to_message_id=quote_id)
+            log.info(
+                "Agent sent direct WhatsApp message to %s (quote: %s): %s",
+                target_jid,
+                quote_id,
+                text[:40],
+            )
+            return {
+                "status": "success",
+                "message": f"Pesan WhatsApp berhasil dikirim ke {recipient}.",
+            }
+
+        return {"status": "error", "error": f"Tool '{func_name}' tidak dikenal."}
+
+    except Exception as e:
+        log.error("Tool execution failed for %s: %s", func_name, e)
+        return {
+            "status": "error",
+            "error": str(e),
+            "help_needed": "Ada kendala teknis saat menjalankan tool. Beritahu user apa kendalanya dan minta konfirmasi ulang.",
+        }
+
+
+async def run_agentic_react_loop(
+    client: WahaClient,
+    sender_name: str,
+    chat_id: str,
+    message_text: str,
+    image_data: dict[str, str] | None = None,
+    max_steps: int = 5,
+) -> str:
+    """
+    Run multi-step ReAct agent loop:
+    1. Agent reasons over text & multimodal image inputs
+    2. Executes tools in Python and verifies results on disk
+    3. Feeds tool responses back into the conversation turn
+    4. Synthesizes concise final response with verified outcomes
+    """
+    system_prompt = load_system_prompt()
+    skills_context = load_all_skills()
+    memory_context = get_memory_context_summary()
+    full_system_instruction = (
+        f"{system_prompt}\n\n{skills_context}\n\n{memory_context}\n\n"
+        f"### AGENTIC REASONING & WHATSAPP FORMATTING DIRECTIVE:\n"
+        f"- You are Helmis, an elite, sharp executive personal assistant for Gilang and Bunga.\n"
+        f"- ZERO EMOJIS: Never use emojis anywhere in your responses, lists, or confirmations.\n"
+        f"- WHATSAPP MARKDOWN: Use single asterisks *bold* (never double **). Use standard numbered lists (1. , 2. ) or hyphens (- ). Never use special bullet dots like '·' or em-dashes '—'.\n"
+        f"- Always execute active tools to read or mutate memory.\n"
+        f"- When a user says a task is finished or done ('udah beres', 'selesai'), invoke 'complete_task'.\n"
+        f"- Multimodal Vision: If an image or photo is attached, analyze its visual content, documents, receipts, or screenshots accurately in your answer.\n"
+        f"- ZERO FILLER / STRICT CONCISENESS: Output 1-2 natural, direct sentences. NEVER append boilerplate like 'Ada yang bisa saya bantu?' or 'Ada lagi yang perlu dibantu?'. Stop immediately after confirming.\n"
+        f"- If a tool fails or returns an error, explain what failed honestly and ask the user for the specific help needed.\n"
+    )
+
+    # Fetch recent chat history from WAHA
+    history: list[Any] = []
+    try:
+        history = await client.get_messages(chat_id=chat_id, limit=12)
+    except Exception as e:
+        log.warning("Could not fetch chat history for %s: %s", chat_id, e)
+
+    effective_text = message_text or (
+        "Tolong jelaskan atau periksa gambar ini." if image_data else ""
+    )
+    contents = build_multi_turn_contents(history, sender_name, effective_text)
+
+    # Attach image inlineData to current turn if present
+    if image_data and contents:
+        contents[-1]["parts"].insert(0, {"inlineData": image_data})
+
+    for step in range(max_steps):
+        log.info("Running Agentic ReAct step %d/%d for [%s]...", step + 1, max_steps, sender_name)
+        payload = {
+            "systemInstruction": {"parts": [{"text": full_system_instruction}]},
+            "contents": contents,
+            "tools": GEMINI_TOOLS,
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 350},
+        }
+
+        # Attempt call with Multi-Model & Multi-Key Cascade
+        response_data: dict[str, Any] | None = None
+        for model in GEMINI_MODELS:
+            for _ in range(len(GEMINI_KEYS) or 1):
+                api_key = get_next_gemini_key()
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                try:
+                    async with httpx.AsyncClient(timeout=25.0) as http_client:
+                        resp = await http_client.post(url, json=payload)
+                        if resp.status_code == 200:
+                            response_data = resp.json()
+                            break
+                        elif resp.status_code == 429:
+                            log.warning("Model %s / key rate-limited (429), rotating...", model)
+                            continue
+                        elif resp.status_code == 404:
+                            break
+                        else:
+                            log.error(
+                                "Gemini %s error %d: %s", model, resp.status_code, resp.text[:100]
+                            )
+                except Exception as ex:
+                    log.error("Gemini HTTP exception for %s: %s", model, ex)
+
+            if response_data:
+                break
+
+        if not response_data:
+            return "Maaf, Helmis sedang mengalami gangguan koneksi ke AI provider. Mohon coba sesaat lagi ya."
+
+        candidates = response_data.get("candidates", [])
+        if not candidates:
+            return "Maaf, tidak ada respon dari model AI."
+
+        candidate_part = candidates[0].get("content", {}).get("parts", [{}])[0]
+
+        # Case A: Model wants to invoke a tool
+        if "functionCall" in candidate_part:
+            fc = candidate_part["functionCall"]
+            func_name = str(fc.get("name", ""))
+            func_args = dict(fc.get("args", {}))
+            log.info("Agent selected tool call: %s(%s)", func_name, func_args)
+
+            # Execute tool locally
+            tool_result = await execute_tool_call(func_name, func_args, sender_name, client=client)
+
+            # Append model functionCall turn (preserving thoughtSignature) and functionResponse turn
+            contents.append({"role": "model", "parts": [candidate_part]})
+            contents.append(
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "functionResponse": {
+                                "name": func_name,
+                                "response": {"output": tool_result},
+                            }
+                        }
+                    ],
+                }
+            )
+            continue
+
+        # Case B: Model generated final text output
+        text = candidate_part.get("text", "")
+        if isinstance(text, str) and text.strip():
+            log.info("Agent finalized response in %d steps: %s", step + 1, text.strip()[:60])
+            return text.strip()
+
+    return "Tugas telah diproses."

@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-waha"
+version = "0.1.0"
+description = "MCP server wrapping the WAHA WhatsApp REST API for Helmis"
+requires-python = ">=3.12"
+dependencies = [
+    # MCP Python SDK — FastMCP is the correct modern high-level API
+    "mcp[cli]>=1.0.0",
+    # HTTP client — async, typed, minimal
+    "httpx>=0.27.0",
+    # Data validation and serialisation
+    "pydantic>=2.7.0",
+    # Environment variable loading
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-httpx>=0.30.0",
+    "mypy>=1.10.0",
+    "ruff>=0.4.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+# ============================================================
+# Ruff — linter + formatter
+# ============================================================
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ============================================================
+# mypy — strict typing
+# ============================================================
+[tool.mypy]
+python_version = "3.12"
+strict = true
+pretty = true
+
+# ============================================================
+# pytest
+# ============================================================
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# Add the package root to sys.path so `from src.client import ...` resolves
+pythonpath = ["."]

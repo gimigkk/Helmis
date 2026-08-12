@@ -1,0 +1,348 @@
+"""
+client.py — WAHA HTTP API client.
+
+Single, typed wrapper around all WAHA REST calls.
+Every tool in this package calls through this class — no raw HTTP elsewhere.
+
+Two construction patterns:
+  - WahaClient.from_env_sync(): for server startup (shared instance, synchronous)
+  - WahaClient.from_env(): async context manager for test/one-shot use
+
+Usage (server):
+    client = WahaClient.from_env_sync()
+
+Usage (tests / one-shot):
+    async with WahaClient.from_env() as client:
+        await client.send_message(chat_id, text)
+"""
+
+import base64
+import logging
+import os
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from typing import Any
+
+import httpx
+
+from .models import WahaHistoryMessage, WahaMessageResponse
+
+log = logging.getLogger("helmis-client")
+
+
+class WahaClientError(Exception):
+    """Raised when the WAHA API returns an unexpected error response."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(f"WAHA API error {status_code}: {detail}")
+
+
+class WahaClient:
+    """
+    Async HTTP client for the WAHA REST API.
+
+    All public methods are coroutines — call them with await.
+    The underlying httpx.AsyncClient is created lazily on first use
+    when constructed via from_env_sync(), allowing the instance to be
+    shared safely across async contexts.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        session_name: str,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._session_name = session_name
+        self._headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
+        # If no client provided, create one lazily (closed by GC / explicit close)
+        self._http = http_client or httpx.AsyncClient(timeout=httpx.Timeout(30.0))
+
+    # ----------------------------------------------------------
+    # Constructors
+    # ----------------------------------------------------------
+
+    @classmethod
+    def from_env_sync(cls) -> "WahaClient":
+        """
+        Synchronous factory that reads from environment variables.
+        Use this at server startup to create a shared instance.
+
+        Required env vars:
+            WAHA_BASE_URL  — e.g. http://waha:3000
+            WAHA_API_KEY   — authentication key
+
+        Optional:
+            WAHA_SESSION_NAME — defaults to "helmis"
+
+        Returns:
+            A WahaClient with a lazily-initialised httpx client.
+        """
+        base_url = os.environ["WAHA_BASE_URL"]
+        api_key = os.environ["WAHA_API_KEY"]
+        session_name = os.environ.get("WAHA_SESSION_NAME", "helmis")
+        return cls(base_url, api_key, session_name)
+
+    @classmethod
+    @asynccontextmanager
+    async def from_env(cls) -> AsyncGenerator["WahaClient", None]:
+        """
+        Async context-manager factory for tests and one-shot scripts.
+        Manages the httpx client lifecycle automatically.
+
+        Example:
+            async with WahaClient.from_env() as client:
+                result = await client.send_message(...)
+        """
+        base_url = os.environ["WAHA_BASE_URL"]
+        api_key = os.environ["WAHA_API_KEY"]
+        session_name = os.environ.get("WAHA_SESSION_NAME", "helmis")
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as http_client:
+            yield cls(base_url, api_key, session_name, http_client)
+
+    # ----------------------------------------------------------
+    # Internal helpers
+    # ----------------------------------------------------------
+
+    def _url(self, path: str) -> str:
+        """Build a full WAHA API URL from a relative path."""
+        return f"{self._base_url}{path}"
+
+    async def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        """
+        POST JSON to the WAHA API.
+
+        Args:
+            path: Relative API path (e.g. "/api/sendText").
+            body: Request body to serialise as JSON.
+
+        Returns:
+            Parsed JSON response body.
+
+        Raises:
+            WahaClientError: If the response status is not 2xx.
+        """
+        response = await self._http.post(self._url(path), headers=self._headers, json=body)
+        if not response.is_success:
+            raise WahaClientError(response.status_code, response.text)
+        result: dict[str, Any] = response.json()
+        return result
+
+    async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        """
+        GET from the WAHA API.
+
+        Args:
+            path: Relative API path.
+            params: Optional query parameters.
+
+        Returns:
+            Parsed JSON response body (any shape).
+
+        Raises:
+            WahaClientError: If the response status is not 2xx.
+        """
+        response = await self._http.get(self._url(path), headers=self._headers, params=params)
+        if not response.is_success:
+            raise WahaClientError(response.status_code, response.text)
+        return response.json()
+
+    # ----------------------------------------------------------
+    # Public API
+    # ----------------------------------------------------------
+
+    async def send_message(
+        self,
+        chat_id: str,
+        text: str,
+        reply_to_message_id: str | None = None,
+    ) -> WahaMessageResponse:
+        """
+        Send a plain text message to a WhatsApp chat or DM.
+
+        Args:
+            chat_id: WhatsApp chat ID.
+                     DM format:    "628xxxxxxxxxx@c.us"
+                     Group format: "<group-id>@g.us"
+            text: Message body text. WhatsApp does not render markdown.
+            reply_to_message_id: If set, the reply quotes this message.
+
+        Returns:
+            WahaMessageResponse containing the sent message's ID and timestamp.
+
+        Raises:
+            WahaClientError: On API errors (4xx/5xx responses).
+        """
+        body: dict[str, Any] = {
+            "session": self._session_name,
+            "chatId": chat_id,
+            "text": text,
+        }
+        if reply_to_message_id:
+            body["reply_to"] = str(reply_to_message_id)
+
+        data = await self._post("/api/sendText", body)
+        msg_id = str(data.get("id", "") if isinstance(data, dict) else data)
+        ts = int(data.get("timestamp", 0) if isinstance(data, dict) else 0)
+        return WahaMessageResponse(message_id=msg_id, timestamp=ts)
+
+    async def send_media(
+        self,
+        chat_id: str,
+        media_url: str,
+        caption: str | None = None,
+        reply_to_message_id: str | None = None,
+    ) -> WahaMessageResponse:
+        """
+        Send a media file (image, document, audio, etc.) to a WhatsApp chat.
+
+        Args:
+            chat_id: WhatsApp chat ID.
+            media_url: Publicly accessible URL of the media file.
+            caption: Optional text displayed below the media.
+            reply_to_message_id: If set, the reply quotes this message.
+
+        Returns:
+            WahaMessageResponse containing the sent message's ID and timestamp.
+
+        Raises:
+            WahaClientError: On API errors (4xx/5xx responses).
+        """
+        body: dict[str, Any] = {
+            "session": self._session_name,
+            "chatId": chat_id,
+            "file": {"url": media_url},
+        }
+        if caption:
+            body["caption"] = caption
+        if reply_to_message_id:
+            body["reply_to"] = str(reply_to_message_id)
+
+        data = await self._post("/api/sendFile", body)
+        msg_id = str(data.get("id", "") if isinstance(data, dict) else data)
+        ts = int(data.get("timestamp", 0) if isinstance(data, dict) else 0)
+        return WahaMessageResponse(message_id=msg_id, timestamp=ts)
+
+    async def get_messages(
+        self,
+        chat_id: str,
+        limit: int = 20,
+    ) -> list[WahaHistoryMessage]:
+        """
+        Fetch recent message history from a WhatsApp chat.
+
+        Args:
+            chat_id: WhatsApp chat ID.
+            limit: Number of recent messages to return (1–100).
+
+        Returns:
+            List of WahaHistoryMessage, ordered oldest-first.
+
+        Raises:
+            WahaClientError: On API errors (4xx/5xx responses).
+        """
+        try:
+            data = await self._get(
+                f"/api/{self._session_name}/chats/{chat_id}/messages", params={"limit": limit}
+            )
+        except Exception:
+            data = await self._get(
+                "/api/messages",
+                params={"session": self._session_name, "chatId": chat_id, "limit": limit},
+            )
+
+        if not isinstance(data, list):
+            return []
+
+        messages: list[WahaHistoryMessage] = []
+        for msg in data:
+            if isinstance(msg, dict):
+                body_text = msg.get("body") or msg.get("_data", {}).get("Message", {}).get(
+                    "conversation"
+                )
+                messages.append(
+                    WahaHistoryMessage(
+                        message_id=str(msg.get("id", "")),
+                        sender_phone=str(msg.get("from", "")),
+                        text=body_text,
+                        media_url=msg.get("media", {}).get("url")
+                        if isinstance(msg.get("media"), dict)
+                        else None,
+                        timestamp=int(msg.get("timestamp", 0)),
+                    )
+                )
+        return messages
+
+    async def start_typing(self, chat_id: str) -> bool:
+        """
+        Send typing presence indicator to a WhatsApp chat.
+        Shows 'typing...' in DM or '[Bot] is typing...' in groups.
+        """
+        body: dict[str, Any] = {
+            "session": self._session_name,
+            "chatId": chat_id,
+        }
+        try:
+            response = await self._http.post(
+                self._url("/api/startTyping"),
+                headers=self._headers,
+                json=body,
+            )
+            return response.status_code in (200, 201)
+        except Exception:
+            return False
+
+    async def stop_typing(self, chat_id: str) -> bool:
+        """
+        Stop typing presence indicator in a WhatsApp chat.
+        """
+        body: dict[str, Any] = {
+            "session": self._session_name,
+            "chatId": chat_id,
+        }
+        try:
+            response = await self._http.post(
+                self._url("/api/stopTyping"),
+                headers=self._headers,
+                json=body,
+            )
+            return response.status_code in (200, 201)
+        except Exception:
+            return False
+
+    async def download_media_base64(self, media_url: str) -> tuple[str, str] | None:
+        """
+        Download media from WAHA and return (mime_type, base64_data).
+        """
+        try:
+            target_url = media_url
+            if "localhost:3000" in target_url:
+                target_url = target_url.replace("http://localhost:3000", self._base_url)
+
+            response = await self._http.get(target_url, headers=self._headers, timeout=15.0)
+            if response.status_code == 200:
+                raw_mime = response.headers.get("content-type", "image/jpeg")
+                mime_type = raw_mime.split(";")[0].strip()
+                b64_data = base64.b64encode(response.content).decode("utf-8")
+                return mime_type, b64_data
+        except Exception as e:
+            log.warning("Failed to download media %s: %s", media_url, e)
+        return None
+
+    async def is_reachable(self) -> bool:
+        """
+        Check if the WAHA server is up and responding.
+
+        Returns:
+            True if WAHA's health endpoint returns 2xx, False otherwise.
+        """
+        try:
+            await self._get("/health")
+            return True
+        except (WahaClientError, httpx.HTTPError):
+            return False

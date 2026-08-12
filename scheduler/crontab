@@ -1,0 +1,11 @@
+# =============================================================================
+# crontab — Helmis proactive check schedule
+#
+# Format: minute hour day-of-month month day-of-week command
+# Timezone is controlled by the TZ env var in docker-compose.yml (Asia/Jakarta)
+#
+# Current schedule:
+#   Every 5 minutes — check for due reminders and approaching deadlines
+# =============================================================================
+
+*/5 * * * * /app/trigger.sh

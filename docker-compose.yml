@@ -1,0 +1,145 @@
+# ============================================================
+# Helmis — docker-compose.yml
+#
+# Services:
+#   waha      — WhatsApp HTTP API bridge (GOWS engine)
+#   hermes    — Hermes Agent (the AI brain / Helmis)
+#   mcp-waha  — MCP server giving Hermes the ability to send WA messages
+#   scheduler — Cron container for proactive message triggers
+#
+# All services share the "helmis-net" bridge network.
+# Persistent data lives under ./data/ (gitignored).
+# ============================================================
+
+networks:
+  helmis-net:
+    driver: bridge
+
+volumes:
+  waha-sessions:
+    driver: local
+  hermes-data:
+    driver: local
+
+services:
+
+  # ----------------------------------------------------------
+  # WAHA — WhatsApp HTTP API
+  # Docs: https://waha.devlike.pro
+  # Engine: GOWS (lightweight, no browser required)
+  # ----------------------------------------------------------
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: helmis-waha
+    restart: unless-stopped
+    networks:
+      - helmis-net
+    ports:
+      - "3000:3000"           # REST API + dashboard (access locally or via SSH tunnel)
+    volumes:
+      - waha-sessions:/app/.sessions
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: GOWS
+      WAHA_PRINT_QR: "True"
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      # Forward incoming message events to Helmis webhook bridge
+      WHATSAPP_HOOK_URL: http://mcp-waha:${HERMES_WEBHOOK_PORT}/webhooks/waha
+      WHATSAPP_HOOK_EVENTS: "message"
+      TZ: ${TZ}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ----------------------------------------------------------
+  # MCP WAHA — MCP server & Webhook bridge
+  # Gives Hermes typed tools and routes WhatsApp messages.
+  # Built from ./mcp-waha/
+  # ----------------------------------------------------------
+  mcp-waha:
+    build:
+      context: ./mcp-waha
+      dockerfile: Dockerfile
+    container_name: helmis-mcp-waha
+    restart: unless-stopped
+    networks:
+      - helmis-net
+    volumes:
+      - ./config:/hermes-config:ro,z
+      - ./data:/app/data:z
+    environment:
+      WAHA_BASE_URL: ${WAHA_BASE_URL}
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_SESSION_NAME: ${WAHA_SESSION_NAME}
+      GILANG_PHONE: ${GILANG_PHONE}
+      BUNGA_PHONE: ${BUNGA_PHONE}
+      BOT_PHONE: ${BOT_PHONE}
+      MCP_WAHA_PORT: ${MCP_WAHA_PORT}
+      HERMES_WEBHOOK_PORT: ${HERMES_WEBHOOK_PORT}
+      GEMINI_KEY_1: ${GEMINI_KEY_1}
+      GEMINI_KEY_2: ${GEMINI_KEY_2}
+      GEMINI_KEY_3: ${GEMINI_KEY_3}
+      TZ: ${TZ}
+    depends_on:
+      waha:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${HERMES_WEBHOOK_PORT}/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # ----------------------------------------------------------
+  # Hermes Agent — the Helmis brain
+  # Receives WAHA webhooks, thinks, uses tools, responds.
+  # Config lives in ./config/
+  # ----------------------------------------------------------
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    container_name: helmis-hermes
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    networks:
+      - helmis-net
+    volumes:
+      - hermes-data:/opt/data
+      - ./config/config.yaml:/opt/data/config.yaml:ro,z
+      - ./config:/hermes-config:ro,z     # Mount config with SELinux shared label
+    environment:
+      GEMINI_API_KEY: ${GEMINI_KEY_1}
+      GOOGLE_API_KEY: ${GEMINI_KEY_1}
+      GEMINI_KEY_1: ${GEMINI_KEY_1}
+      GEMINI_KEY_2: ${GEMINI_KEY_2}
+      GEMINI_KEY_3: ${GEMINI_KEY_3}
+      # Webhook port for receiving WAHA events
+      WEBHOOK_ENABLED: "true"
+      WEBHOOK_PORT: ${HERMES_WEBHOOK_PORT}
+      TZ: ${TZ}
+    depends_on:
+      mcp-waha:
+        condition: service_healthy
+
+  # ----------------------------------------------------------
+  # Scheduler — Proactive message cron trigger
+  # Every 5 minutes: triggers Hermes to check for due reminders,
+  # approaching deadlines, and anything else a good secretary
+  # should proactively bring up.
+  # ----------------------------------------------------------
+  scheduler:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    container_name: helmis-scheduler
+    restart: unless-stopped
+    networks:
+      - helmis-net
+    environment:
+      HERMES_WEBHOOK_URL: http://mcp-waha:${HERMES_WEBHOOK_PORT}/webhooks/scheduler
+      TZ: ${TZ}
+    depends_on:
+      - mcp-waha

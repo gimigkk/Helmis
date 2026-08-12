@@ -1,0 +1,19 @@
+{
+  "include": [
+    "mcp-waha/src",
+    "mcp-waha/tests"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "mcp-waha",
+      "extraPaths": [
+        "mcp-waha",
+        "mcp-waha/src"
+      ]
+    }
+  ],
+  "extraPaths": [
+    "mcp-waha",
+    "mcp-waha/src"
+  ]
+}
