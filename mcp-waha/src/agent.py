@@ -307,6 +307,24 @@ GEMINI_TOOLS = [
                     "required": ["recipient", "text"],
                 },
             },
+            {
+                "name": "get_whatsapp_messages",
+                "description": "Fetch recent verified WhatsApp chat messages from a DM (Gilang/Bunga) or the Trio group chat. Use this whenever asked whether someone has sent a message, what was discussed, or to inspect actual sent/received chat history without guessing or hallucinating.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "target": {
+                            "type": "STRING",
+                            "description": "Target chat: 'Gilang' (DM), 'Bunga' (DM), or 'Group' (Trio Helmis group chat)",
+                        },
+                        "limit": {
+                            "type": "INTEGER",
+                            "description": "Number of recent messages to retrieve (default 10, max 30)",
+                        },
+                    },
+                    "required": ["target"],
+                },
+            },
         ]
     }
 ]
@@ -560,6 +578,54 @@ async def execute_tool_call(
                 "message": f"Pesan WhatsApp berhasil dikirim ke {recipient}.",
             }
 
+        elif func_name == "get_whatsapp_messages":
+            target = str(args.get("target", "")).strip()
+            limit = int(args.get("limit") or 10)
+            if not client:
+                return {"status": "error", "error": "WAHA client tidak tersedia."}
+
+            gilang_phone = (
+                os.environ.get("GILANG_PHONE", "6281932062070")
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+            bunga_phone = (
+                os.environ.get("BUNGA_PHONE", "6281398971445")
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+            trio_group = os.environ.get("TRIO_GROUP_JID", "120363411261097957@g.us")
+
+            if "gilang" in target.lower():
+                target_jid = f"{gilang_phone}@c.us"
+            elif "bunga" in target.lower():
+                target_jid = f"{bunga_phone}@c.us"
+            elif "group" in target.lower() or "trio" in target.lower():
+                target_jid = trio_group
+            else:
+                clean = target.replace("+", "").replace(" ", "").replace("-", "")
+                target_jid = f"{clean}@c.us"
+
+            msgs = await client.get_messages(chat_id=target_jid, limit=min(limit, 30))
+            formatted_msgs = []
+            for m in msgs:
+                formatted_msgs.append(
+                    {
+                        "sender": m.sender_phone,
+                        "text": m.text,
+                        "timestamp": m.timestamp,
+                    }
+                )
+            return {
+                "status": "success",
+                "target": target,
+                "chat_id": target_jid,
+                "count": len(formatted_msgs),
+                "messages": formatted_msgs,
+            }
+
         return {"status": "error", "error": f"Tool '{func_name}' tidak dikenal."}
 
     except Exception as e:
@@ -615,6 +681,10 @@ async def run_agentic_react_loop(
         f"- You are Helmis, an elite, sharp executive personal assistant for Gilang and Bunga.\n"
         f"- ZERO EMOJIS: Never use emojis anywhere in your responses, lists, or confirmations.\n"
         f"- WHATSAPP MARKDOWN: Use single asterisks *bold* (never double **). Use standard numbered lists (1. , 2. ) or hyphens (- ). Never use special bullet dots like '·' or em-dashes '—'.\n"
+        f"- ZERO ASSUMPTIONS & VERIFIED FACT-CHECKING:\n"
+        f"  * NEVER assume or guess whether a message or reminder was sent. Check '[Active Tasks & Reminder Status]' and '[Recent Messages & Reminders Dispatched by Helmis]' in your context.\n"
+        f"  * If asked whether Bunga or Gilang has been messaged or what was said in a DM/group, invoke 'get_whatsapp_messages' to inspect actual WhatsApp history.\n"
+        f"  * Base your answers ONLY on verified tool outputs and live memory.\n"
         f"- TASK ASSIGNMENT LOGIC & INTENT UNDERSTANDING:\n"
         f"  * When User A asks to be reminded to do an action towards User B (e.g. Bunga says 'ingetin chat Gilang', 'ingetin telpon Gilang'), the ASSIGNEE IS USER A (Bunga), NOT User B! It is Bunga who needs the reminder to chat Gilang.\n"
         f"  * When User A asks to remind User B (e.g. 'ingetin Gilang minum obat'), the ASSIGNEE IS USER B (Gilang).\n"

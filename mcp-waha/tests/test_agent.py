@@ -86,3 +86,33 @@ async def test_execute_tool_call_send_whatsapp_message() -> None:
         text="Halo Bunga!",
         reply_to_message_id="wamid_999",
     )
+
+
+async def test_execute_tool_call_get_whatsapp_messages() -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from src.models import WahaHistoryMessage
+
+    mock_client = MagicMock()
+    mock_client.get_messages = AsyncMock(
+        return_value=[
+            WahaHistoryMessage(
+                message_id="msg_1",
+                sender_phone="6281398971445@c.us",
+                text="Halo",
+                media_url=None,
+                timestamp=1700000000,
+            )
+        ]
+    )
+
+    res = await agent.execute_tool_call(
+        func_name="get_whatsapp_messages",
+        args={"target": "Bunga", "limit": 5},
+        default_sender="Gilang",
+        client=mock_client,
+    )
+    assert res["status"] == "success"
+    assert res["count"] == 1
+    assert res["messages"][0]["text"] == "Halo"
+    mock_client.get_messages.assert_called_once_with(chat_id="6281398971445@c.us", limit=5)
