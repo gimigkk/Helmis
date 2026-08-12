@@ -20,6 +20,7 @@ from .memory import (
     list_tasks,
     save_note,
     search_memory,
+    update_task,
 )
 
 log = logging.getLogger("helmis-agent")
@@ -151,6 +152,32 @@ GEMINI_TOOLS = [
                             "type": "STRING",
                             "description": "Task title or keyword to mark completed",
                         }
+                    },
+                    "required": ["title"],
+                },
+            },
+            {
+                "name": "update_task",
+                "description": "Update or reassign an existing task (change assignee, deadline, or title).",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {
+                            "type": "STRING",
+                            "description": "Existing task title or keyword to find",
+                        },
+                        "new_assignee": {
+                            "type": "STRING",
+                            "description": "New assignee: 'Gilang' or 'Bunga'",
+                        },
+                        "new_due": {
+                            "type": "STRING",
+                            "description": "New deadline in WIB, e.g. '2026-08-25 19:00 WIB'",
+                        },
+                        "new_title": {
+                            "type": "STRING",
+                            "description": "New title if renaming",
+                        },
                     },
                     "required": ["title"],
                 },
@@ -381,6 +408,28 @@ async def execute_tool_call(
                 "error": f"Tidak ditemukan task pending dengan nama '{title}'.",
             }
 
+        elif func_name == "update_task":
+            title = args.get("title", "")
+            new_title = args.get("new_title")
+            new_due = args.get("new_due")
+            new_assignee = args.get("new_assignee")
+            updated = update_task(
+                title=title,
+                new_title=new_title,
+                new_due=new_due,
+                new_assignee=new_assignee,
+            )
+            if updated:
+                return {
+                    "status": "success",
+                    "task": updated,
+                    "message": f"Task '{updated.get('title')}' berhasil diupdate (Assignee: {updated.get('assignee')}, Due: {updated.get('due')}).",
+                }
+            return {
+                "status": "not_found",
+                "error": f"Tidak ditemukan task dengan nama '{title}'.",
+            }
+
         elif func_name == "delete_task":
             title = args.get("title", "")
             deleted = delete_task(title)
@@ -562,7 +611,11 @@ async def run_agentic_react_loop(
         f"- You are Helmis, an elite, sharp executive personal assistant for Gilang and Bunga.\n"
         f"- ZERO EMOJIS: Never use emojis anywhere in your responses, lists, or confirmations.\n"
         f"- WHATSAPP MARKDOWN: Use single asterisks *bold* (never double **). Use standard numbered lists (1. , 2. ) or hyphens (- ). Never use special bullet dots like '·' or em-dashes '—'.\n"
-        f"- Always execute active tools to read or mutate memory.\n"
+        f"- TASK ASSIGNMENT LOGIC & INTENT UNDERSTANDING:\n"
+        f"  * When User A asks to be reminded to do an action towards User B (e.g. Bunga says 'ingetin chat Gilang', 'ingetin telpon Gilang'), the ASSIGNEE IS USER A (Bunga), NOT User B! It is Bunga who needs the reminder to chat Gilang.\n"
+        f"  * When User A asks to remind User B (e.g. 'ingetin Gilang minum obat'), the ASSIGNEE IS USER B (Gilang).\n"
+        f"  * Reassigning / Updating: If changing a task's assignee, due time, or title, ALWAYS call 'update_task'. NEVER create a duplicate with 'add_task'.\n"
+        f"  * If user asks for task list, ALWAYS invoke 'list_tasks' and output ONLY real tasks returned by the tool. NEVER hallucinate.\n"
         f"- When a user says a task is finished or done ('udah beres', 'selesai'), invoke 'complete_task'.\n"
         f"- Multimodal Vision: If an image or photo is attached, analyze its visual content, documents, receipts, or screenshots accurately in your answer.\n"
         f"- ZERO FILLER / STRICT CONCISENESS: Output 1-2 natural, direct sentences. NEVER append boilerplate like 'Ada yang bisa saya bantu?' or 'Ada lagi yang perlu dibantu?'. Stop immediately after confirming.\n"

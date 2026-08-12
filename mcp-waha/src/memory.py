@@ -149,20 +149,62 @@ def get_memory_context_summary() -> str:
 
 
 def add_task(title: str, due: str = "", assignee: str = "Gilang") -> dict[str, Any]:
-    """Add a new task to memory."""
+    """Add a new task to memory (or update existing if same title and pending)."""
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")
+    clean_title = title.strip()
+    clean_due = due.strip() if due else "No deadline"
+    clean_assignee = assignee.strip() if assignee else "Gilang"
+
     mem = load_memory()
+    tasks = mem.setdefault("tasks", [])
+
+    # Check if duplicate pending task exists with same title
+    for t in tasks:
+        if t.get("title", "").lower() == clean_title.lower() and t.get("status") == "pending":
+            t["due"] = clean_due
+            t["assignee"] = clean_assignee
+            t["updated_at"] = get_current_time_str()
+            save_memory(mem)
+            return cast(dict[str, Any], t)
+
     new_task = {
-        "title": title.strip(),
-        "due": due.strip() if due else "No deadline",
-        "assignee": assignee,
+        "title": clean_title,
+        "due": clean_due,
+        "assignee": clean_assignee,
         "status": "pending",
         "created_at": get_current_time_str(),
     }
-    mem.setdefault("tasks", []).append(new_task)
+    tasks.append(new_task)
     save_memory(mem)
     return new_task
+
+
+def update_task(
+    title: str,
+    new_title: str | None = None,
+    new_due: str | None = None,
+    new_assignee: str | None = None,
+    new_status: str | None = None,
+) -> dict[str, Any] | None:
+    """Update existing task fields by title substring match."""
+    mem = load_memory()
+    tasks = mem.get("tasks", [])
+    query = title.lower().strip()
+    for t in tasks:
+        if query in t.get("title", "").lower():
+            if new_title:
+                t["title"] = new_title.strip()
+            if new_due:
+                t["due"] = new_due.strip()
+            if new_assignee:
+                t["assignee"] = new_assignee.strip()
+            if new_status:
+                t["status"] = new_status.strip()
+            t["updated_at"] = get_current_time_str()
+            save_memory(mem)
+            return cast(dict[str, Any], t)
+    return None
 
 
 def list_tasks(status: str = "pending") -> list[dict[str, Any]]:
