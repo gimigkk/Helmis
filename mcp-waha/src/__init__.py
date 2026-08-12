@@ -5,7 +5,7 @@ Exposes typed tools that Hermes can call to send WhatsApp messages,
 send media, and query message history.
 """
 
-from . import agent, client, history, memory, models, proactive, webhook
+from . import agent, client, history, memory, models, proactive, semantic_memory, webhook
 
 __all__ = [
     "agent",
@@ -14,5 +14,6 @@ __all__ = [
     "memory",
     "models",
     "proactive",
+    "semantic_memory",
     "webhook",
 ]

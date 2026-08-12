@@ -167,6 +167,17 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                             text=reply_text,
                         )
                         log.info("Sent verified reply to [%s] in %s", sender_name, from_user)
+
+                        # Schedule passive background fact extraction into semantic memory
+                        from . import semantic_memory
+
+                        asyncio.create_task(
+                            semantic_memory.extract_facts_from_turn_background(
+                                user_message=text,
+                                assistant_reply=reply_text,
+                                sender_name=sender_name,
+                            )
+                        )
                 finally:
                     await client.stop_typing(chat_id=from_user)
 

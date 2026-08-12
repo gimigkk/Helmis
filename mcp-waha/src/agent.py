@@ -24,15 +24,9 @@ from .memory import (
 
 log = logging.getLogger("helmis-agent")
 
-# Gemini API Keys pool
+# Dynamically collect all configured Gemini API keys (GEMINI_KEY_1, GEMINI_KEY_2, etc.)
 GEMINI_KEYS = [
-    k
-    for k in [
-        os.environ.get("GEMINI_KEY_2"),
-        os.environ.get("GEMINI_KEY_3"),
-        os.environ.get("GEMINI_KEY_1"),
-    ]
-    if k
+    v.strip() for k, v in sorted(os.environ.items()) if k.startswith("GEMINI_KEY") and v.strip()
 ]
 
 
@@ -219,6 +213,38 @@ GEMINI_TOOLS = [
                 },
             },
             {
+                "name": "remember_fact",
+                "description": "Store a durable personal fact, preference, habit, relationship, dietary detail, or context about Gilang or Bunga in episodic semantic memory.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "fact": {
+                            "type": "STRING",
+                            "description": "The exact fact or preference to remember (e.g. 'Gilang tidak suka kopi manis')",
+                        },
+                        "user_id": {
+                            "type": "STRING",
+                            "description": "Target person: 'Gilang', 'Bunga', or 'Both'",
+                        },
+                    },
+                    "required": ["fact"],
+                },
+            },
+            {
+                "name": "recall_memory",
+                "description": "Search semantic vector memory for personal preferences, past discussions, habits, or biographical facts about Gilang or Bunga.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "Topic, question, or keyword to semantically search for",
+                        }
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
                 "name": "search_memory",
                 "description": "Search across all tasks, contacts, and notes for any keyword.",
                 "parameters": {
@@ -402,10 +428,35 @@ async def execute_tool_call(
                 "message": f"Catatan '{title}' berhasil disimpan.",
             }
 
+        elif func_name == "remember_fact":
+            fact = str(args.get("fact", "")).strip()
+            user_id = str(args.get("user_id") or default_sender).strip()
+            if not fact:
+                return {"status": "error", "error": "Fakta/preferensi tidak boleh kosong."}
+            from . import semantic_memory
+
+            saved = await semantic_memory.add_memory(fact=fact, user_id=user_id)
+            return {
+                "status": "success",
+                "saved_fact": saved,
+                "message": f"Fakta/preferensi '{fact}' untuk {user_id} berhasil diingat ke memori jangka panjang.",
+            }
+
+        elif func_name == "recall_memory":
+            query = str(args.get("query", "")).strip()
+            if not query:
+                return {"status": "error", "error": "Query pencarian memori tidak boleh kosong."}
+            from . import semantic_memory
+
+            results = await semantic_memory.search_memories(
+                query=query, user_id=default_sender, top_k=5
+            )
+            return {"status": "success", "count": len(results), "results": results}
+
         elif func_name == "search_memory":
-            query = args.get("query", "")
-            results = search_memory(query)
-            return {"status": "success", "results": results}
+            keyword = args.get("keyword") or args.get("query", "")
+            mem_results = search_memory(str(keyword))
+            return {"status": "success", "results": mem_results}
 
         elif func_name == "send_whatsapp_message":
             recipient = str(args.get("recipient", "")).strip()
@@ -485,8 +536,28 @@ async def run_agentic_react_loop(
     system_prompt = load_system_prompt()
     skills_context = load_all_skills()
     memory_context = get_memory_context_summary()
+
+    # Semantically retrieve personal memories/facts related to current conversation
+    from . import semantic_memory
+
+    relevant_memories = await semantic_memory.search_memories(
+        query=message_text,
+        user_id=sender_name,
+        top_k=5,
+        min_score=0.62,
+    )
+    semantic_context = ""
+    if relevant_memories:
+        fact_lines = [f"- {m['fact']}" for m in relevant_memories if m.get("fact")]
+        if fact_lines:
+            semantic_context = (
+                "### RELEVANT PERSONAL PREFERENCES & LONG-TERM MEMORY:\n"
+                + "\n".join(fact_lines)
+                + "\n\n"
+            )
+
     full_system_instruction = (
-        f"{system_prompt}\n\n{skills_context}\n\n{memory_context}\n\n"
+        f"{system_prompt}\n\n{skills_context}\n\n{memory_context}\n\n{semantic_context}"
         f"### AGENTIC REASONING & WHATSAPP FORMATTING DIRECTIVE:\n"
         f"- You are Helmis, an elite, sharp executive personal assistant for Gilang and Bunga.\n"
         f"- ZERO EMOJIS: Never use emojis anywhere in your responses, lists, or confirmations.\n"

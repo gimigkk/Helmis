@@ -79,9 +79,10 @@ services:
       BOT_PHONE: ${BOT_PHONE}
       MCP_WAHA_PORT: ${MCP_WAHA_PORT}
       HERMES_WEBHOOK_PORT: ${HERMES_WEBHOOK_PORT}
-      GEMINI_KEY_1: ${GEMINI_KEY_1}
-      GEMINI_KEY_2: ${GEMINI_KEY_2}
-      GEMINI_KEY_3: ${GEMINI_KEY_3}
+      GEMINI_KEY_1: ${GEMINI_KEY_1:-}
+      GEMINI_KEY_2: ${GEMINI_KEY_2:-}
+      GEMINI_KEY_3: ${GEMINI_KEY_3:-}
+      GEMINI_KEY_4: ${GEMINI_KEY_4:-}
       TZ: ${TZ}
     depends_on:
       waha:
