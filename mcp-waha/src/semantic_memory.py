@@ -72,8 +72,12 @@ async def get_embedding(text: str) -> list[float] | None:
                 elif resp.status_code == 429:
                     log.warning("Embedding key rate-limited (429), rotating...")
                     continue
+                else:
+                    log.warning("Embedding key error %d, rotating...", resp.status_code)
+                    continue
         except Exception as e:
-            log.warning("Embedding exception: %s", e)
+            log.warning("Embedding exception: %s, rotating...", e)
+            continue
     return None
 
 

@@ -798,16 +798,22 @@ async def run_agentic_react_loop(
                             response_data = resp.json()
                             break
                         elif resp.status_code == 429:
-                            log.warning("Model %s / key rate-limited (429), rotating...", model)
+                            log.warning("Model %s / key rate-limited (429), rotating key...", model)
                             continue
                         elif resp.status_code == 404:
+                            log.warning("Model %s not found (404), trying next model...", model)
                             break
                         else:
                             log.error(
-                                "Gemini %s error %d: %s", model, resp.status_code, resp.text[:100]
+                                "Gemini %s error %d on key: %s, rotating key...",
+                                model,
+                                resp.status_code,
+                                resp.text[:100],
                             )
+                            continue
                 except Exception as ex:
-                    log.error("Gemini HTTP exception for %s: %s", model, ex)
+                    log.error("Gemini HTTP exception for %s: %s, rotating key...", model, ex)
+                    continue
 
             if response_data:
                 break
