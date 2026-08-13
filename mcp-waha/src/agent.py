@@ -4,7 +4,9 @@ agent.py — Autonomous ReAct Agent Loop, Tool Dispatcher, and Gemini LLM Client
 
 import logging
 import os
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -309,7 +311,7 @@ GEMINI_TOOLS = [
             },
             {
                 "name": "get_whatsapp_messages",
-                "description": "Fetch recent verified WhatsApp chat messages from a DM (Gilang/Bunga) or the Trio group chat. Use this whenever asked whether someone has sent a message, what was discussed, or to inspect actual sent/received chat history without guessing or hallucinating.",
+                "description": "Fetch verified WhatsApp chat messages from a DM (Gilang/Bunga) or the Trio group chat. Supports date range filtering (e.g. 'today', 'yesterday', '2026-08-25', or since_hours_ago). Use this whenever asked whether someone sent a message or to inspect actual chat history.",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
@@ -317,9 +319,17 @@ GEMINI_TOOLS = [
                             "type": "STRING",
                             "description": "Target chat: 'Gilang' (DM), 'Bunga' (DM), or 'Group' (Trio Helmis group chat)",
                         },
+                        "date": {
+                            "type": "STRING",
+                            "description": "Optional date filter: 'today', 'yesterday', or 'YYYY-MM-DD' (e.g. '2026-08-25')",
+                        },
+                        "since_hours_ago": {
+                            "type": "INTEGER",
+                            "description": "Optional filter for messages within the last N hours (e.g. 1, 3, 24)",
+                        },
                         "limit": {
                             "type": "INTEGER",
-                            "description": "Number of recent messages to retrieve (default 10, max 30)",
+                            "description": "Number of messages to retrieve (default 20, max 50)",
                         },
                     },
                     "required": ["target"],
@@ -565,7 +575,7 @@ async def execute_tool_call(
             await client.send_message(chat_id=target_jid, text=text, reply_to_message_id=quote_id)
             from .memory import log_activity
 
-            log_activity(f"Direct message sent to {recipient} ({target_jid}): \"{text}\"")
+            log_activity(f'Direct message sent to {recipient} ({target_jid}): "{text}"')
 
             log.info(
                 "Agent sent direct WhatsApp message to %s (quote: %s): %s",
@@ -580,7 +590,12 @@ async def execute_tool_call(
 
         elif func_name == "get_whatsapp_messages":
             target = str(args.get("target", "")).strip()
-            limit = int(args.get("limit") or 10)
+            limit = int(args.get("limit") or 20)
+            date_filter = str(args.get("date", "")).strip().lower() if args.get("date") else None
+            since_hours_ago = (
+                int(args["since_hours_ago"]) if args.get("since_hours_ago") is not None else None
+            )
+
             if not client:
                 return {"status": "error", "error": "WAHA client tidak tersedia."}
 
@@ -608,22 +623,71 @@ async def execute_tool_call(
                 clean = target.replace("+", "").replace(" ", "").replace("-", "")
                 target_jid = f"{clean}@c.us"
 
-            msgs = await client.get_messages(chat_id=target_jid, limit=min(limit, 30))
+            # Calculate timestamp bounds for date range filtering
+            tz = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
+            now_dt = datetime.now(tz)
+            min_ts: float | None = None
+            max_ts: float | None = None
+
+            if since_hours_ago:
+                min_ts = (now_dt - timedelta(hours=since_hours_ago)).timestamp()
+            elif date_filter:
+                if date_filter in ("today", "hari ini"):
+                    target_day = now_dt.date()
+                elif date_filter in ("yesterday", "kemarin"):
+                    target_day = (now_dt - timedelta(days=1)).date()
+                else:
+                    try:
+                        target_day = datetime.strptime(date_filter, "%Y-%m-%d").date()
+                    except Exception:
+                        target_day = None
+
+                if target_day:
+                    start_dt = datetime(
+                        target_day.year, target_day.month, target_day.day, 0, 0, 0, tzinfo=tz
+                    )
+                    end_dt = datetime(
+                        target_day.year,
+                        target_day.month,
+                        target_day.day,
+                        23,
+                        59,
+                        59,
+                        tzinfo=tz,
+                    )
+                    min_ts = start_dt.timestamp()
+                    max_ts = end_dt.timestamp()
+
+            fetch_limit = max(min(limit * 2 if (min_ts or max_ts) else limit, 50), 10)
+            msgs = await client.get_messages(chat_id=target_jid, limit=fetch_limit)
+
             formatted_msgs = []
             for m in msgs:
+                ts = m.timestamp
+                if min_ts and ts < min_ts:
+                    continue
+                if max_ts and ts > max_ts:
+                    continue
+                msg_time_str = (
+                    datetime.fromtimestamp(ts, tz).strftime("%Y-%m-%d %H:%M WIB")
+                    if ts > 0
+                    else "Unknown"
+                )
                 formatted_msgs.append(
                     {
                         "sender": m.sender_phone,
                         "text": m.text,
-                        "timestamp": m.timestamp,
+                        "time": msg_time_str,
+                        "timestamp": ts,
                     }
                 )
             return {
                 "status": "success",
                 "target": target,
                 "chat_id": target_jid,
+                "filter_applied": {"date": date_filter, "since_hours_ago": since_hours_ago},
                 "count": len(formatted_msgs),
-                "messages": formatted_msgs,
+                "messages": formatted_msgs[:limit],
             }
 
         return {"status": "error", "error": f"Tool '{func_name}' tidak dikenal."}

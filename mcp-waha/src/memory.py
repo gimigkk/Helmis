@@ -128,9 +128,7 @@ def get_memory_context_summary() -> str:
     activity_log = mem.get("activity_log", [])
     recent_activities = activity_log[-6:]
     activity_summary = (
-        "\n".join(
-            [f"- [{a.get('time', '')}] {a.get('summary', '')}" for a in recent_activities]
-        )
+        "\n".join([f"- [{a.get('time', '')}] {a.get('summary', '')}" for a in recent_activities])
         if recent_activities
         else "No recent proactive messages logged."
     )

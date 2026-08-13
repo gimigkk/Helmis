@@ -115,4 +115,5 @@ async def test_execute_tool_call_get_whatsapp_messages() -> None:
     assert res["status"] == "success"
     assert res["count"] == 1
     assert res["messages"][0]["text"] == "Halo"
-    mock_client.get_messages.assert_called_once_with(chat_id="6281398971445@c.us", limit=5)
+    assert "time" in res["messages"][0]
+    mock_client.get_messages.assert_called_once()

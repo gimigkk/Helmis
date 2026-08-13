@@ -127,9 +127,7 @@ Only output valid JSON, nothing else.
 
             from .memory import log_activity
 
-            log_activity(
-                f"Proactive reminder sent to {assignee} for '{title}': \"{msg_text}\""
-            )
+            log_activity(f"Proactive reminder sent to {assignee} for '{title}': \"{msg_text}\"")
 
         save_memory(mem)
         log.info("Proactive reminders successfully sent and saved to disk.")
