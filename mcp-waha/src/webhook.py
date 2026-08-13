@@ -133,6 +133,79 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 )
                 return JSONResponse({"status": "ignored_unauthorized_sender"})
 
+            # STRICT FILTER 3: Group chat discretion — do NOT interrupt human banter
+            is_group = from_user.endswith("@g.us")
+            if is_group:
+                text_lower = text.lower()
+                bot_clean = BOT_PHONE.replace("+", "").replace(" ", "").replace("-", "")
+
+                mentioned = (
+                    payload.get("mentionedJidList")
+                    or payload.get("_data", {}).get("mentionedJidList")
+                    or []
+                )
+                has_bot_mention = (
+                    "helmis" in text_lower
+                    or text_lower.startswith("mis ")
+                    or text_lower.startswith("mis,")
+                    or text_lower.startswith("mis?")
+                    or "@helmis" in text_lower
+                    or (bool(bot_clean) and any(bot_clean in str(m) for m in mentioned))
+                )
+
+                quoted_author = str(
+                    payload.get("replyTo", {}).get("participant")
+                    or payload.get("_data", {}).get("quotedParticipant")
+                    or payload.get("quotedMsg", {}).get("from")
+                    or ""
+                )
+                is_quoting_bot = (
+                    bool(bot_clean and bot_clean in quoted_author)
+                    or bool(payload.get("replyTo", {}).get("fromMe", False))
+                )
+
+                mentions_other = bool(
+                    (
+                        any(
+                            (GILANG_PHONE and GILANG_PHONE in str(m))
+                            or (BUNGA_PHONE and BUNGA_PHONE in str(m))
+                            for m in mentioned
+                        )
+                        or "@bunga" in text_lower
+                        or "@gilang" in text_lower
+                    )
+                    and not has_bot_mention
+                )
+
+                if mentions_other:
+                    log.info("Group message addressed to other person (@mention), ignoring: %s", text[:40])
+                    return JSONResponse({"status": "ignored_directed_to_other"})
+
+                has_action_intent = any(
+                    text_lower.startswith(prefix) or f" {prefix}" in text_lower
+                    for prefix in [
+                        "tolong ingetin",
+                        "ingetin",
+                        "ingatkan",
+                        "catat",
+                        "tambah task",
+                        "cek task",
+                        "list task",
+                        "list reminder",
+                        "jadwal",
+                        "hapus task",
+                        "selesai task",
+                        "udah beres",
+                        "retrieve chat",
+                        "cek chat",
+                        "coba retrieve",
+                    ]
+                )
+
+                if not (has_bot_mention or is_quoting_bot or has_action_intent or has_media):
+                    log.info("Group casual chatter not calling Helmis, ignoring: %s", text[:40])
+                    return JSONResponse({"status": "ignored_group_chatter"})
+
             log.info(
                 "Incoming WhatsApp message from [%s] in (%s) (media: %s): %s",
                 sender_name,
@@ -161,7 +234,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                         image_data=image_data,
                         max_steps=5,
                     )
-                    if reply_text:
+                    if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
                         await client.send_message(
                             chat_id=from_user,
                             text=reply_text,

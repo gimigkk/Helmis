@@ -756,6 +756,10 @@ async def run_agentic_react_loop(
         f"  * If user asks for task list, ALWAYS invoke 'list_tasks' and output ONLY real tasks returned by the tool. NEVER hallucinate.\n"
         f"- When a user says a task is finished or done ('udah beres', 'selesai'), invoke 'complete_task'.\n"
         f"- Multimodal Vision: If an image or photo is attached, analyze its visual content, documents, receipts, or screenshots accurately in your answer.\n"
+        f"- GROUP CHAT ETIQUETTE & DISCRETION:\n"
+        f"  * In the Trio group chat, you are an executive assistant, NOT a conversational chatterbox.\n"
+        f"  * If Gilang and Bunga are talking to each other, laughing (e.g. 'wkwk', 'haha'), teasing, or if a message does not request any assistant action, output ONLY: '[NO_REPLY]'.\n"
+        f"  * Never interrupt conversation between humans unless explicitly called or executing a task.\n"
         f"- ZERO FILLER / STRICT CONCISENESS: Output 1-2 natural, direct sentences. NEVER append boilerplate like 'Ada yang bisa saya bantu?' or 'Ada lagi yang perlu dibantu?'. Stop immediately after confirming.\n"
         f"- If a tool fails or returns an error, explain what failed honestly and ask the user for the specific help needed.\n"
     )
