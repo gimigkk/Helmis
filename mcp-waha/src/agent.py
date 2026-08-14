@@ -756,10 +756,9 @@ async def run_agentic_react_loop(
         f"  * If user asks for task list, ALWAYS invoke 'list_tasks' and output ONLY real tasks returned by the tool. NEVER hallucinate.\n"
         f"- When a user says a task is finished or done ('udah beres', 'selesai'), invoke 'complete_task'.\n"
         f"- Multimodal Vision: If an image or photo is attached, analyze its visual content, documents, receipts, or screenshots accurately in your answer.\n"
-        f"- CONVERSATIONAL RESPONSIVENESS & GROUP ETIQUETTE:\n"
-        f"  * In 1-on-1 Direct Messages (DMs): ALWAYS respond promptly, concisely, and naturally (e.g. to 'tes', 'hai', questions, commands).\n"
-        f"  * In the Trio Group Chat: Respond whenever addressed, asked a question, tested, or given a task. If explicitly told not to reply (e.g. 'jangan balas ini'), output '[NO_REPLY]'.\n"
-        f"  * Only output '[NO_REPLY]' if a message in the group is strictly private banter between Gilang and Bunga that has nothing to do with you.\n"
+        f"- CONVERSATIONAL DIRECTIVE:\n"
+        f"  * ALWAYS respond directly, sharply, and concisely (1-2 natural sentences) to the user's message or instruction.\n"
+        f"  * If the user explicitly asks you not to reply (e.g. 'jangan balas ini' / 'jangan respon chat ini'), only then output '[NO_REPLY]'. Otherwise, ALWAYS respond.\n"
         f"- ZERO FILLER / STRICT CONCISENESS: Output 1-2 natural, direct sentences. NEVER append boilerplate like 'Ada yang bisa saya bantu?' or 'Ada lagi yang perlu dibantu?'. Stop immediately after confirming.\n"
         f"- If a tool fails or returns an error, explain what failed honestly and ask the user for the specific help needed.\n"
     )
