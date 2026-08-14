@@ -708,7 +708,7 @@ async def run_agentic_react_loop(
     message_text: str,
     image_data: dict[str, str] | None = None,
     max_steps: int = 5,
-) -> str:
+) -> str | None:
     """
     Run multi-step ReAct agent loop:
     1. Agent reasons over text & multimodal image inputs
@@ -861,7 +861,12 @@ async def run_agentic_react_loop(
         # Case B: Model generated final text output
         text = candidate_part.get("text", "")
         if isinstance(text, str) and text.strip():
-            log.info("Agent finalized response in %d steps: %s", step + 1, text.strip()[:60])
-            return text.strip()
+            cleaned = text.strip()
+            if cleaned in ("[NO_REPLY]", "NO_REPLY", "None"):
+                log.info("Agent decided no reply is needed for this turn.")
+                return None
+            log.info("Agent finalized response in %d steps: %s", step + 1, cleaned[:60])
+            return cleaned
 
-    return "Tugas telah diproses."
+    log.info("Agent finished execution steps silently without emitting chat message.")
+    return None
