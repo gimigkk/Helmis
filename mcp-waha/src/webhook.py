@@ -167,9 +167,11 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     or quoted_msg_dict.get("from")
                     or ""
                 )
-                is_quoting_bot = (
-                    bool(bot_clean and bot_clean in quoted_author)
-                    or bool(reply_to_dict.get("fromMe", False))
+                quoted_other = bool(
+                    quoted_author
+                    and bot_clean not in quoted_author
+                    and not payload.get("replyTo", {}).get("fromMe", False)
+                    and not has_bot_mention
                 )
 
                 mentions_other = bool(
@@ -185,34 +187,25 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     and not has_bot_mention
                 )
 
-                if mentions_other:
-                    log.info("Group message addressed to other person (@mention), ignoring: %s", text[:40])
-                    return JSONResponse({"status": "ignored_directed_to_other"})
-
-                has_action_intent = any(
-                    text_lower.startswith(prefix) or f" {prefix}" in text_lower
-                    for prefix in [
-                        "tolong ingetin",
-                        "ingetin",
-                        "ingatkan",
-                        "catat",
-                        "tambah task",
-                        "cek task",
-                        "list task",
-                        "list reminder",
-                        "jadwal",
-                        "hapus task",
-                        "selesai task",
-                        "udah beres",
-                        "retrieve chat",
-                        "cek chat",
-                        "coba retrieve",
-                    ]
+                # Pure laughter strings
+                is_pure_laugh = text_lower.strip() in (
+                    "wkwk",
+                    "wkwkwk",
+                    "wkwkwkwk",
+                    "wkwkwkwkwk",
+                    "wkwkwwk",
+                    "haha",
+                    "hahaha",
+                    "hahahaha",
+                    "hehe",
+                    "hehehe",
+                    "lol",
+                    "lmao",
                 )
 
-                if not (has_bot_mention or is_quoting_bot or has_action_intent or has_media):
-                    log.info("Group casual chatter not calling Helmis, ignoring: %s", text[:40])
-                    return JSONResponse({"status": "ignored_group_chatter"})
+                if mentions_other or (quoted_other and is_pure_laugh):
+                    log.info("Group message addressed to other person or pure laughter, ignoring: %s", text[:40])
+                    return JSONResponse({"status": "ignored_human_conversation"})
 
             log.info(
                 "Incoming WhatsApp message from [%s] in (%s) (media: %s): %s",
