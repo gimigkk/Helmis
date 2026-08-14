@@ -153,15 +153,23 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     or (bool(bot_clean) and any(bot_clean in str(m) for m in mentioned))
                 )
 
+                reply_to_dict = (
+                    payload.get("replyTo") if isinstance(payload.get("replyTo"), dict) else {}
+                )
+                data_dict = payload.get("_data") if isinstance(payload.get("_data"), dict) else {}
+                quoted_msg_dict = (
+                    payload.get("quotedMsg") if isinstance(payload.get("quotedMsg"), dict) else {}
+                )
+
                 quoted_author = str(
-                    payload.get("replyTo", {}).get("participant")
-                    or payload.get("_data", {}).get("quotedParticipant")
-                    or payload.get("quotedMsg", {}).get("from")
+                    reply_to_dict.get("participant")
+                    or data_dict.get("quotedParticipant")
+                    or quoted_msg_dict.get("from")
                     or ""
                 )
                 is_quoting_bot = (
                     bool(bot_clean and bot_clean in quoted_author)
-                    or bool(payload.get("replyTo", {}).get("fromMe", False))
+                    or bool(reply_to_dict.get("fromMe", False))
                 )
 
                 mentions_other = bool(
