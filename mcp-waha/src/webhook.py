@@ -153,27 +153,6 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     or (bool(bot_clean) and any(bot_clean in str(m) for m in mentioned))
                 )
 
-                reply_to_dict = (
-                    payload.get("replyTo") if isinstance(payload.get("replyTo"), dict) else {}
-                )
-                data_dict = payload.get("_data") if isinstance(payload.get("_data"), dict) else {}
-                quoted_msg_dict = (
-                    payload.get("quotedMsg") if isinstance(payload.get("quotedMsg"), dict) else {}
-                )
-
-                quoted_author = str(
-                    reply_to_dict.get("participant")
-                    or data_dict.get("quotedParticipant")
-                    or quoted_msg_dict.get("from")
-                    or ""
-                )
-                quoted_other = bool(
-                    quoted_author
-                    and bot_clean not in quoted_author
-                    and not payload.get("replyTo", {}).get("fromMe", False)
-                    and not has_bot_mention
-                )
-
                 mentions_other = bool(
                     (
                         any(
@@ -187,25 +166,9 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     and not has_bot_mention
                 )
 
-                # Pure laughter strings
-                is_pure_laugh = text_lower.strip() in (
-                    "wkwk",
-                    "wkwkwk",
-                    "wkwkwkwk",
-                    "wkwkwkwkwk",
-                    "wkwkwwk",
-                    "haha",
-                    "hahaha",
-                    "hahahaha",
-                    "hehe",
-                    "hehehe",
-                    "lol",
-                    "lmao",
-                )
-
-                if mentions_other or (quoted_other and is_pure_laugh):
-                    log.info("Group message addressed to other person or pure laughter, ignoring: %s", text[:40])
-                    return JSONResponse({"status": "ignored_human_conversation"})
+                if mentions_other:
+                    log.info("Group message addressed to other person (@mention), ignoring: %s", text[:40])
+                    return JSONResponse({"status": "ignored_directed_to_other"})
 
             log.info(
                 "Incoming WhatsApp message from [%s] in (%s) (media: %s): %s",
