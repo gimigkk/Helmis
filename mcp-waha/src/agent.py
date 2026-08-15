@@ -739,26 +739,11 @@ async def run_agentic_react_loop(
                 + "\n\n"
             )
 
-    is_group = chat_id.endswith("@g.us")
-    if is_group:
-        chat_context = (
-            "### CHAT ENVIRONMENT: TRIO GROUP CHAT (Participants: Gilang, Bunga, Helmis)\n"
-            "- DISCRETION & ADDRESSEE EVALUATION (CRITICAL):\n"
-            "  * You are a silent executive assistant in a 3-person group. NEVER interrupt when humans are chatting with each other.\n"
-            "  * If Gilang and Bunga are talking to EACH OTHER (e.g. asking each other's opinion, mentioning @Bunga/@Gilang, laughing 'wkwk', casual human banter), output ONLY: '[NO_REPLY]'.\n"
-            "  * ONLY respond if the message is directed at YOU (Helmis) — e.g. explicitly addressed to you ('helmis'/'mis'), gives an assistant command (tasks, notes, reminders, search, retrieve messages), asks you a direct question, or instructs you to respond.\n"
-            "  * If the user instructs you not to reply (e.g. 'jangan bales' / 'jangan respon'), output ONLY: '[NO_REPLY]'.\n\n"
-        )
-    else:
-        chat_context = (
-            f"### CHAT ENVIRONMENT: 1-ON-1 DIRECT MESSAGE (DM with {sender_name})\n"
-            "- The user is messaging you directly in private. Always respond concisely and helpfully.\n\n"
-        )
-
     full_system_instruction = (
-        f"{system_prompt}\n\n{skills_context}\n\n{memory_context}\n\n{semantic_context}{chat_context}"
+        f"{system_prompt}\n\n{skills_context}\n\n{memory_context}\n\n{semantic_context}"
         f"### AGENTIC REASONING & WHATSAPP FORMATTING DIRECTIVE:\n"
         f"- You are Helmis, an elite, sharp executive personal assistant for Gilang and Bunga.\n"
+        f"- When Gilang or Bunga sends a message, ALWAYS respond directly, sharply, and naturally in 1-2 concise sentences.\n"
         f"- ZERO EMOJIS: Never use emojis anywhere in your responses, lists, or confirmations.\n"
         f"- WHATSAPP MARKDOWN: Use single asterisks *bold* (never double **). Use standard numbered lists (1. , 2. ) or hyphens (- ). Never use special bullet dots like '·' or em-dashes '—'.\n"
         f"- ZERO ASSUMPTIONS & VERIFIED FACT-CHECKING:\n"
