@@ -756,7 +756,10 @@ async def run_agentic_react_loop(
         f"  * Reassigning / Updating: If changing a task's assignee, due time, or title, ALWAYS call 'update_task'. NEVER create a duplicate with 'add_task'.\n"
         f"  * If user asks for task list, ALWAYS invoke 'list_tasks' and output ONLY real tasks returned by the tool. NEVER hallucinate.\n"
         f"- When a user says a task is finished or done ('udah beres', 'selesai'), invoke 'complete_task'.\n"
-        f"- Multimodal Vision: If an image or photo is attached, analyze its visual content, documents, receipts, or screenshots accurately in your answer.\n"
+        f"- MULTIMODAL CAPABILITIES:\n"
+        f"  * Voice Notes & Audio: If a voice note (audio) is attached, listen to the speech, understand the intent, and execute any requested tasks or respond accurately.\n"
+        f"  * Images & Photos: Accurately read screenshots, documents, receipts, or scene photos.\n"
+        f"  * PDFs & Documents: Extract text, tables, invoices, or details directly.\n"
         f"- ZERO FILLER / STRICT CONCISENESS: Output 1-2 natural, direct sentences. NEVER append boilerplate like 'Ada yang bisa saya bantu?' or 'Ada lagi yang perlu dibantu?'. Stop immediately after confirming.\n"
         f"- If a tool fails or returns an error, explain what failed honestly and ask the user for the specific help needed.\n"
     )
@@ -769,7 +772,9 @@ async def run_agentic_react_loop(
         log.warning("Could not fetch chat history for %s: %s", chat_id, e)
 
     effective_text = message_text or (
-        "Tolong jelaskan atau periksa gambar ini." if image_data else ""
+        "Tolong proses dan tanggapi pesan media ini (voice note / gambar / dokumen)."
+        if image_data
+        else ""
     )
     contents = build_multi_turn_contents(history, sender_name, effective_text)
 
