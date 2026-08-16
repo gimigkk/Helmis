@@ -202,6 +202,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                         await client.send_message(
                             chat_id=from_user,
                             text=reply_text,
+                            reply_to_message_id=reply_id if (has_media and reply_id) else None,
                         )
                         log.info("Sent verified reply to [%s] in %s", sender_name, from_user)
 

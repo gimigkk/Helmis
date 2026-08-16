@@ -760,8 +760,11 @@ async def run_agentic_react_loop(
         f"   - When a user asks to remind another person, the assignee is the other person.\n"
         f"   - When updating or reassigning an existing task, always use 'update_task' rather than creating duplicates with 'add_task'.\n"
         f"   - When a task is reported completed, invoke 'complete_task'.\n\n"
-        f"5. MULTIMODAL INPUTS:\n"
-        f"   - Audio / Voice Notes: Transcribe and understand spoken audio, executing any requested commands.\n"
+        f"5. MULTIMODAL INPUTS & VOICE NOTE (VN) TRANSCRIPTION:\n"
+        f"   - Audio / Voice Notes: When an audio voice note is provided, ALWAYS start your response with a verbatim transcription blockquote using WhatsApp markdown: '> \"...\"' on the first line, followed by a blank line and your direct answer or task confirmation.\n"
+        f"     Format example:\n"
+        f"     > \"Tolong ingetin beli kopi besok jam delapan pagi\"\n\n"
+        f"     Task beli kopi besok jam 08:00 WIB sudah dicatat.\n"
         f"   - Images & Documents: Accurately read screenshots, documents, receipts, and PDFs.\n\n"
         f"6. ERROR TRANSPARENCY:\n"
         f"   - If a tool encounters an error, state clearly what happened and ask for clarification.\n"
@@ -774,10 +777,15 @@ async def run_agentic_react_loop(
     except Exception as e:
         log.warning("Could not fetch chat history for %s: %s", chat_id, e)
 
+    is_audio = bool(media_data and str(media_data.get("mimeType", "")).startswith("audio/"))
     effective_text = message_text or (
-        "Tolong proses dan tanggapi pesan media ini (voice note / gambar / dokumen)."
-        if media_data
-        else ""
+        "Dengarkan voice note ini. Tuliskan transkripsi perkataan yang didengar dalam format '> \"...\"' di baris pertama, lalu jalankan tindakan atau berikan tanggapan yang diminta."
+        if is_audio
+        else (
+            "Tolong proses dan tanggapi pesan media ini (gambar / dokumen)."
+            if media_data
+            else ""
+        )
     )
     contents = build_multi_turn_contents(history, sender_name, effective_text)
 
