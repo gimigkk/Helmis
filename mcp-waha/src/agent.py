@@ -706,12 +706,12 @@ async def run_agentic_react_loop(
     sender_name: str,
     chat_id: str,
     message_text: str,
-    image_data: dict[str, str] | None = None,
+    media_data: dict[str, str] | None = None,
     max_steps: int = 5,
 ) -> str | None:
     """
     Run multi-step ReAct agent loop:
-    1. Agent reasons over text & multimodal image inputs
+    1. Agent reasons over text & multimodal inputs (audio voice notes, images, PDFs)
     2. Executes tools in Python and verifies results on disk
     3. Feeds tool responses back into the conversation turn
     4. Synthesizes concise final response with verified outcomes
@@ -776,14 +776,14 @@ async def run_agentic_react_loop(
 
     effective_text = message_text or (
         "Tolong proses dan tanggapi pesan media ini (voice note / gambar / dokumen)."
-        if image_data
+        if media_data
         else ""
     )
     contents = build_multi_turn_contents(history, sender_name, effective_text)
 
-    # Attach image inlineData to current turn if present
-    if image_data and contents:
-        contents[-1]["parts"].insert(0, {"inlineData": image_data})
+    # Attach media inlineData to current turn if present
+    if media_data and contents:
+        contents[-1]["parts"].insert(0, {"inlineData": media_data})
 
     for step in range(max_steps):
         log.info("Running Agentic ReAct step %d/%d for [%s]...", step + 1, max_steps, sender_name)

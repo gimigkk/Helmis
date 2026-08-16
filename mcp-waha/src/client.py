@@ -318,6 +318,7 @@ class WahaClient:
     async def download_media_base64(self, media_url: str) -> tuple[str, str] | None:
         """
         Download media from WAHA and return (mime_type, base64_data).
+        Supports audio voice notes (OGG/Opus/MP3/AAC), images, and documents (PDF).
         """
         try:
             target_url = media_url
@@ -326,8 +327,25 @@ class WahaClient:
 
             response = await self._http.get(target_url, headers=self._headers, timeout=15.0)
             if response.status_code == 200:
-                raw_mime = response.headers.get("content-type", "image/jpeg")
+                raw_mime = response.headers.get("content-type", "").lower()
                 mime_type = raw_mime.split(";")[0].strip()
+
+                # Normalise MIME types for Gemini multimodal API
+                if not mime_type or mime_type in ("application/octet-stream", "binary/octet-stream"):
+                    url_lower = target_url.lower()
+                    if ".ogg" in url_lower or ".opus" in url_lower:
+                        mime_type = "audio/ogg"
+                    elif ".mp3" in url_lower:
+                        mime_type = "audio/mp3"
+                    elif ".m4a" in url_lower:
+                        mime_type = "audio/m4a"
+                    elif ".pdf" in url_lower:
+                        mime_type = "application/pdf"
+                    elif ".png" in url_lower:
+                        mime_type = "image/png"
+                    else:
+                        mime_type = "image/jpeg"
+
                 b64_data = base64.b64encode(response.content).decode("utf-8")
                 return mime_type, b64_data
         except Exception as e:

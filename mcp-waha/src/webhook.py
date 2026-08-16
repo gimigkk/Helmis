@@ -183,19 +183,19 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 # Indicate active typing presence while agent reasons and executes tools
                 await client.start_typing(chat_id=from_user)
                 try:
-                    image_data: dict[str, str] | None = None
+                    media_data: dict[str, str] | None = None
                     if has_media and media_url:
                         media_res = await client.download_media_base64(media_url)
                         if media_res:
                             mime_type, b64_data = media_res
-                            image_data = {"mimeType": mime_type, "data": b64_data}
+                            media_data = {"mimeType": mime_type, "data": b64_data}
 
                     reply_text = await run_agentic_react_loop(
                         client=client,
                         sender_name=sender_name,
                         chat_id=from_user,
                         message_text=text,
-                        image_data=image_data,
+                        media_data=media_data,
                         max_steps=5,
                     )
                     if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
