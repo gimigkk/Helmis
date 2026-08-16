@@ -183,13 +183,36 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 # Indicate active typing presence while agent reasons and executes tools
                 await client.start_typing(chat_id=from_user)
                 try:
+                    nonlocal text
+                    is_voice_note = False
+                    vn_transcript: str | None = None
                     media_data: dict[str, str] | None = None
+
                     if has_media and media_url:
                         media_res = await client.download_media_base64(media_url)
                         if media_res:
                             mime_type, b64_data = media_res
-                            media_data = {"mimeType": mime_type, "data": b64_data}
+                            if mime_type.startswith("audio/"):
+                                is_voice_note = True
+                                log.info("Phase 1: Running dedicated audio transcription for [%s]...", sender_name)
+                                from .agent import transcribe_audio_base64
 
+                                vn_transcript = await transcribe_audio_base64(b64_data, mime_type)
+                                if not vn_transcript:
+                                    log.warning("Audio was silent or unintelligible.")
+                                    await client.send_message(
+                                        chat_id=from_user,
+                                        text='> "(Audio tidak terdengar jelas)"\n\nMaaf, pesan suara tidak terdengar jelas. Bisa tolong ulangi lagi?',
+                                        reply_to_message_id=reply_id,
+                                    )
+                                    return
+                                # Set effective text to the exact verified transcript
+                                text = vn_transcript
+                                log.info("Phase 1 Success: Transcribed VN as: %s", text)
+                            else:
+                                media_data = {"mimeType": mime_type, "data": b64_data}
+
+                    # Phase 2: Run autonomous agent loop on verified text/media
                     reply_text = await run_agentic_react_loop(
                         client=client,
                         sender_name=sender_name,
@@ -199,20 +222,33 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                         max_steps=5,
                     )
                     if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
+                        clean_reply = reply_text.strip()
+                        # If this turn was a Voice Note, guarantee the verified blockquote prefix at Python level
+                        if is_voice_note and vn_transcript:
+                            if clean_reply.startswith("> "):
+                                lines = clean_reply.split("\n", 2)
+                                if len(lines) > 2:
+                                    clean_reply = lines[2].strip()
+                                elif len(lines) > 1:
+                                    clean_reply = lines[1].strip()
+                            final_text = f'> "{vn_transcript}"\n\n{clean_reply}'
+                        else:
+                            final_text = clean_reply
+
                         await client.send_message(
                             chat_id=from_user,
-                            text=reply_text,
+                            text=final_text,
                             reply_to_message_id=reply_id if (has_media and reply_id) else None,
                         )
                         log.info("Sent verified reply to [%s] in %s", sender_name, from_user)
 
-                        # Schedule passive background fact extraction into semantic memory
+                        # Schedule passive background fact extraction into semantic memory using the actual transcript text!
                         from . import semantic_memory
 
                         asyncio.create_task(
                             semantic_memory.extract_facts_from_turn_background(
                                 user_message=text,
-                                assistant_reply=reply_text,
+                                assistant_reply=final_text,
                                 sender_name=sender_name,
                             )
                         )

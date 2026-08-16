@@ -701,6 +701,65 @@ async def execute_tool_call(
         }
 
 
+async def transcribe_audio_base64(b64_data: str, mime_type: str = "audio/ogg") -> str | None:
+    """
+    Dedicated Phase-1 transcription using Gemini audio multimodal API with zero hallucinations.
+    Uses temperature=0.0 and isolated instruction to extract verbatim speech.
+    """
+    clean_mime = mime_type.split(";")[0].strip() or "audio/ogg"
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"inlineData": {"mimeType": clean_mime, "data": b64_data}},
+                    {
+                        "text": (
+                            "Transcribe this audio verbatim in the original spoken language (Indonesian or English). "
+                            "Output ONLY the exact words spoken without quotation marks, markdown, preamble, or commentary. "
+                            "If the audio contains no discernible speech or only noise, output '[UNINTELLIGIBLE]'."
+                        )
+                    },
+                ]
+            }
+        ],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 250},
+    }
+
+    for model in GEMINI_MODELS:
+        for _ in range(len(GEMINI_KEYS) or 1):
+            api_key = get_next_gemini_key()
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            try:
+                async with httpx.AsyncClient(timeout=15.0) as http_client:
+                    resp = await http_client.post(url, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            raw_text = (
+                                candidates[0]
+                                .get("content", {})
+                                .get("parts", [{}])[0]
+                                .get("text", "")
+                            )
+                            cleaned = str(raw_text).strip().strip('"').strip("'")
+                            if cleaned and cleaned != "[UNINTELLIGIBLE]":
+                                log.info("Audio transcribed successfully via %s: %s", model, cleaned)
+                                return str(cleaned)
+                            elif cleaned == "[UNINTELLIGIBLE]":
+                                log.info("Audio was unintelligible or silent.")
+                                return None
+                        return None
+                    elif resp.status_code == 429:
+                        continue
+                    elif resp.status_code == 404:
+                        break
+            except Exception as e:
+                log.warning("Transcription attempt failed on %s: %s", model, e)
+                continue
+    return None
+
+
 async def run_agentic_react_loop(
     client: WahaClient,
     sender_name: str,
@@ -711,7 +770,7 @@ async def run_agentic_react_loop(
 ) -> str | None:
     """
     Run multi-step ReAct agent loop:
-    1. Agent reasons over text & multimodal inputs (audio voice notes, images, PDFs)
+    1. Agent reasons over text & multimodal inputs (images, PDFs)
     2. Executes tools in Python and verifies results on disk
     3. Feeds tool responses back into the conversation turn
     4. Synthesizes concise final response with verified outcomes
@@ -760,9 +819,9 @@ async def run_agentic_react_loop(
         f"   - When a user asks to remind another person, the assignee is the other person.\n"
         f"   - When updating or reassigning an existing task, always use 'update_task' rather than creating duplicates with 'add_task'.\n"
         f"   - When a task is reported completed, invoke 'complete_task'.\n\n"
-        f"5. MULTIMODAL INPUTS & VOICE NOTE (VN) TRANSCRIPTION:\n"
-        f"   - Audio / Voice Notes: When an audio voice note is provided, ALWAYS transcribe the spoken words accurately and put the transcription on the first line inside a WhatsApp blockquote: '> \"<transcription>\"', followed by a blank line and your direct response or task confirmation.\n"
-        f"   - Images & Documents: Accurately read screenshots, documents, receipts, and PDFs.\n\n"
+        f"5. MULTIMODAL INPUTS (IMAGES & DOCUMENTS):\n"
+        f"   - Images & Photos: Accurately read screenshots, documents, receipts, and photos.\n"
+        f"   - PDFs & Documents: Extract tables, invoices, and text directly.\n\n"
         f"6. ERROR TRANSPARENCY:\n"
         f"   - If a tool encounters an error, state clearly what happened and ask for clarification.\n"
     )
@@ -774,15 +833,10 @@ async def run_agentic_react_loop(
     except Exception as e:
         log.warning("Could not fetch chat history for %s: %s", chat_id, e)
 
-    is_audio = bool(media_data and str(media_data.get("mimeType", "")).startswith("audio/"))
     effective_text = message_text or (
-        "Dengarkan voice note ini. Tuliskan transkripsi perkataan yang didengar dalam format '> \"...\"' di baris pertama, lalu jalankan tindakan atau berikan tanggapan yang diminta."
-        if is_audio
-        else (
-            "Tolong proses dan tanggapi pesan media ini (gambar / dokumen)."
-            if media_data
-            else ""
-        )
+        "Tolong proses dan tanggapi pesan media ini (gambar / dokumen)."
+        if media_data
+        else ""
     )
     contents = build_multi_turn_contents(history, sender_name, effective_text)
 
