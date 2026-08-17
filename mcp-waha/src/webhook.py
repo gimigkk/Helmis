@@ -80,10 +80,14 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             if from_me or (not text and not has_media):
                 return JSONResponse({"status": "ignored_self_or_empty"})
 
-            # STRICT FILTER 1: Must be from either the Trio Group or personal DMs of Gilang/Bunga
-            if from_user not in ALLOWED_CHATS:
-                log.debug("Silently ignoring message from non-whitelisted chat: %s", from_user)
+            # STRICT FILTER 1: Must be from either an authorized group or whitelisted DM
+            is_group = from_user.endswith("@g.us")
+            if not is_group and from_user not in ALLOWED_CHATS:
+                log.debug("Silently ignoring message from non-whitelisted DM: %s", from_user)
                 return JSONResponse({"status": "ignored_non_whitelisted_chat"})
+            if is_group and TRIO_GROUP_JID and from_user != TRIO_GROUP_JID:
+                log.debug("Silently ignoring message from non-whitelisted group: %s", from_user)
+                return JSONResponse({"status": "ignored_non_whitelisted_group"})
 
             raw_id = payload.get("id")
             reply_id: str | None = None
@@ -113,16 +117,14 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             # STRICT FILTER 2: Only Gilang or Bunga are authorized
             sender_name: str | None = None
             if (
-                clean_from == GILANG_PHONE
-                or clean_author == GILANG_PHONE
+                (bool(GILANG_PHONE) and (clean_from == GILANG_PHONE or clean_author == GILANG_PHONE))
                 or clean_from.startswith("217188174717173")
                 or clean_author.startswith("217188174717173")
                 or "gilang" in notify_name.lower()
             ):
                 sender_name = "Gilang"
             elif (
-                clean_from == BUNGA_PHONE
-                or clean_author == BUNGA_PHONE
+                (bool(BUNGA_PHONE) and (clean_from == BUNGA_PHONE or clean_author == BUNGA_PHONE))
                 or clean_from.startswith("279821464654020")
                 or clean_author.startswith("279821464654020")
                 or "bunga" in notify_name.lower()
