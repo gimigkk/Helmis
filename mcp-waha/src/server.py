@@ -10,25 +10,16 @@ Responsibilities:
 import asyncio
 import logging
 import os
-import sys
 from threading import Thread
 
 import uvicorn
 from mcp.server.mcpserver import MCPServer
 
+from . import logger  # noqa: F401
 from .client import WahaClient
 from .tools import register_all_tools
 from .webhook import create_webhook_app
 
-# ============================================================
-# Logging
-# ============================================================
-
-logging.basicConfig(
-    stream=sys.stderr,
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 log = logging.getLogger("mcp-waha")
 
 
