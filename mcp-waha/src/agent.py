@@ -767,6 +767,7 @@ async def run_agentic_react_loop(
     message_text: str,
     media_data: dict[str, str] | None = None,
     max_steps: int = 5,
+    tracer: Any | None = None,
 ) -> str | None:
     """
     Run multi-step ReAct agent loop:
@@ -857,6 +858,7 @@ async def run_agentic_react_loop(
 
         # Attempt call with Multi-Model & Multi-Key Cascade
         response_data: dict[str, Any] | None = None
+        active_model = GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-flash-lite-latest"
         for model in GEMINI_MODELS:
             for _ in range(len(GEMINI_KEYS) or 1):
                 api_key = get_next_gemini_key()
@@ -866,20 +868,13 @@ async def run_agentic_react_loop(
                         resp = await http_client.post(url, json=payload)
                         if resp.status_code == 200:
                             response_data = resp.json()
+                            active_model = model
                             break
                         elif resp.status_code == 429:
-                            log.warning("Model %s / key rate-limited (429), rotating key...", model)
                             continue
                         elif resp.status_code == 404:
-                            log.warning("Model %s not found (404), trying next model...", model)
                             break
                         else:
-                            log.error(
-                                "Gemini %s error %d on key: %s, rotating key...",
-                                model,
-                                resp.status_code,
-                                resp.text[:100],
-                            )
                             continue
                 except Exception as ex:
                     log.error("Gemini HTTP exception for %s: %s, rotating key...", model, ex)
@@ -907,6 +902,15 @@ async def run_agentic_react_loop(
             # Execute tool locally
             tool_result = await execute_tool_call(func_name, func_args, sender_name, client=client)
 
+            if tracer:
+                tracer.log_step(
+                    step=step + 1,
+                    max_steps=max_steps,
+                    model_name=active_model,
+                    tool_call={"name": func_name, "args": func_args},
+                    tool_result=tool_result,
+                )
+
             # Append model functionCall turn (preserving thoughtSignature) and functionResponse turn
             contents.append({"role": "model", "parts": [candidate_part]})
             contents.append(
@@ -928,6 +932,13 @@ async def run_agentic_react_loop(
         text = candidate_part.get("text", "")
         if isinstance(text, str) and text.strip():
             cleaned = text.strip()
+            if tracer:
+                tracer.log_step(
+                    step=step + 1,
+                    max_steps=max_steps,
+                    model_name=active_model,
+                    final_text=cleaned,
+                )
             if cleaned in ("[NO_REPLY]", "NO_REPLY", "None"):
                 log.info("Agent decided no reply is needed for this turn.")
                 return None

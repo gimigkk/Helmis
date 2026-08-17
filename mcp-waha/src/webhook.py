@@ -194,10 +194,20 @@ def create_webhook_app(client: WahaClient) -> Starlette:
 
             # Run Autonomous Multi-Step ReAct Agent Loop asynchronously
             async def process_and_reply() -> None:
+                nonlocal text
                 # Indicate active typing presence while agent reasons and executes tools
                 await client.start_typing(chat_id=from_user)
+                from .logger import AgentTurnTracer
+
+                tracer = AgentTurnTracer(
+                    sender_name=sender_name,
+                    chat_id=from_user,
+                    message_text=text,
+                    has_media=has_media,
+                )
+                tracer.log_incoming()
+
                 try:
-                    nonlocal text
                     is_voice_note = False
                     vn_transcript: str | None = None
                     media_data: dict[str, str] | None = None
@@ -214,14 +224,17 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                                 vn_transcript = await transcribe_audio_base64(b64_data, mime_type)
                                 if not vn_transcript:
                                     log.warning("Audio was silent or unintelligible.")
+                                    fallback_msg = '> "(Audio tidak terdengar jelas)"\n\nMaaf, pesan suara tidak terdengar jelas. Bisa tolong ulangi lagi?'
+                                    tracer.log_completed(fallback_msg, status="unintelligible_audio")
                                     await client.send_message(
                                         chat_id=from_user,
-                                        text='> "(Audio tidak terdengar jelas)"\n\nMaaf, pesan suara tidak terdengar jelas. Bisa tolong ulangi lagi?',
+                                        text=fallback_msg,
                                         reply_to_message_id=reply_id,
                                     )
                                     return
                                 # Set effective text to the exact verified transcript
                                 text = vn_transcript
+                                tracer.message_text = vn_transcript
                                 log.info("Phase 1 Success: Transcribed VN as: %s", text)
                             else:
                                 media_data = {"mimeType": mime_type, "data": b64_data}
@@ -234,7 +247,10 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                         message_text=text,
                         media_data=media_data,
                         max_steps=5,
+                        tracer=tracer,
                     )
+
+                    final_text: str | None = None
                     if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
                         clean_reply = reply_text.strip()
                         # If this turn was a Voice Note, guarantee the verified blockquote prefix at Python level
@@ -249,6 +265,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                         else:
                             final_text = clean_reply
 
+                        tracer.log_completed(final_text, status="dispatched")
                         await client.send_message(
                             chat_id=from_user,
                             text=final_text,
@@ -266,6 +283,8 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                                 sender_name=sender_name,
                             )
                         )
+                    else:
+                        tracer.log_completed(None, status="silent_no_reply")
                 finally:
                     await client.stop_typing(chat_id=from_user)
 
