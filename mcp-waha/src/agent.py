@@ -730,7 +730,7 @@ async def transcribe_audio_base64(b64_data: str, mime_type: str = "audio/ogg") -
             api_key = get_next_gemini_key()
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             try:
-                async with httpx.AsyncClient(timeout=15.0) as http_client:
+                async with httpx.AsyncClient(timeout=5.0) as http_client:
                     resp = await http_client.post(url, json=payload)
                     if resp.status_code == 200:
                         data = resp.json()
@@ -864,7 +864,7 @@ async def run_agentic_react_loop(
                 api_key = get_next_gemini_key()
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 try:
-                    async with httpx.AsyncClient(timeout=25.0) as http_client:
+                    async with httpx.AsyncClient(timeout=5.0) as http_client:
                         resp = await http_client.post(url, json=payload)
                         if resp.status_code == 200:
                             response_data = resp.json()
@@ -876,8 +876,8 @@ async def run_agentic_react_loop(
                             break
                         else:
                             continue
-                except Exception as ex:
-                    log.error("Gemini HTTP exception for %s: %s, rotating key...", model, ex)
+                except Exception:
+                    # Timeout or connection error on this key, rotate immediately
                     continue
 
             if response_data:

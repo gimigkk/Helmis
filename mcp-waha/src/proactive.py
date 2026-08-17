@@ -75,7 +75,7 @@ Only output valid JSON, nothing else.
             api_key = get_next_gemini_key()
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             try:
-                async with httpx.AsyncClient(timeout=30.0) as http_client:
+                async with httpx.AsyncClient(timeout=5.0) as http_client:
                     resp = await http_client.post(url, json=payload)
                     if resp.status_code == 200:
                         candidates = resp.json().get("candidates", [])

@@ -80,15 +80,6 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             if from_me or (not text and not has_media):
                 return JSONResponse({"status": "ignored_self_or_empty"})
 
-            # STRICT FILTER 1: Must be from either an authorized group or whitelisted DM
-            is_group = from_user.endswith("@g.us")
-            if not is_group and from_user not in ALLOWED_CHATS:
-                log.debug("Silently ignoring message from non-whitelisted DM: %s", from_user)
-                return JSONResponse({"status": "ignored_non_whitelisted_chat"})
-            if is_group and TRIO_GROUP_JID and from_user != TRIO_GROUP_JID:
-                log.debug("Silently ignoring message from non-whitelisted group: %s", from_user)
-                return JSONResponse({"status": "ignored_non_whitelisted_group"})
-
             raw_id = payload.get("id")
             reply_id: str | None = None
             if isinstance(raw_id, dict):
@@ -114,7 +105,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 payload.get("_data", {}).get("notifyName") or payload.get("notifyName") or ""
             )
 
-            # STRICT FILTER 2: Only Gilang or Bunga are authorized
+            # STRICT AUTHORIZATION: Only Gilang or Bunga are authorized
             sender_name: str | None = None
             if (
                 (bool(GILANG_PHONE) and (clean_from == GILANG_PHONE or clean_author == GILANG_PHONE))
@@ -134,11 +125,17 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             # Silently drop messages from anyone else
             if not sender_name:
                 log.debug(
-                    "Silently dropping message from unauthorized participant in group: %s (%s)",
+                    "Silently dropping message from unauthorized sender: from=%s author=%s (%s)",
+                    from_user,
                     author,
                     notify_name,
                 )
                 return JSONResponse({"status": "ignored_unauthorized_sender"})
+
+            is_group = from_user.endswith("@g.us")
+            if is_group and TRIO_GROUP_JID and from_user != TRIO_GROUP_JID:
+                log.debug("Silently ignoring message from unauthorized group: %s", from_user)
+                return JSONResponse({"status": "ignored_non_whitelisted_group"})
 
             # STRICT FILTER 3: Group chat discretion — do NOT interrupt human banter
             is_group = from_user.endswith("@g.us")
