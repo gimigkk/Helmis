@@ -544,18 +544,18 @@ async def execute_tool_call(
                 return {"status": "error", "error": "WAHA client tidak tersedia."}
 
             gilang_phone = (
-                os.environ.get("GILANG_PHONE", "6281932062070")
+                os.environ.get("GILANG_PHONE", "")
                 .replace("+", "")
                 .replace(" ", "")
                 .replace("-", "")
             )
             bunga_phone = (
-                os.environ.get("BUNGA_PHONE", "6281398971445")
+                os.environ.get("BUNGA_PHONE", "")
                 .replace("+", "")
                 .replace(" ", "")
                 .replace("-", "")
             )
-            trio_group = os.environ.get("TRIO_GROUP_JID", "120363411261097957@g.us")
+            trio_group = os.environ.get("TRIO_GROUP_JID", "")
 
             target_jid: str
             if "gilang" in recipient.lower():
@@ -600,18 +600,18 @@ async def execute_tool_call(
                 return {"status": "error", "error": "WAHA client tidak tersedia."}
 
             gilang_phone = (
-                os.environ.get("GILANG_PHONE", "6281932062070")
+                os.environ.get("GILANG_PHONE", "")
                 .replace("+", "")
                 .replace(" ", "")
                 .replace("-", "")
             )
             bunga_phone = (
-                os.environ.get("BUNGA_PHONE", "6281398971445")
+                os.environ.get("BUNGA_PHONE", "")
                 .replace("+", "")
                 .replace(" ", "")
                 .replace("-", "")
             )
-            trio_group = os.environ.get("TRIO_GROUP_JID", "120363411261097957@g.us")
+            trio_group = os.environ.get("TRIO_GROUP_JID", "")
 
             if "gilang" in target.lower():
                 target_jid = f"{gilang_phone}@c.us"
@@ -810,7 +810,9 @@ async def run_agentic_react_loop(
         f"2. CONVERSATIONAL INTENT & SILENCE COMPLIANCE:\n"
         f"   - Respond promptly, naturally, and helpfully to the user.\n"
         f"   - If the user's intent is to dismiss you, request silence, or test silence, obey completely by outputting ONLY '[NO_REPLY]'. Do not send a message confirming silence.\n\n"
-        f"3. FACT GROUNDING & ZERO ASSUMPTION:\n"
+        f"3. FACT GROUNDING & ZERO FABRICATION:\n"
+        f"   - NEVER invent, simulate, or fabricate file contents, tables, receipts, or data (such as Excel sheets, names, numbers, or document text).\n"
+        f"   - If the user refers to a file, document, or attachment, but no file or media is attached in the current message turn, state plainly: 'Kamu belum melampirkan file tersebut. Silakan kirim filenya ke chat ini.'\n"
         f"   - Never assume whether messages, reminders, or tasks exist or were dispatched. Check memory context and tools before stating facts.\n"
         f"   - To verify actual WhatsApp history or sent messages, invoke 'get_whatsapp_messages'.\n"
         f"   - Only state facts confirmed by tool results or memory records.\n\n"

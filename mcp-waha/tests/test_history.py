@@ -19,21 +19,21 @@ def test_build_multi_turn_contents_chronological() -> None:
     m1 = MagicMock(
         message_id="false_user_1",
         text="remind me tomorrow",
-        sender_phone="6281932062070",
+        sender_phone="628111111111",
         timestamp=100,
         from_me=False,
     )
     m2 = MagicMock(
         message_id="true_bot_1",
         text="Sure! What time?",
-        sender_phone="6287796728527",
+        sender_phone="628333333333",
         timestamp=105,
         from_me=True,
     )
     m3 = MagicMock(
         message_id="false_user_2",
         text="6 sore",
-        sender_phone="6281932062070",
+        sender_phone="628111111111",
         timestamp=110,
         from_me=False,
     )

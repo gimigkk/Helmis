@@ -10,7 +10,7 @@ from typing import Any
 log = logging.getLogger("helmis-history")
 
 BOT_PHONE = (
-    os.environ.get("BOT_PHONE", "6287796728527").replace("+", "").replace(" ", "").replace("-", "")
+    os.environ.get("BOT_PHONE", "").replace("+", "").replace(" ", "").replace("-", "")
 )
 
 # In-memory message deduplication cache (msg_id -> timestamp)
@@ -55,7 +55,7 @@ def build_multi_turn_contents(
         is_bot = (
             str(msg.message_id).startswith("true_")
             or getattr(msg, "from_me", False) is True
-            or BOT_PHONE in str(getattr(msg, "sender_phone", ""))
+            or (bool(BOT_PHONE) and BOT_PHONE in str(getattr(msg, "sender_phone", "")))
         )
         role = "model" if is_bot else "user"
         content_text = text.strip() if role == "model" else f"[{sender_name}]: {text.strip()}"

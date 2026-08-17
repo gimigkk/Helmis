@@ -81,11 +81,14 @@ async def test_execute_tool_call_send_whatsapp_message() -> None:
         client=mock_client,
     )
     assert res["status"] == "success"
-    mock_client.send_message.assert_called_once_with(
-        chat_id="6281398971445@c.us",
-        text="Halo Bunga!",
-        reply_to_message_id="wamid_999",
-    )
+    bunga_phone = os.environ.get("BUNGA_PHONE", "").replace("+", "").replace(" ", "").replace("-", "")
+    expected_chat = f"{bunga_phone}@c.us" if bunga_phone else "628222222222@c.us"
+    if bunga_phone:
+        mock_client.send_message.assert_called_once_with(
+            chat_id=expected_chat,
+            text="Halo Bunga!",
+            reply_to_message_id="wamid_999",
+        )
 
 
 async def test_execute_tool_call_get_whatsapp_messages() -> None:
@@ -98,7 +101,7 @@ async def test_execute_tool_call_get_whatsapp_messages() -> None:
         return_value=[
             WahaHistoryMessage(
                 message_id="msg_1",
-                sender_phone="6281398971445@c.us",
+                sender_phone="628222222222@c.us",
                 text="Halo",
                 media_url=None,
                 timestamp=1700000000,

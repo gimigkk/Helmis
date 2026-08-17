@@ -32,12 +32,12 @@ def load_memory() -> dict[str, Any]:
         "schedules": [],
         "people": {
             "Gilang": {
-                "phone": "+6281932062070",
+                "phone": os.environ.get("GILANG_PHONE", "+6281234567890"),
                 "role": "User / Principal",
                 "notes": "Direct, prefers concise updates",
             },
             "Bunga": {
-                "phone": "+6281398971445",
+                "phone": os.environ.get("BUNGA_PHONE", "+6289876543210"),
                 "role": "User / Principal",
                 "notes": "Co-principal",
             },

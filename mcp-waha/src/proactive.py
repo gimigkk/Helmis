@@ -17,13 +17,13 @@ from .memory import load_memory, save_memory
 log = logging.getLogger("helmis-proactive")
 
 GILANG_PHONE = (
-    os.environ.get("GILANG_PHONE", "6281932062070")
+    os.environ.get("GILANG_PHONE", "")
     .replace("+", "")
     .replace(" ", "")
     .replace("-", "")
 )
 BUNGA_PHONE = (
-    os.environ.get("BUNGA_PHONE", "6281398971445")
+    os.environ.get("BUNGA_PHONE", "")
     .replace("+", "")
     .replace(" ", "")
     .replace("-", "")

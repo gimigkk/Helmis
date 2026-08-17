@@ -19,29 +19,34 @@ from .proactive import handle_proactive_scheduler_tick
 log = logging.getLogger("helmis-webhook")
 
 GILANG_PHONE = (
-    os.environ.get("GILANG_PHONE", "6281932062070")
+    os.environ.get("GILANG_PHONE", "")
     .replace("+", "")
     .replace(" ", "")
     .replace("-", "")
 )
 BUNGA_PHONE = (
-    os.environ.get("BUNGA_PHONE", "6281398971445")
+    os.environ.get("BUNGA_PHONE", "")
     .replace("+", "")
     .replace(" ", "")
     .replace("-", "")
 )
 BOT_PHONE = (
-    os.environ.get("BOT_PHONE", "6287796728527").replace("+", "").replace(" ", "").replace("-", "")
+    os.environ.get("BOT_PHONE", "").replace("+", "").replace(" ", "").replace("-", "")
 )
 
-TRIO_GROUP_JID = os.environ.get("TRIO_GROUP_JID", "120363411261097957@g.us")
-ALLOWED_CHATS = {
-    f"{GILANG_PHONE}@c.us",
-    f"{BUNGA_PHONE}@c.us",
-    "217188174717173@lid",
-    "279821464654020@lid",
-    TRIO_GROUP_JID,
-}
+TRIO_GROUP_JID = os.environ.get("TRIO_GROUP_JID", "")
+ALLOWED_CHATS = set(
+    filter(
+        None,
+        [
+            f"{GILANG_PHONE}@c.us" if GILANG_PHONE else None,
+            f"{BUNGA_PHONE}@c.us" if BUNGA_PHONE else None,
+            TRIO_GROUP_JID if TRIO_GROUP_JID else None,
+            os.environ.get("GILANG_LID"),
+            os.environ.get("BUNGA_LID"),
+        ],
+    )
+)
 
 
 def create_webhook_app(client: WahaClient) -> Starlette:
@@ -138,12 +143,19 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             if is_group:
                 text_lower = text.lower()
                 bot_clean = BOT_PHONE.replace("+", "").replace(" ", "").replace("-", "")
+                gilang_clean = GILANG_PHONE.replace("+", "").replace(" ", "").replace("-", "")
+                bunga_clean = BUNGA_PHONE.replace("+", "").replace(" ", "").replace("-", "")
 
+                _data_dict = payload.get("_data") if isinstance(payload.get("_data"), dict) else {}
                 mentioned = (
-                    payload.get("mentionedJidList")
-                    or payload.get("_data", {}).get("mentionedJidList")
+                    payload.get("mentionedIds")
+                    or payload.get("mentions")
+                    or payload.get("mentionedJidList")
+                    or _data_dict.get("mentionedJidList")
+                    or _data_dict.get("mentions")
                     or []
                 )
+
                 has_bot_mention = (
                     "helmis" in text_lower
                     or text_lower.startswith("mis ")
@@ -156,12 +168,14 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 mentions_other = bool(
                     (
                         any(
-                            (GILANG_PHONE and GILANG_PHONE in str(m))
-                            or (BUNGA_PHONE and BUNGA_PHONE in str(m))
+                            (bool(gilang_clean) and gilang_clean in str(m))
+                            or (bool(bunga_clean) and bunga_clean in str(m))
                             for m in mentioned
                         )
                         or "@bunga" in text_lower
                         or "@gilang" in text_lower
+                        or (bool(gilang_clean) and f"@{gilang_clean}" in text_lower)
+                        or (bool(bunga_clean) and f"@{bunga_clean}" in text_lower)
                     )
                     and not has_bot_mention
                 )
