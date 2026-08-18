@@ -398,7 +398,7 @@ async def execute_tool_call(
     client: WahaClient | None = None,
 ) -> dict[str, Any]:
     """Execute local memory function and return structured result or error message."""
-    log.info("Agent executing tool: %s with args: %s", func_name, args)
+    log.debug("Agent executing tool: %s with args: %s", func_name, args)
     try:
         if func_name == "add_task":
             title = args.get("title", "")
@@ -897,7 +897,7 @@ async def run_agentic_react_loop(
             fc = candidate_part["functionCall"]
             func_name = str(fc.get("name", ""))
             func_args = dict(fc.get("args", {}))
-            log.info("Agent selected tool call: %s(%s)", func_name, func_args)
+            log.debug("Agent selected tool call: %s(%s)", func_name, func_args)
 
             # Execute tool locally
             tool_result = await execute_tool_call(func_name, func_args, sender_name, client=client)

@@ -1,7 +1,6 @@
 """
-logger.py — Agentic step logger and execution tracer for Helmis.
-Provides a structured tree-style agentic developer trace in terminal logs.
-Zero emojis, strict professional ANSI colors, structured alignment, and noise filtering.
+logger.py — Standard, concise agentic logger for Helmis.
+Follows standard Python logging format with zero emojis and total noise suppression.
 """
 
 import json
@@ -11,77 +10,97 @@ import sys
 import time
 from typing import Any
 
-# ANSI Color Palette
-RESET = "\033[0m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
-CYAN = "\033[36m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-BLUE = "\033[34m"
-MAGENTA = "\033[35m"
-GRAY = "\033[90m"
+# Standard ANSI Color Palette
+C_RESET = "\033[0m"
+C_DIM = "\033[2m"
+C_CYAN = "\033[36m"
+C_GREEN = "\033[32m"
+C_YELLOW = "\033[33m"
+C_MAGENTA = "\033[35m"
+C_GRAY = "\033[90m"
 
 
-class HealthFilter(logging.Filter):
-    """Filters out /health and uvicorn access ping logs."""
+class CleanLogFormatter(logging.Formatter):
+    """Clean standard format: HH:MM:SS [LEVEL] name: message"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        t_str = self.formatTime(record, "%H:%M:%S")
+        lvl = record.levelname
+
+        if lvl == "INFO":
+            badge = f"{C_CYAN}[INFO]{C_RESET}"
+        elif lvl == "WARNING":
+            badge = f"{C_YELLOW}[WARN]{C_RESET}"
+        elif lvl == "ERROR":
+            badge = f"{C_MAGENTA}[ERROR]{C_RESET}"
+        else:
+            badge = f"{C_GRAY}[{lvl}]{C_RESET}"
+
+        return f"{C_GRAY}{t_str}{C_RESET} {badge} {C_DIM}{record.name}:{C_RESET} {record.getMessage()}"
+
+
+class NoHealthLogFilter(logging.Filter):
+    """Completely filters out /health, ping, and scheduler tick spam."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        if "/health" in msg or "GET /health" in msg or "POST /webhooks/scheduler" in msg:
+        if (
+            "/health" in msg
+            or "GET /health" in msg
+            or "GET /ping" in msg
+            or "POST /webhooks/scheduler" in msg
+            or "Evaluating proactive reminders" in msg
+            or "No reminders due" in msg
+        ):
             return False
         return True
 
 
-class CleanLogFormatter(logging.Formatter):
-    """Custom log formatter with clean spacing and subtle badges."""
-
-    def format(self, record: logging.LogRecord) -> str:
-        t_str = self.formatTime(record, "%H:%M:%S")
-        level = record.levelname
-        name = record.name
-
-        if level == "INFO":
-            badge = f"{CYAN}[INFO]{RESET}"
-        elif level == "WARNING":
-            badge = f"{YELLOW}[WARN]{RESET}"
-        elif level == "ERROR":
-            badge = f"{MAGENTA}[ERROR]{RESET}"
-        else:
-            badge = f"{GRAY}[{level}]{RESET}"
-
-        msg = record.getMessage()
-        return f"{GRAY}{t_str}{RESET} {badge} {DIM}{name}:{RESET} {msg}"
-
-
-def setup_clean_logging() -> None:
-    """Configure root loggers and suppress noisy third-party libraries."""
+def setup_logging() -> None:
+    """Configure root logger with clean formatter and silence third-party chatty loggers."""
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(CleanLogFormatter())
-    handler.addFilter(HealthFilter())
+    handler.addFilter(NoHealthLogFilter())
 
-    root_logger = logging.getLogger()
-    root_logger.setLevel(logging.INFO)
-    root_logger.handlers = [handler]
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers = [handler]
 
-    # Silence chatty libraries
-    for name in ("httpx", "httpcore", "uvicorn", "uvicorn.access", "uvicorn.error", "asyncio", "starlette"):
-        lg = logging.getLogger(name)
-        lg.setLevel(logging.WARNING)
-        lg.propagate = False
+    # Completely silence external libraries
+    for name in (
+        "httpx",
+        "httpcore",
+        "uvicorn",
+        "uvicorn.access",
+        "uvicorn.error",
+        "asyncio",
+        "starlette",
+    ):
+        lgr = logging.getLogger(name)
+        lgr.setLevel(logging.CRITICAL)
+        lgr.propagate = False
+        lgr.handlers.clear()
+
+    try:
+        import uvicorn.config
+
+        if hasattr(uvicorn.config, "LOGGING_CONFIG"):
+            uvicorn.config.LOGGING_CONFIG["loggers"]["uvicorn.access"]["handlers"] = []
+            uvicorn.config.LOGGING_CONFIG["loggers"]["uvicorn.access"]["level"] = "CRITICAL"
+            uvicorn.config.LOGGING_CONFIG["loggers"]["uvicorn.access"]["propagate"] = False
+    except Exception:
+        pass
 
 
-# Run setup immediately on import
-setup_clean_logging()
+setup_logging()
 
+log = logging.getLogger("helmis")
 TRACES_DIR = os.environ.get("HELMIS_DATA_DIR", "data")
 TRACES_FILE = os.path.join(TRACES_DIR, "agent_traces.jsonl")
 
 
 class AgentTurnTracer:
-    """
-    Renders a unified, tree-style agentic execution trace in terminal logs.
-    """
+    """Tracks turn lifecycle and logs concise standard lines."""
 
     def __init__(self, sender_name: str, chat_id: str, message_text: str, has_media: bool = False):
         self.sender_name = sender_name
@@ -94,13 +113,11 @@ class AgentTurnTracer:
         self.status: str = "running"
 
     def log_incoming(self) -> None:
-        media_tag = " [MEDIA ATTACHMENT]" if self.has_media else ""
-        border = "─" * 72
-        print(f"\n{CYAN}┌── [AGENT TURN START] {border[:48]}{RESET}")
-        print(f"{CYAN}│{RESET}  {BOLD}User   :{RESET} {self.sender_name} {DIM}({self.chat_id}){RESET}{media_tag}")
-        print(f"{CYAN}│{RESET}  {BOLD}Input  :{RESET} \"{self.message_text}\"")
-        print(f"{CYAN}│{RESET}")
-        sys.stdout.flush()
+        media_str = " (media attached)" if self.has_media else ""
+        preview = self.message_text.replace("\n", " ").strip()
+        if len(preview) > 90:
+            preview = preview[:90] + "..."
+        log.info("[%s] In: \"%s\"%s", self.sender_name, preview, media_str)
 
     def log_step(
         self,
@@ -126,38 +143,47 @@ class AgentTurnTracer:
             func = tool_call.get("name")
             args = tool_call.get("args", {})
             args_str = json.dumps(args, ensure_ascii=False)
-            res_str = json.dumps(tool_result, ensure_ascii=False) if tool_result is not None else ""
-            if len(res_str) > 160:
-                res_str = res_str[:160] + "..."
+            if len(args_str) > 80:
+                args_str = args_str[:80] + "..."
 
-            print(f"{CYAN}│{RESET}  {YELLOW}[Step {step}/{max_steps}]{RESET} {DIM}(Model: {model_name} | {elapsed:.0f}ms){RESET}")
-            print(f"{CYAN}│{RESET}  ├── {BOLD}Action{RESET} : {GREEN}Tool Call -> {func}{RESET}")
-            print(f"{CYAN}│{RESET}  ├── {BOLD}Args  {RESET} : {DIM}{args_str}{RESET}")
-            print(f"{CYAN}│{RESET}  └── {BOLD}Result{RESET} : {DIM}{res_str}{RESET}")
-            print(f"{CYAN}│{RESET}")
-        elif final_text:
-            preview = final_text.replace("\n", " ")
-            if len(preview) > 160:
-                preview = preview[:160] + "..."
-            print(f"{CYAN}│{RESET}  {YELLOW}[Step {step}/{max_steps}]{RESET} {DIM}(Model: {model_name} | {elapsed:.0f}ms){RESET}")
-            print(f"{CYAN}│{RESET}  └── {BOLD}Output{RESET} : \"{preview}\"")
-            print(f"{CYAN}│{RESET}")
-        sys.stdout.flush()
+            res_str = json.dumps(tool_result, ensure_ascii=False) if tool_result is not None else ""
+            if len(res_str) > 80:
+                res_str = res_str[:80] + "..."
+
+            log.info(
+                "[%s] Step %d/%d: %s(%s) -> %s (%dms)",
+                self.sender_name,
+                step,
+                max_steps,
+                func,
+                args_str,
+                res_str,
+                int(elapsed),
+            )
 
     def log_completed(self, reply_text: str | None, status: str = "completed") -> None:
         self.final_reply = reply_text
         self.status = status
         total_time = (time.time() - self.start_time) * 1000
-        border = "─" * 72
 
         if reply_text and reply_text not in ("[NO_REPLY]", "NO_REPLY", "None"):
-            print(f"{CYAN}│{RESET}  {BOLD}[STATUS]{RESET} : {GREEN}DISPATCHED TO WHATSAPP{RESET} {DIM}(Latency: {total_time:.0f}ms | Steps: {len(self.steps)}){RESET}")
-            print(f"{CYAN}│{RESET}  {BOLD}Reply  {RESET} : \"{reply_text.replace(chr(10), ' ')}\"")
-            print(f"{CYAN}└── [AGENT TURN END] {border[:50]}{RESET}\n")
+            preview = reply_text.replace("\n", " ").strip()
+            if len(preview) > 100:
+                preview = preview[:100] + "..."
+            log.info(
+                "[%s] Reply (%dms, %d step%s): \"%s\"",
+                self.sender_name,
+                int(total_time),
+                len(self.steps),
+                "s" if len(self.steps) > 1 else "",
+                preview,
+            )
         else:
-            print(f"{CYAN}│{RESET}  {BOLD}[STATUS]{RESET} : {DIM}SILENT (No chat reply needed | Latency: {total_time:.0f}ms){RESET}")
-            print(f"{CYAN}└── [AGENT TURN END] {border[:50]}{RESET}\n")
-        sys.stdout.flush()
+            log.info(
+                "[%s] Silent turn (no reply needed, %dms)",
+                self.sender_name,
+                int(total_time),
+            )
 
         self._save_trace_to_disk(total_time)
 
