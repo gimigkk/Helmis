@@ -3,8 +3,7 @@
 #
 # Services:
 #   waha      — WhatsApp HTTP API bridge (GOWS engine)
-#   hermes    — Hermes Agent (the AI brain / Helmis)
-#   mcp-waha  — MCP server giving Hermes the ability to send WA messages
+#   agent     — Helmis Autonomous Agent (Gemini ReAct Brain & Storage)
 #   scheduler — Cron container for proactive message triggers
 #
 # All services share the "helmis-net" bridge network.
@@ -18,15 +17,13 @@ networks:
 volumes:
   waha-sessions:
     driver: local
-  hermes-data:
-    driver: local
 
 services:
 
   # ----------------------------------------------------------
-  # WAHA — WhatsApp HTTP API
+  # WAHA — WhatsApp HTTP API Bridge
   # Docs: https://waha.devlike.pro
-  # Engine: GOWS (lightweight, no browser required)
+  # Engine: GOWS (lightweight, native)
   # ----------------------------------------------------------
   waha:
     image: devlikeapro/waha:latest
@@ -35,7 +32,7 @@ services:
     networks:
       - helmis-net
     ports:
-      - "3000:3000"           # REST API + dashboard (access locally or via SSH tunnel)
+      - "3000:3000"           # REST API + dashboard
     volumes:
       - waha-sessions:/app/.sessions
     environment:
@@ -43,8 +40,8 @@ services:
       WAHA_PRINT_QR: "True"
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
-      # Forward incoming message events to Helmis webhook bridge
-      WHATSAPP_HOOK_URL: http://mcp-waha:${HERMES_WEBHOOK_PORT}/webhooks/waha
+      # Forward incoming message events to Helmis Agent webhook receiver
+      WHATSAPP_HOOK_URL: http://agent:${HERMES_WEBHOOK_PORT:-8644}/webhooks/waha
       WHATSAPP_HOOK_EVENTS: "message"
       TZ: ${TZ}
     healthcheck:
@@ -55,15 +52,15 @@ services:
       start_period: 5s
 
   # ----------------------------------------------------------
-  # MCP WAHA — MCP server & Webhook bridge
-  # Gives Hermes typed tools and routes WhatsApp messages.
-  # Built from ./mcp-waha/
+  # Helmis Agent — Autonomous Multi-Step ReAct AI Brain
+  # Handles WhatsApp routing, multi-key cascade, Voice Notes,
+  # multimodal OCR, semantic vector memory, and disk storage.
   # ----------------------------------------------------------
-  mcp-waha:
+  agent:
     build:
-      context: ./mcp-waha
+      context: ./helmis-agent
       dockerfile: Dockerfile
-    container_name: helmis-mcp-waha
+    container_name: helmis-agent
     restart: unless-stopped
     networks:
       - helmis-net
@@ -78,8 +75,8 @@ services:
       BUNGA_PHONE: ${BUNGA_PHONE}
       BOT_PHONE: ${BOT_PHONE}
       TRIO_GROUP_JID: ${TRIO_GROUP_JID:-120363411261097957@g.us}
-      MCP_WAHA_PORT: ${MCP_WAHA_PORT}
-      HERMES_WEBHOOK_PORT: ${HERMES_WEBHOOK_PORT}
+      MCP_WAHA_PORT: ${MCP_WAHA_PORT:-8765}
+      HERMES_WEBHOOK_PORT: ${HERMES_WEBHOOK_PORT:-8644}
       GEMINI_KEY_1: ${GEMINI_KEY_1:-}
       GEMINI_KEY_2: ${GEMINI_KEY_2:-}
       GEMINI_KEY_3: ${GEMINI_KEY_3:-}
@@ -91,48 +88,15 @@ services:
       waha:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${HERMES_WEBHOOK_PORT}/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${HERMES_WEBHOOK_PORT:-8644}/health')"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 5s
 
   # ----------------------------------------------------------
-  # Hermes Agent — the Helmis brain
-  # Receives WAHA webhooks, thinks, uses tools, responds.
-  # Config lives in ./config/
-  # ----------------------------------------------------------
-  hermes:
-    image: nousresearch/hermes-agent:latest
-    container_name: helmis-hermes
-    restart: unless-stopped
-    stdin_open: true
-    tty: true
-    networks:
-      - helmis-net
-    volumes:
-      - hermes-data:/opt/data
-      - ./config/config.yaml:/opt/data/config.yaml:ro,z
-      - ./config:/hermes-config:ro,z     # Mount config with SELinux shared label
-    environment:
-      GEMINI_API_KEY: ${GEMINI_KEY_1}
-      GOOGLE_API_KEY: ${GEMINI_KEY_1}
-      GEMINI_KEY_1: ${GEMINI_KEY_1}
-      GEMINI_KEY_2: ${GEMINI_KEY_2}
-      GEMINI_KEY_3: ${GEMINI_KEY_3}
-      # Webhook port for receiving WAHA events
-      WEBHOOK_ENABLED: "true"
-      WEBHOOK_PORT: ${HERMES_WEBHOOK_PORT}
-      TZ: ${TZ}
-    depends_on:
-      mcp-waha:
-        condition: service_healthy
-
-  # ----------------------------------------------------------
   # Scheduler — Proactive message cron trigger
-  # Every 5 minutes: triggers Hermes to check for due reminders,
-  # approaching deadlines, and anything else a good secretary
-  # should proactively bring up.
+  # Evaluates tasks and dispatches proactive reminders on due time.
   # ----------------------------------------------------------
   scheduler:
     build:
@@ -143,7 +107,7 @@ services:
     networks:
       - helmis-net
     environment:
-      HERMES_WEBHOOK_URL: http://mcp-waha:${HERMES_WEBHOOK_PORT}/webhooks/scheduler
+      HERMES_WEBHOOK_URL: http://agent:${HERMES_WEBHOOK_PORT:-8644}/webhooks/scheduler
       TZ: ${TZ}
     depends_on:
-      - mcp-waha
+      - agent

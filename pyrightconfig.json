@@ -1,19 +1,19 @@
 {
   "include": [
-    "mcp-waha/src",
-    "mcp-waha/tests"
+    "helmis-agent/src",
+    "helmis-agent/tests"
   ],
   "executionEnvironments": [
     {
-      "root": "mcp-waha",
+      "root": "helmis-agent",
       "extraPaths": [
-        "mcp-waha",
-        "mcp-waha/src"
+        "helmis-agent",
+        "helmis-agent/src"
       ]
     }
   ],
   "extraPaths": [
-    "mcp-waha",
-    "mcp-waha/src"
+    "helmis-agent",
+    "helmis-agent/src"
   ]
 }

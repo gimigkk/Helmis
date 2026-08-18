@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mcp-waha"
+name = "helmis-agent"
 version = "0.1.0"
-description = "MCP server wrapping the WAHA WhatsApp REST API for Helmis"
+description = "Autonomous Multi-Step AI Agent & WhatsApp Bridge for Helmis"
 requires-python = ">=3.12"
 dependencies = [
     # MCP Python SDK — FastMCP is the correct modern high-level API
