@@ -176,6 +176,32 @@ async def search_memories(
     return [item[1] for item in results[:top_k]]
 
 
+def delete_memory(query: str, user_id: str | None = None) -> dict[str, Any]:
+    """Delete facts/preferences matching query keyword from semantic vector storage."""
+    memories = load_semantic_memories()
+    clean_q = query.strip().lower()
+    initial_count = len(memories)
+
+    kept: list[dict[str, Any]] = []
+    deleted: list[str] = []
+    for m in memories:
+        if (not user_id or m.get("user_id") in (user_id, "Both", "all")) and clean_q in m.get("fact", "").lower():
+            deleted.append(str(m.get("fact", "")))
+        else:
+            kept.append(m)
+
+    if len(kept) < initial_count:
+        save_semantic_memories(kept)
+        log.info("Deleted %d semantic memories matching '%s'", len(deleted), query)
+        return {
+            "status": "success",
+            "deleted_count": len(deleted),
+            "deleted_facts": deleted,
+            "message": f"Berhasil menghapus {len(deleted)} memori.",
+        }
+    return {"status": "not_found", "message": f"Tidak ditemukan memori yang cocok dengan '{query}'."}
+
+
 async def extract_facts_from_turn_background(
     user_message: str,
     assistant_reply: str,

@@ -120,3 +120,31 @@ async def test_execute_tool_call_get_whatsapp_messages() -> None:
     assert res["messages"][0]["text"] == "Halo"
     assert "time" in res["messages"][0]
     mock_client.get_messages.assert_called_once()
+
+
+async def test_execute_tool_call_save_and_delete_note() -> None:
+    res_save = await agent.execute_tool_call(
+        func_name="save_note",
+        args={"title": "WiFi Password", "content": "secret123"},
+        default_sender="Gilang",
+    )
+    assert res_save["status"] == "success"
+
+    res_del = await agent.execute_tool_call(
+        func_name="delete_note",
+        args={"title": "WiFi"},
+        default_sender="Gilang",
+    )
+    assert res_del["status"] == "success"
+
+
+async def test_execute_tool_call_delete_memory() -> None:
+    from unittest.mock import patch
+
+    with patch("src.semantic_memory.delete_memory", return_value={"status": "success", "deleted_count": 1}):
+        res = await agent.execute_tool_call(
+            func_name="delete_memory",
+            args={"query": "kopi manis"},
+            default_sender="Gilang",
+        )
+        assert res["status"] == "success"

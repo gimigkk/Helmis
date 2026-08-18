@@ -309,6 +309,20 @@ def save_note(title: str, content: str) -> dict[str, Any]:
     return note_data
 
 
+def delete_note(title: str) -> dict[str, Any]:
+    """Delete a note from memory by title substring."""
+    mem = load_memory()
+    notes = mem.get("notes", [])
+    q = title.lower().strip()
+    initial_len = len(notes)
+    kept = [n for n in notes if q not in n.get("title", "").lower()]
+    if len(kept) < initial_len:
+        mem["notes"] = kept
+        save_memory(mem)
+        return {"status": "success", "message": f"Catatan '{title}' berhasil dihapus."}
+    return {"status": "not_found", "error": f"Catatan dengan judul '{title}' tidak ditemukan."}
+
+
 def search_memory(query: str) -> dict[str, Any]:
     """Search tasks, people, and notes for a keyword query."""
     mem = load_memory()

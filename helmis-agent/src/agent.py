@@ -16,6 +16,7 @@ from .memory import (
     add_person,
     add_task,
     complete_task,
+    delete_note,
     delete_task,
     get_memory_context_summary,
     get_person,
@@ -242,6 +243,17 @@ GEMINI_TOOLS = [
                 },
             },
             {
+                "name": "delete_note",
+                "description": "Delete a note from storage by title or keyword match.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {"type": "STRING", "description": "Title or keyword of the note to delete"}
+                    },
+                    "required": ["title"],
+                },
+            },
+            {
                 "name": "remember_fact",
                 "description": "Store a durable personal fact, preference, habit, relationship, dietary detail, or context about Gilang or Bunga in episodic semantic memory.",
                 "parameters": {
@@ -257,6 +269,24 @@ GEMINI_TOOLS = [
                         },
                     },
                     "required": ["fact"],
+                },
+            },
+            {
+                "name": "delete_memory",
+                "description": "Delete personal facts, preferences, habits, or context from semantic vector memory by keyword or description.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "Fact or keyword to delete from memory",
+                        },
+                        "user_id": {
+                            "type": "STRING",
+                            "description": "Optional: 'Gilang', 'Bunga', or 'Both'",
+                        },
+                    },
+                    "required": ["query"],
                 },
             },
             {
@@ -505,6 +535,11 @@ async def execute_tool_call(
                 "message": f"Catatan '{title}' berhasil disimpan.",
             }
 
+        elif func_name == "delete_note":
+            title = args.get("title", "")
+            res_note = delete_note(title=title)
+            return res_note
+
         elif func_name == "remember_fact":
             fact = str(args.get("fact", "")).strip()
             user_id = str(args.get("user_id") or default_sender).strip()
@@ -518,6 +553,16 @@ async def execute_tool_call(
                 "saved_fact": saved,
                 "message": f"Fakta/preferensi '{fact}' untuk {user_id} berhasil diingat ke memori jangka panjang.",
             }
+
+        elif func_name == "delete_memory":
+            query = str(args.get("query", "")).strip()
+            user_id = str(args.get("user_id") or default_sender).strip()
+            if not query:
+                return {"status": "error", "error": "Query penghapusan memori tidak boleh kosong."}
+            from . import semantic_memory
+
+            res_mem = semantic_memory.delete_memory(query=query, user_id=user_id)
+            return res_mem
 
         elif func_name == "recall_memory":
             query = str(args.get("query", "")).strip()
@@ -811,11 +856,14 @@ async def run_agentic_react_loop(
         f"2. CONVERSATIONAL INTENT & SILENCE COMPLIANCE:\n"
         f"   - Respond promptly, naturally, and helpfully to the user.\n"
         f"   - If the user's intent is to dismiss you, request silence, or test silence, obey completely by outputting ONLY '[NO_REPLY]'. Do not send a message confirming silence.\n\n"
-        f"3. FACT GROUNDING & ZERO FABRICATION:\n"
-        f"   - NEVER invent, simulate, or fabricate file contents, tables, receipts, or data (such as Excel sheets, names, numbers, or document text).\n"
+        f"3. ACTION INTEGRITY & ZERO FABRICATION:\n"
+        f"   - You must NEVER claim or imply that an action was executed (e.g. 'sudah saya hapus', 'sudah dicatat', 'sudah dikirim', 'sudah diupdate', 'sudah diselesaikan') unless you explicitly invoked the corresponding tool in this turn and verified that the tool returned a success status!\n"
+        f"   - If the user asks to delete a memory, habit, or preference, invoke 'delete_memory'.\n"
+        f"   - If the user asks to delete a note, invoke 'delete_note'.\n"
+        f"   - If the user asks to delete a task, invoke 'delete_task'.\n"
+        f"   - If you did NOT invoke a tool to perform an action, do NOT claim you completed the action.\n"
+        f"   - NEVER invent, simulate, or fabricate file contents, tables, receipts, or data.\n"
         f"   - If the user refers to a file, document, or attachment, but no file or media is attached in the current message turn, state plainly: 'Kamu belum melampirkan file tersebut. Silakan kirim filenya ke chat ini.'\n"
-        f"   - Never assume whether messages, reminders, or tasks exist or were dispatched. Check memory context and tools before stating facts.\n"
-        f"   - To verify actual WhatsApp history or sent messages, invoke 'get_whatsapp_messages'.\n"
         f"   - Only state facts confirmed by tool results or memory records.\n\n"
         f"4. TASK & REMINDER LOGIC:\n"
         f"   - When a user asks to be reminded to do an action towards another person, the assignee is the user requesting the reminder.\n"
