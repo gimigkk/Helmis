@@ -51,7 +51,7 @@ def _run_webhook_server(client: WahaClient, webhook_port: int) -> None:
         "Webhook & health server listening on 0.0.0.0:%d (routes: /health, /webhooks/waha)",
         webhook_port,
     )
-    uvicorn.run(app, host="0.0.0.0", port=webhook_port, log_level="warning")
+    uvicorn.run(app, host="0.0.0.0", port=webhook_port, log_level="warning", access_log=False)
 
 
 # ============================================================

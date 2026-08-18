@@ -183,7 +183,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     log.info("Group message addressed to other person (@mention), ignoring: %s", text[:40])
                     return JSONResponse({"status": "ignored_directed_to_other"})
 
-            log.info(
+            log.debug(
                 "Incoming WhatsApp message from [%s] in (%s) (media: %s): %s",
                 sender_name,
                 from_user,
@@ -270,7 +270,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                             text=final_text,
                             reply_to_message_id=reply_id if (has_media and reply_id) else None,
                         )
-                        log.info("Sent verified reply to [%s] in %s", sender_name, from_user)
+                        log.debug("Sent verified reply to [%s] in %s", sender_name, from_user)
 
                         # Schedule passive background fact extraction into semantic memory using the actual transcript text!
                         from . import semantic_memory

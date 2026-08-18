@@ -1,5 +1,6 @@
 """
-logger.py — Clean, high-visibility developer logging and structured agent tracer.
+logger.py — Agentic step logger and execution tracer for Helmis.
+Provides a structured tree-style agentic developer trace in terminal logs.
 Zero emojis, strict professional ANSI colors, structured alignment, and noise filtering.
 """
 
@@ -10,20 +11,30 @@ import sys
 import time
 from typing import Any
 
-# ANSI Color Codes
-C_RESET = "\033[0m"
-C_BOLD = "\033[1m"
-C_DIM = "\033[2m"
-C_BLUE = "\033[34m"
-C_CYAN = "\033[36m"
-C_GREEN = "\033[32m"
-C_YELLOW = "\033[33m"
-C_MAGENTA = "\033[35m"
-C_GRAY = "\033[90m"
+# ANSI Color Palette
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+CYAN = "\033[36m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+MAGENTA = "\033[35m"
+GRAY = "\033[90m"
+
+
+class HealthFilter(logging.Filter):
+    """Filters out /health and uvicorn access ping logs."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "/health" in msg or "GET /health" in msg or "POST /webhooks/scheduler" in msg:
+            return False
+        return True
 
 
 class CleanLogFormatter(logging.Formatter):
-    """Custom log formatter with clean spacing and subtle timestamps."""
+    """Custom log formatter with clean spacing and subtle badges."""
 
     def format(self, record: logging.LogRecord) -> str:
         t_str = self.formatTime(record, "%H:%M:%S")
@@ -31,47 +42,46 @@ class CleanLogFormatter(logging.Formatter):
         name = record.name
 
         if level == "INFO":
-            lvl_badge = f"{C_CYAN}[INFO]{C_RESET}"
+            badge = f"{CYAN}[INFO]{RESET}"
         elif level == "WARNING":
-            lvl_badge = f"{C_YELLOW}[WARN]{C_RESET}"
+            badge = f"{YELLOW}[WARN]{RESET}"
         elif level == "ERROR":
-            lvl_badge = f"{C_MAGENTA}[ERROR]{C_RESET}"
+            badge = f"{MAGENTA}[ERROR]{RESET}"
         else:
-            lvl_badge = f"{C_GRAY}[{level}]{C_RESET}"
+            badge = f"{GRAY}[{level}]{RESET}"
 
         msg = record.getMessage()
-        return f"{C_GRAY}{t_str}{C_RESET} {lvl_badge} {C_DIM}{name}:{C_RESET} {msg}"
+        return f"{GRAY}{t_str}{RESET} {badge} {DIM}{name}:{RESET} {msg}"
 
 
 def setup_clean_logging() -> None:
     """Configure root loggers and suppress noisy third-party libraries."""
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(CleanLogFormatter())
+    handler.addFilter(HealthFilter())
 
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     root_logger.handlers = [handler]
 
     # Silence chatty libraries
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
-    logging.getLogger("starlette").setLevel(logging.WARNING)
+    for name in ("httpx", "httpcore", "uvicorn", "uvicorn.access", "uvicorn.error", "asyncio", "starlette"):
+        lg = logging.getLogger(name)
+        lg.setLevel(logging.WARNING)
+        lg.propagate = False
 
 
 # Run setup immediately on import
 setup_clean_logging()
-
 
 TRACES_DIR = os.environ.get("HELMIS_DATA_DIR", "data")
 TRACES_FILE = os.path.join(TRACES_DIR, "agent_traces.jsonl")
 
 
 class AgentTurnTracer:
-    """Tracks and streams formatted agent execution turns to developer terminal."""
+    """
+    Renders a unified, tree-style agentic execution trace in terminal logs.
+    """
 
     def __init__(self, sender_name: str, chat_id: str, message_text: str, has_media: bool = False):
         self.sender_name = sender_name
@@ -84,12 +94,12 @@ class AgentTurnTracer:
         self.status: str = "running"
 
     def log_incoming(self) -> None:
-        media_str = " [ATTACHMENT]" if self.has_media else ""
-        border = "=" * 70
-        print(f"\n{C_BLUE}{border}{C_RESET}")
-        print(f"{C_BOLD}{C_CYAN}INCOMING TURN{C_RESET} | Sender: {C_BOLD}{self.sender_name}{C_RESET} | Chat: {self.chat_id}{media_str}")
-        print(f"{C_DIM}Message:{C_RESET} {self.message_text}")
-        print(f"{C_BLUE}{'-' * 70}{C_RESET}")
+        media_tag = " [MEDIA ATTACHMENT]" if self.has_media else ""
+        border = "─" * 72
+        print(f"\n{CYAN}┌── [AGENT TURN START] {border[:48]}{RESET}")
+        print(f"{CYAN}│{RESET}  {BOLD}User   :{RESET} {self.sender_name} {DIM}({self.chat_id}){RESET}{media_tag}")
+        print(f"{CYAN}│{RESET}  {BOLD}Input  :{RESET} \"{self.message_text}\"")
+        print(f"{CYAN}│{RESET}")
         sys.stdout.flush()
 
     def log_step(
@@ -120,33 +130,33 @@ class AgentTurnTracer:
             if len(res_str) > 160:
                 res_str = res_str[:160] + "..."
 
-            print(f"{C_YELLOW}[STEP {step}/{max_steps}]{C_RESET} {C_DIM}({model_name} in {elapsed:.0f}ms){C_RESET}")
-            print(f"  {C_BOLD}Tool Invocation:{C_RESET} {C_GREEN}{func}{C_RESET}")
-            print(f"  {C_DIM}Arguments      :{C_RESET} {args_str}")
-            print(f"  {C_DIM}Result         :{C_RESET} {res_str}")
-            print(f"{C_GRAY}{'-' * 70}{C_RESET}")
+            print(f"{CYAN}│{RESET}  {YELLOW}[Step {step}/{max_steps}]{RESET} {DIM}(Model: {model_name} | {elapsed:.0f}ms){RESET}")
+            print(f"{CYAN}│{RESET}  ├── {BOLD}Action{RESET} : {GREEN}Tool Call -> {func}{RESET}")
+            print(f"{CYAN}│{RESET}  ├── {BOLD}Args  {RESET} : {DIM}{args_str}{RESET}")
+            print(f"{CYAN}│{RESET}  └── {BOLD}Result{RESET} : {DIM}{res_str}{RESET}")
+            print(f"{CYAN}│{RESET}")
         elif final_text:
             preview = final_text.replace("\n", " ")
             if len(preview) > 160:
                 preview = preview[:160] + "..."
-            print(f"{C_YELLOW}[STEP {step}/{max_steps}]{C_RESET} {C_DIM}({model_name} in {elapsed:.0f}ms){C_RESET}")
-            print(f"  {C_BOLD}Model Output   :{C_RESET} {preview}")
-            print(f"{C_GRAY}{'-' * 70}{C_RESET}")
+            print(f"{CYAN}│{RESET}  {YELLOW}[Step {step}/{max_steps}]{RESET} {DIM}(Model: {model_name} | {elapsed:.0f}ms){RESET}")
+            print(f"{CYAN}│{RESET}  └── {BOLD}Output{RESET} : \"{preview}\"")
+            print(f"{CYAN}│{RESET}")
         sys.stdout.flush()
 
     def log_completed(self, reply_text: str | None, status: str = "completed") -> None:
         self.final_reply = reply_text
         self.status = status
         total_time = (time.time() - self.start_time) * 1000
-        border = "=" * 70
+        border = "─" * 72
 
         if reply_text and reply_text not in ("[NO_REPLY]", "NO_REPLY", "None"):
-            print(f"{C_BOLD}{C_GREEN}DISPATCH SUCCESS{C_RESET} | Latency: {total_time:.0f}ms | Total Steps: {len(self.steps)}")
-            print(f"{C_BOLD}Sent Text:{C_RESET}\n{reply_text}")
-            print(f"{C_BLUE}{border}{C_RESET}\n")
+            print(f"{CYAN}│{RESET}  {BOLD}[STATUS]{RESET} : {GREEN}DISPATCHED TO WHATSAPP{RESET} {DIM}(Latency: {total_time:.0f}ms | Steps: {len(self.steps)}){RESET}")
+            print(f"{CYAN}│{RESET}  {BOLD}Reply  {RESET} : \"{reply_text.replace(chr(10), ' ')}\"")
+            print(f"{CYAN}└── [AGENT TURN END] {border[:50]}{RESET}\n")
         else:
-            print(f"{C_DIM}DISPATCH SILENT (No WhatsApp reply required) | Latency: {total_time:.0f}ms{C_RESET}")
-            print(f"{C_BLUE}{border}{C_RESET}\n")
+            print(f"{CYAN}│{RESET}  {BOLD}[STATUS]{RESET} : {DIM}SILENT (No chat reply needed | Latency: {total_time:.0f}ms){RESET}")
+            print(f"{CYAN}└── [AGENT TURN END] {border[:50]}{RESET}\n")
         sys.stdout.flush()
 
         self._save_trace_to_disk(total_time)
@@ -168,5 +178,5 @@ class AgentTurnTracer:
             }
             with open(TRACES_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        except Exception as e:
-            logging.getLogger("helmis-trace").warning("Could not persist trace record: %s", e)
+        except Exception:
+            pass

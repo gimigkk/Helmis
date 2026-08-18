@@ -848,7 +848,7 @@ async def run_agentic_react_loop(
         contents[-1]["parts"].insert(0, {"inlineData": media_data})
 
     for step in range(max_steps):
-        log.info("Running Agentic ReAct step %d/%d for [%s]...", step + 1, max_steps, sender_name)
+        log.debug("Running Agentic ReAct step %d/%d for [%s]...", step + 1, max_steps, sender_name)
         payload = {
             "systemInstruction": {"parts": [{"text": full_system_instruction}]},
             "contents": contents,
@@ -940,10 +940,10 @@ async def run_agentic_react_loop(
                     final_text=cleaned,
                 )
             if cleaned in ("[NO_REPLY]", "NO_REPLY", "None"):
-                log.info("Agent decided no reply is needed for this turn.")
+                log.debug("Agent decided no reply is needed for this turn.")
                 return None
-            log.info("Agent finalized response in %d steps: %s", step + 1, cleaned[:60])
+            log.debug("Agent finalized response in %d steps: %s", step + 1, cleaned[:60])
             return cleaned
 
-    log.info("Agent finished execution steps silently without emitting chat message.")
+    log.debug("Agent finished execution steps silently without emitting chat message.")
     return None
