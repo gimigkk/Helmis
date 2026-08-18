@@ -1,6 +1,7 @@
 """
-logger.py — Standard, concise agentic logger for Helmis.
-Follows standard Python logging format with zero emojis and total noise suppression.
+logger.py — Formatted, structured agentic step tracer for Helmis.
+Provides a clean, hierarchical terminal trace for seamless debugging.
+Zero emojis, strict professional ANSI colors, structured alignment, and noise filtering.
 """
 
 import json
@@ -10,14 +11,16 @@ import sys
 import time
 from typing import Any
 
-# Standard ANSI Color Palette
-C_RESET = "\033[0m"
-C_DIM = "\033[2m"
-C_CYAN = "\033[36m"
-C_GREEN = "\033[32m"
-C_YELLOW = "\033[33m"
-C_MAGENTA = "\033[35m"
-C_GRAY = "\033[90m"
+# ANSI Color Palette
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+CYAN = "\033[36m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+MAGENTA = "\033[35m"
+GRAY = "\033[90m"
 
 
 class CleanLogFormatter(logging.Formatter):
@@ -28,15 +31,15 @@ class CleanLogFormatter(logging.Formatter):
         lvl = record.levelname
 
         if lvl == "INFO":
-            badge = f"{C_CYAN}[INFO]{C_RESET}"
+            badge = f"{CYAN}[INFO]{RESET}"
         elif lvl == "WARNING":
-            badge = f"{C_YELLOW}[WARN]{C_RESET}"
+            badge = f"{YELLOW}[WARN]{RESET}"
         elif lvl == "ERROR":
-            badge = f"{C_MAGENTA}[ERROR]{C_RESET}"
+            badge = f"{MAGENTA}[ERROR]{RESET}"
         else:
-            badge = f"{C_GRAY}[{lvl}]{C_RESET}"
+            badge = f"{GRAY}[{lvl}]{RESET}"
 
-        return f"{C_GRAY}{t_str}{C_RESET} {badge} {C_DIM}{record.name}:{C_RESET} {record.getMessage()}"
+        return f"{GRAY}{t_str}{RESET} {badge} {DIM}{record.name}:{RESET} {record.getMessage()}"
 
 
 class NoHealthLogFilter(logging.Filter):
@@ -57,7 +60,7 @@ class NoHealthLogFilter(logging.Filter):
 
 
 def setup_logging() -> None:
-    """Configure root logger with clean formatter and silence third-party chatty loggers."""
+    """Configure root logger and completely silence third-party chatty loggers."""
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(CleanLogFormatter())
     handler.addFilter(NoHealthLogFilter())
@@ -100,7 +103,9 @@ TRACES_FILE = os.path.join(TRACES_DIR, "agent_traces.jsonl")
 
 
 class AgentTurnTracer:
-    """Tracks turn lifecycle and logs concise standard lines."""
+    """
+    Renders structured, formatted agent steps in terminal logs for effortless debugging.
+    """
 
     def __init__(self, sender_name: str, chat_id: str, message_text: str, has_media: bool = False):
         self.sender_name = sender_name
@@ -113,11 +118,13 @@ class AgentTurnTracer:
         self.status: str = "running"
 
     def log_incoming(self) -> None:
-        media_str = " (media attached)" if self.has_media else ""
-        preview = self.message_text.replace("\n", " ").strip()
-        if len(preview) > 90:
-            preview = preview[:90] + "..."
-        log.info("[%s] In: \"%s\"%s", self.sender_name, preview, media_str)
+        media_tag = f" {YELLOW}[MEDIA ATTACHED]{RESET}" if self.has_media else ""
+        border = "─" * 70
+        print(f"\n{CYAN}┌── [AGENT TURN START] {border[:48]}{RESET}")
+        print(f"{CYAN}│{RESET}  {BOLD}User   :{RESET} {self.sender_name} {DIM}({self.chat_id}){RESET}{media_tag}")
+        print(f"{CYAN}│{RESET}  {BOLD}Input  :{RESET} \"{self.message_text}\"")
+        print(f"{CYAN}│{RESET}")
+        sys.stdout.flush()
 
     def log_step(
         self,
@@ -139,51 +146,46 @@ class AgentTurnTracer:
         }
         self.steps.append(step_info)
 
+        divider = "─" * 50
+        print(f"{CYAN}│{RESET}  {YELLOW}── Step {step}/{max_steps} [{model_name} | {elapsed:.0f}ms] {divider[:32]}{RESET}")
+
         if tool_call:
-            func = tool_call.get("name")
+            func = tool_call.get("name", "")
             args = tool_call.get("args", {})
-            args_str = json.dumps(args, ensure_ascii=False)
-            if len(args_str) > 80:
-                args_str = args_str[:80] + "..."
+            args_formatted = json.dumps(args, ensure_ascii=False, indent=2)
+            # Indent multi-line args
+            args_indented = args_formatted.replace("\n", "\n" + f"{CYAN}│{RESET}           ")
 
-            res_str = json.dumps(tool_result, ensure_ascii=False) if tool_result is not None else ""
-            if len(res_str) > 80:
-                res_str = res_str[:80] + "..."
+            res_formatted = json.dumps(tool_result, ensure_ascii=False, indent=2) if tool_result is not None else ""
+            if len(res_formatted) > 300:
+                res_formatted = res_formatted[:300] + "\n... (truncated)"
+            res_indented = res_formatted.replace("\n", "\n" + f"{CYAN}│{RESET}           ")
 
-            log.info(
-                "[%s] Step %d/%d: %s(%s) -> %s (%dms)",
-                self.sender_name,
-                step,
-                max_steps,
-                func,
-                args_str,
-                res_str,
-                int(elapsed),
-            )
+            print(f"{CYAN}│{RESET}  {BOLD}Tool   :{RESET} {GREEN}{func}{RESET}")
+            print(f"{CYAN}│{RESET}  {BOLD}Args   :{RESET} {DIM}{args_indented}{RESET}")
+            print(f"{CYAN}│{RESET}  {BOLD}Result :{RESET} {DIM}{res_indented}{RESET}")
+            print(f"{CYAN}│{RESET}")
+        elif final_text:
+            output_indented = final_text.strip().replace("\n", "\n" + f"{CYAN}│{RESET}           ")
+            print(f"{CYAN}│{RESET}  {BOLD}Output :{RESET} {output_indented}")
+            print(f"{CYAN}│{RESET}")
+        sys.stdout.flush()
 
     def log_completed(self, reply_text: str | None, status: str = "completed") -> None:
         self.final_reply = reply_text
         self.status = status
         total_time = (time.time() - self.start_time) * 1000
+        border = "─" * 70
 
         if reply_text and reply_text not in ("[NO_REPLY]", "NO_REPLY", "None"):
-            preview = reply_text.replace("\n", " ").strip()
-            if len(preview) > 100:
-                preview = preview[:100] + "..."
-            log.info(
-                "[%s] Reply (%dms, %d step%s): \"%s\"",
-                self.sender_name,
-                int(total_time),
-                len(self.steps),
-                "s" if len(self.steps) > 1 else "",
-                preview,
-            )
+            reply_indented = reply_text.strip().replace("\n", "\n" + f"{CYAN}│{RESET}          ")
+            print(f"{CYAN}│{RESET}  {GREEN}── Turn Dispatched [{total_time:.0f}ms | {len(self.steps)} step{'s' if len(self.steps) > 1 else ''}] {border[:34]}{RESET}")
+            print(f"{CYAN}│{RESET}  {BOLD}Reply :{RESET} {reply_indented}")
+            print(f"{CYAN}└── [AGENT TURN END] {border[:50]}{RESET}\n")
         else:
-            log.info(
-                "[%s] Silent turn (no reply needed, %dms)",
-                self.sender_name,
-                int(total_time),
-            )
+            print(f"{CYAN}│{RESET}  {DIM}── Turn Silent (No WhatsApp reply required | {total_time:.0f}ms) {border[:30]}{RESET}")
+            print(f"{CYAN}└── [AGENT TURN END] {border[:50]}{RESET}\n")
+        sys.stdout.flush()
 
         self._save_trace_to_disk(total_time)
 
