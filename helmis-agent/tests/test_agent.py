@@ -148,3 +148,28 @@ async def test_execute_tool_call_delete_memory() -> None:
             default_sender="Gilang",
         )
         assert res["status"] == "success"
+
+
+def test_verify_action_fidelity_catches_false_delete() -> None:
+    # Model claims it deleted, but tools returned not_found (0 deleted)
+    tools_failed = [{"name": "delete_memory", "result": {"status": "not_found", "deleted_count": 0}}]
+    corrected = agent.verify_action_fidelity("Sip, memori tersebut sudah saya hapus.", tools_failed)
+    assert "tidak ditemukan" in corrected.lower()
+
+    # Model claims it deleted, but 0 tools were executed
+    corrected_no_tools = agent.verify_action_fidelity("Sip, memori tersebut sudah saya hapus.", [])
+    assert "tidak ditemukan" in corrected_no_tools.lower()
+
+    # Model claims it deleted, and delete succeeded
+    tools_success = [{"name": "delete_memory", "result": {"status": "success", "deleted_count": 1}}]
+    verified = agent.verify_action_fidelity("Sip, memori tersebut sudah saya hapus.", tools_success)
+    assert verified == "Sip, memori tersebut sudah saya hapus."
+
+
+def test_verify_action_fidelity_catches_false_save() -> None:
+    # Model claims it saved to memory during photo analysis, but never called remember_fact
+    false_claim = "Gambar ini menunjukkan sepiring makanan. Sudah saya simpan ke memori."
+    cleaned = agent.verify_action_fidelity(false_claim, [])
+    assert "Sudah saya simpan ke memori" not in cleaned
+    assert "Gambar ini menunjukkan sepiring makanan" in cleaned
+

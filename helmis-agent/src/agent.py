@@ -421,7 +421,122 @@ def load_all_skills() -> str:
     return "\n\n## ACTIVE SKILLS & BEHAVIORAL PLAYBOOKS:\n" + "\n\n---\n\n".join(skill_texts)
 
 
+def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, Any]:
+    """Inject unambiguous strict honesty directives into tool outputs returned to Gemini."""
+    status = result.get("status")
+    if status == "not_found":
+        result["_model_directive"] = (
+            f"CRITICAL HONESTY: Item for '{func_name}' was NOT found. You MUST explicitly tell the user that the data/memory does not exist or was never stored in the database. DO NOT pretend or claim that you found, deleted, or updated it!"
+        )
+    elif status == "error":
+        result["_model_directive"] = (
+            f"CRITICAL HONESTY: Tool '{func_name}' failed with an error. State the error honestly to the user and do NOT claim success."
+        )
+    elif status == "success":
+        deleted_count = result.get("deleted_count")
+        if deleted_count == 0:
+            result["_model_directive"] = (
+                "CRITICAL HONESTY: 0 items were deleted. Inform the user clearly that no matching items were found in the database."
+            )
+        else:
+            result["_model_directive"] = "Action confirmed successful. State the verified outcome directly."
+    return result
+
+
+def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> str:
+    """
+    Programmatic Post-Synthesis Guardrail:
+    Intercepts and corrects any false action claims or hallucinations before WhatsApp dispatch.
+    """
+    lower = text.lower()
+
+    # 1. Verification of deletion claims
+    delete_phrases = [
+        "sudah saya hapus",
+        "sudah dihapus",
+        "berhasil dihapus",
+        "telah dihapus",
+        "telah saya hapus",
+        "memori tersebut sudah saya hapus",
+        "sudah berhasil dihapus",
+        "sudah hapus",
+    ]
+    if any(p in lower for p in delete_phrases):
+        delete_success = any(
+            t.get("result", {}).get("status") == "success"
+            and (t.get("result", {}).get("deleted_count", 1) > 0 or t.get("name") == "delete_task")
+            for t in executed_tools
+            if t.get("name") in ("delete_memory", "delete_note", "delete_task")
+        )
+        if not delete_success:
+            return "Data atau memori tersebut tidak ditemukan di database (belum pernah tersimpan sebelumnya)."
+
+    # 2. Verification of memory/note save claims
+    save_phrases = [
+        "sudah saya simpan ke memori",
+        "sudah disimpan ke memori",
+        "sudah dicatat ke memori",
+        "sudah saya catat ke memori",
+        "telah disimpan ke memori",
+        "disimpan ke memori",
+    ]
+    if any(p in lower for p in save_phrases):
+        save_success = any(
+            t.get("result", {}).get("status") == "success"
+            for t in executed_tools
+            if t.get("name") in ("remember_fact", "save_note", "add_task")
+        )
+        if not save_success:
+            # Strip false memory confirmation from text
+            cleaned = text
+            for p in [
+                "Sudah saya simpan ke memori.",
+                "sudah saya simpan ke memori.",
+                "Sudah saya simpan ke memori",
+                "sudah saya simpan ke memori",
+                "Telah disimpan ke memori.",
+                "telah disimpan ke memori.",
+            ]:
+                cleaned = cleaned.replace(p, "").strip()
+            return cleaned if cleaned else "Informasi telah diterima."
+
+    # 3. Verification of task completion claims
+    complete_phrases = ["sudah saya selesaikan", "telah diselesaikan", "berhasil diselesaikan", "task selesai"]
+    if any(p in lower for p in complete_phrases):
+        comp_success = any(
+            t.get("result", {}).get("status") == "success"
+            for t in executed_tools
+            if t.get("name") == "complete_task"
+        )
+        if not comp_success and not any(t.get("name") == "complete_task" for t in executed_tools):
+            return "Task tersebut tidak ditemukan di daftar task pending."
+
+    # 4. Verification of WhatsApp message send claims
+    send_phrases = ["sudah saya kirimkan pesan", "sudah saya kirim pesan", "pesan telah dikirim", "sudah dikirimkan ke"]
+    if any(p in lower for p in send_phrases):
+        send_success = any(
+            t.get("result", {}).get("status") == "success"
+            for t in executed_tools
+            if t.get("name") == "send_whatsapp_message"
+        )
+        if not send_success:
+            return "Pesan belum terkirim ke WhatsApp."
+
+    return text
+
+
 async def execute_tool_call(
+    func_name: str,
+    args: dict[str, Any],
+    default_sender: str,
+    client: WahaClient | None = None,
+) -> dict[str, Any]:
+    """Execute local memory function and return structured result with fidelity directives."""
+    res = await _execute_tool_call_raw(func_name, args, default_sender, client)
+    return inject_tool_directive(res, func_name)
+
+
+async def _execute_tool_call_raw(
     func_name: str,
     args: dict[str, Any],
     default_sender: str,
@@ -897,13 +1012,15 @@ async def run_agentic_react_loop(
     if media_data and contents:
         contents[-1]["parts"].insert(0, {"inlineData": media_data})
 
+    executed_tools: list[dict[str, Any]] = []
+
     for step in range(max_steps):
         log.debug("Running Agentic ReAct step %d/%d for [%s]...", step + 1, max_steps, sender_name)
         payload = {
             "systemInstruction": {"parts": [{"text": full_system_instruction}]},
             "contents": contents,
             "tools": GEMINI_TOOLS,
-            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 350},
+            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 350},
         }
 
         # Attempt call with Multi-Model & Multi-Key Cascade
@@ -951,6 +1068,7 @@ async def run_agentic_react_loop(
 
             # Execute tool locally
             tool_result = await execute_tool_call(func_name, func_args, sender_name, client=client)
+            executed_tools.append({"name": func_name, "args": func_args, "result": tool_result})
 
             if tracer:
                 tracer.log_step(
@@ -981,7 +1099,8 @@ async def run_agentic_react_loop(
         # Case B: Model generated final text output
         text = candidate_part.get("text", "")
         if isinstance(text, str) and text.strip():
-            cleaned = text.strip()
+            raw_cleaned = text.strip()
+            cleaned = verify_action_fidelity(raw_cleaned, executed_tools)
             if tracer:
                 tracer.log_step(
                     step=step + 1,
