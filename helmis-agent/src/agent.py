@@ -500,8 +500,48 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
                 cleaned = cleaned.replace(p, "").strip()
             return cleaned if cleaned else "Informasi telah diterima."
 
-    # 3. Verification of task completion claims
-    complete_phrases = ["sudah saya selesaikan", "telah diselesaikan", "berhasil diselesaikan", "task selesai"]
+    # 3. Verification of task creation claims
+    add_task_phrases = [
+        "sudah saya catat sebagai task",
+        "sudah ditambahkan ke daftar task",
+        "task baru berhasil dibuat",
+        "task berhasil ditambahkan",
+        "task telah dicatat",
+        "sudah saya jadwalkan sebagai task",
+    ]
+    if any(p in lower for p in add_task_phrases):
+        add_success = any(
+            t.get("result", {}).get("status") == "success"
+            for t in executed_tools
+            if t.get("name") == "add_task"
+        )
+        if not add_success:
+            return "Task belum berhasil dicatat karena tidak ada aksi penambahan task yang valid."
+
+    # 4. Verification of task update claims
+    update_task_phrases = [
+        "task berhasil diupdate",
+        "deadline task sudah diubah",
+        "sudah saya update tasknya",
+        "task telah diupdate",
+    ]
+    if any(p in lower for p in update_task_phrases):
+        update_success = any(
+            t.get("result", {}).get("status") == "success"
+            for t in executed_tools
+            if t.get("name") == "update_task"
+        )
+        if not update_success:
+            return "Task tersebut tidak ditemukan di database untuk diupdate."
+
+    # 5. Verification of task completion claims
+    complete_phrases = [
+        "sudah saya selesaikan",
+        "telah diselesaikan",
+        "berhasil diselesaikan",
+        "task selesai",
+        "ditandai selesai",
+    ]
     if any(p in lower for p in complete_phrases):
         comp_success = any(
             t.get("result", {}).get("status") == "success"
@@ -511,8 +551,29 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
         if not comp_success and not any(t.get("name") == "complete_task" for t in executed_tools):
             return "Task tersebut tidak ditemukan di daftar task pending."
 
-    # 4. Verification of WhatsApp message send claims
-    send_phrases = ["sudah saya kirimkan pesan", "sudah saya kirim pesan", "pesan telah dikirim", "sudah dikirimkan ke"]
+    # 6. Verification of contact addition claims
+    add_person_phrases = [
+        "kontak berhasil disimpan",
+        "sudah saya simpan kontaknya",
+        "kontak telah ditambahkan",
+        "kontak berhasil dicatat",
+    ]
+    if any(p in lower for p in add_person_phrases):
+        person_success = any(
+            t.get("result", {}).get("status") == "success"
+            for t in executed_tools
+            if t.get("name") == "add_person"
+        )
+        if not person_success:
+            return "Kontak belum dapat disimpan di direktori."
+
+    # 7. Verification of WhatsApp message send claims
+    send_phrases = [
+        "sudah saya kirimkan pesan",
+        "sudah saya kirim pesan",
+        "pesan telah dikirim",
+        "sudah dikirimkan ke",
+    ]
     if any(p in lower for p in send_phrases):
         send_success = any(
             t.get("result", {}).get("status") == "success"
