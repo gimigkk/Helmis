@@ -176,19 +176,46 @@ async def search_memories(
     return [item[1] for item in results[:top_k]]
 
 
-def delete_memory(query: str, user_id: str | None = None) -> dict[str, Any]:
-    """Delete facts/preferences matching query keyword from semantic vector storage."""
+async def delete_memory(query: str, user_id: str | None = None) -> dict[str, Any]:
+    """Delete facts/preferences matching query keyword or semantic meaning from vector storage."""
     memories = load_semantic_memories()
     clean_q = query.strip().lower()
+    if not clean_q:
+        return {"status": "error", "error": "Query tidak boleh kosong."}
+
     initial_count = len(memories)
+    q_tokens = [w for w in clean_q.split() if len(w) > 2]
 
     kept: list[dict[str, Any]] = []
     deleted: list[str] = []
+
+    # First pass: substring or token matching
     for m in memories:
-        if (not user_id or m.get("user_id") in (user_id, "Both", "all")) and clean_q in m.get("fact", "").lower():
+        f_text = str(m.get("fact", "")).lower()
+        u_match = not user_id or m.get("user_id") in (user_id, "Both", "all")
+        matched = u_match and (clean_q in f_text or (q_tokens and all(tok in f_text for tok in q_tokens)))
+        if matched:
             deleted.append(str(m.get("fact", "")))
         else:
             kept.append(m)
+
+    # Second pass: if nothing matched with tokens, try embedding similarity > 0.78
+    if not deleted:
+        try:
+            q_vec = await get_embedding(clean_q)
+            kept_vec: list[dict[str, Any]] = []
+            for m in kept:
+                u_match = not user_id or m.get("user_id") in (user_id, "Both", "all")
+                vec = m.get("embedding")
+                if u_match and vec and q_vec:
+                    sim = cosine_similarity(q_vec, vec)
+                    if sim >= 0.78:
+                        deleted.append(str(m.get("fact", "")))
+                        continue
+                kept_vec.append(m)
+            kept = kept_vec
+        except Exception:
+            pass
 
     if len(kept) < initial_count:
         save_semantic_memories(kept)
@@ -197,9 +224,13 @@ def delete_memory(query: str, user_id: str | None = None) -> dict[str, Any]:
             "status": "success",
             "deleted_count": len(deleted),
             "deleted_facts": deleted,
-            "message": f"Berhasil menghapus {len(deleted)} memori.",
+            "message": f"Berhasil menghapus {len(deleted)} memori dari database.",
         }
-    return {"status": "not_found", "message": f"Tidak ditemukan memori yang cocok dengan '{query}'."}
+    return {
+        "status": "not_found",
+        "deleted_count": 0,
+        "message": f"Tidak ditemukan memori yang cocok dengan '{query}'. Memori tersebut memang belum pernah tersimpan di database.",
+    }
 
 
 async def extract_facts_from_turn_background(

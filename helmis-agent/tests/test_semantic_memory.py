@@ -57,3 +57,27 @@ async def test_add_and_search_semantic_memories(monkeypatch: pytest.MonkeyPatch)
     results_pet = await sem_mem.search_memories("peliharaan kucing", user_id="Bunga")
     assert len(results_pet) >= 1
     assert "kucing" in results_pet[0]["fact"]
+
+
+@pytest.mark.asyncio
+async def test_delete_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def mock_embedding(text: str) -> list[float]:
+        if "ayam" in text.lower():
+            return [1.0, 0.0, 0.0]
+        elif "salad" in text.lower():
+            return [0.0, 1.0, 0.0]
+        return [0.0, 0.0, 1.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+
+    await sem_mem.add_memory("Gilang suka ayam goreng", user_id="Gilang")
+    await sem_mem.add_memory("Bunga suka salad", user_id="Bunga")
+
+    res_not_found = await sem_mem.delete_memory("rendang", user_id="Gilang")
+    assert res_not_found["status"] == "not_found"
+    assert res_not_found["deleted_count"] == 0
+
+    res_del = await sem_mem.delete_memory("ayam goreng", user_id="Gilang")
+    assert res_del["status"] == "success"
+    assert res_del["deleted_count"] == 1
+

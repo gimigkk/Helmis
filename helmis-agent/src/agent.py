@@ -561,7 +561,7 @@ async def execute_tool_call(
                 return {"status": "error", "error": "Query penghapusan memori tidak boleh kosong."}
             from . import semantic_memory
 
-            res_mem = semantic_memory.delete_memory(query=query, user_id=user_id)
+            res_mem = await semantic_memory.delete_memory(query=query, user_id=user_id)
             return res_mem
 
         elif func_name == "recall_memory":
@@ -856,8 +856,10 @@ async def run_agentic_react_loop(
         f"2. CONVERSATIONAL INTENT & SILENCE COMPLIANCE:\n"
         f"   - Respond promptly, naturally, and helpfully to the user.\n"
         f"   - If the user's intent is to dismiss you, request silence, or test silence, obey completely by outputting ONLY '[NO_REPLY]'. Do not send a message confirming silence.\n\n"
-        f"3. ACTION INTEGRITY & ZERO FABRICATION:\n"
-        f"   - You must NEVER claim or imply that an action was executed (e.g. 'sudah saya hapus', 'sudah dicatat', 'sudah dikirim', 'sudah diupdate', 'sudah diselesaikan') unless you explicitly invoked the corresponding tool in this turn and verified that the tool returned a success status!\n"
+        f"3. ACTION INTEGRITY & STRICT TOOL FIDELITY (ZERO FABRICATION):\n"
+        f"   - You must faithfully report the TRUE status of actions and tool results.\n"
+        f"   - If a tool returns `status: 'not_found'` or `deleted_count: 0`, you MUST explain that the item was not found or was never saved in the database. NEVER claim 'sudah saya hapus' when 0 items were deleted or when the tool returned not_found!\n"
+        f"   - When describing photos, audio, or media, DO NOT claim 'Sudah saya simpan ke memori' unless you explicitly invoked 'remember_fact' or 'save_note' and received status 'success' in this exact turn!\n"
         f"   - If the user asks to delete a memory, habit, or preference, invoke 'delete_memory'.\n"
         f"   - If the user asks to delete a note, invoke 'delete_note'.\n"
         f"   - If the user asks to delete a task, invoke 'delete_task'.\n"
