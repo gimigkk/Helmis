@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import threading
 from datetime import datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -23,34 +24,47 @@ DATA_DIR = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else
 SEMANTIC_MEMORY_FILE = os.path.join(DATA_DIR, "semantic_memories.json")
 TZ = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
 
+_semantic_lock = threading.Lock()
+
 
 def _ensure_dir() -> None:
     os.makedirs(os.path.dirname(SEMANTIC_MEMORY_FILE), exist_ok=True)
 
 
 def load_semantic_memories() -> list[dict[str, Any]]:
-    """Load persistent memories from disk."""
+    """Load persistent memories from disk with thread-safety."""
     _ensure_dir()
-    if not os.path.exists(SEMANTIC_MEMORY_FILE):
+    with _semantic_lock:
+        if not os.path.exists(SEMANTIC_MEMORY_FILE):
+            return []
+        try:
+            with open(SEMANTIC_MEMORY_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return cast(list[dict[str, Any]], data)
+        except Exception as e:
+            log.error("Failed to load semantic memory file: %s", e)
         return []
-    try:
-        with open(SEMANTIC_MEMORY_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return cast(list[dict[str, Any]], data)
-    except Exception as e:
-        log.error("Failed to load semantic memory file: %s", e)
-    return []
 
 
 def save_semantic_memories(memories: list[dict[str, Any]]) -> None:
-    """Save persistent memories to disk."""
+    """Save persistent memories atomically to disk."""
     _ensure_dir()
-    try:
-        with open(SEMANTIC_MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(memories, f, indent=2, ensure_ascii=False)
-    except Exception as e:
-        log.error("Failed to save semantic memory file: %s", e)
+    with _semantic_lock:
+        tmp_file = f"{SEMANTIC_MEMORY_FILE}.tmp.{os.getpid()}"
+        try:
+            with open(tmp_file, "w", encoding="utf-8") as f:
+                json.dump(memories, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_file, SEMANTIC_MEMORY_FILE)
+        except Exception as e:
+            log.error("Failed to save semantic memory file: %s", e)
+            if os.path.exists(tmp_file):
+                try:
+                    os.remove(tmp_file)
+                except Exception:
+                    pass
 
 
 async def get_embedding(text: str) -> list[float] | None:

@@ -8,6 +8,7 @@ Provides clean Python methods to query and update memory.
 import json
 import logging
 import os
+import threading
 from datetime import datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -18,6 +19,8 @@ DATA_DIR = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else
 MEMORY_FILE = os.path.join(DATA_DIR, "helmis_memory.json")
 TZ = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
 
+_memory_lock = threading.Lock()
+
 
 def _ensure_data_dir() -> None:
     """Ensure data directory exists."""
@@ -25,7 +28,7 @@ def _ensure_data_dir() -> None:
 
 
 def load_memory() -> dict[str, Any]:
-    """Load persistent memory from disk."""
+    """Load persistent memory from disk with thread-safety."""
     _ensure_data_dir()
     default_memory: dict[str, Any] = {
         "tasks": [],
@@ -45,32 +48,49 @@ def load_memory() -> dict[str, Any]:
         "notes": [],
     }
 
-    if not os.path.exists(MEMORY_FILE):
-        save_memory(default_memory)
-        return default_memory
-
-    try:
-        with open(MEMORY_FILE, encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, dict):
-                for k, v in default_memory.items():
-                    if k not in data:
-                        data[k] = v
-                return cast(dict[str, Any], data)
+    with _memory_lock:
+        if not os.path.exists(MEMORY_FILE):
+            # Save default memory atomically
+            _save_memory_unlocked(default_memory)
             return default_memory
-    except Exception as e:
-        log.error("Failed to load memory file (%s): %s", MEMORY_FILE, e)
-        return default_memory
+
+        try:
+            with open(MEMORY_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    for k, v in default_memory.items():
+                        if k not in data:
+                            data[k] = v
+                    return cast(dict[str, Any], data)
+                return default_memory
+        except Exception as e:
+            log.error("Failed to load memory file (%s): %s", MEMORY_FILE, e)
+            return default_memory
 
 
 def save_memory(data: dict[str, Any]) -> None:
-    """Save persistent memory to disk."""
+    """Save persistent memory atomically to disk."""
     _ensure_data_dir()
+    with _memory_lock:
+        _save_memory_unlocked(data)
+
+
+def _save_memory_unlocked(data: dict[str, Any]) -> None:
+    """Internal atomic write helper."""
+    tmp_file = f"{MEMORY_FILE}.tmp.{os.getpid()}"
     try:
-        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+        with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_file, MEMORY_FILE)
     except Exception as e:
         log.error("Failed to save memory file (%s): %s", MEMORY_FILE, e)
+        if os.path.exists(tmp_file):
+            try:
+                os.remove(tmp_file)
+            except Exception:
+                pass
 
 
 def get_time_of_day_info() -> tuple[str, str]:

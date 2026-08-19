@@ -5,6 +5,7 @@ webhook.py — Starlette HTTP webhook receiver for WAHA and Scheduler events.
 import asyncio
 import logging
 import os
+import time
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -15,6 +16,7 @@ from .agent import run_agentic_react_loop
 from .client import WahaClient
 from .history import is_duplicate_message
 from .proactive import handle_proactive_scheduler_tick
+from .queue import ChatQueueManager, IncomingMessageEvent
 
 log = logging.getLogger("helmis-webhook")
 
@@ -50,7 +52,115 @@ ALLOWED_CHATS = set(
 
 
 def create_webhook_app(client: WahaClient) -> Starlette:
-    """Create Starlette app for webhooks and health checks."""
+    """Create Starlette app for webhooks and health checks with Per-Chat Debounce Queue."""
+
+    async def process_batched_turn(batch: list[IncomingMessageEvent]) -> None:
+        if not batch:
+            return
+
+        last_event = batch[-1]
+        sender_name = last_event.sender_name
+        from_user = last_event.from_user
+        reply_id = last_event.reply_id
+
+        # Combine all debounced texts into a single coherent prompt
+        all_texts = [e.text.strip() for e in batch if e.text and e.text.strip()]
+        combined_text = "\n".join(all_texts)
+
+        has_media = any(e.has_media for e in batch)
+        media_event = next((e for e in reversed(batch) if e.has_media and e.media_url), None)
+        media_url = media_event.media_url if media_event else None
+
+        await client.start_typing(chat_id=from_user)
+        from .logger import AgentTurnTracer
+
+        tracer = AgentTurnTracer(
+            sender_name=sender_name,
+            chat_id=from_user,
+            message_text=combined_text,
+            has_media=has_media,
+        )
+        tracer.log_incoming()
+
+        try:
+            is_voice_note = False
+            vn_transcript: str | None = None
+            media_data: dict[str, str] | None = None
+
+            if has_media and media_url:
+                media_res = await client.download_media_base64(media_url)
+                if media_res:
+                    mime_type, b64_data = media_res
+                    if mime_type.startswith("audio/"):
+                        is_voice_note = True
+                        log.info("Phase 1: Running dedicated audio transcription for [%s]...", sender_name)
+                        from .agent import transcribe_audio_base64
+
+                        vn_transcript = await transcribe_audio_base64(b64_data, mime_type)
+                        if not vn_transcript:
+                            log.warning("Audio was silent or unintelligible.")
+                            fallback_msg = '> "(Audio tidak terdengar jelas)"\n\nMaaf, pesan suara tidak terdengar jelas. Bisa tolong ulangi lagi?'
+                            tracer.log_completed(fallback_msg, status="unintelligible_audio")
+                            await client.send_message(
+                                chat_id=from_user,
+                                text=fallback_msg,
+                                reply_to_message_id=reply_id,
+                            )
+                            return
+                        combined_text = vn_transcript
+                        tracer.message_text = vn_transcript
+                        log.info("Phase 1 Success: Transcribed VN as: %s", combined_text)
+                    else:
+                        media_data = {"mimeType": mime_type, "data": b64_data}
+
+            # Phase 2: Run autonomous agent loop on verified text/media
+            reply_text = await run_agentic_react_loop(
+                client=client,
+                sender_name=sender_name,
+                chat_id=from_user,
+                message_text=combined_text,
+                media_data=media_data,
+                max_steps=5,
+                tracer=tracer,
+            )
+
+            final_text: str | None = None
+            if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
+                clean_reply = reply_text.strip()
+                if is_voice_note and vn_transcript:
+                    if clean_reply.startswith("> "):
+                        lines = clean_reply.split("\n", 2)
+                        if len(lines) > 2:
+                            clean_reply = lines[2].strip()
+                        elif len(lines) > 1:
+                            clean_reply = lines[1].strip()
+                    final_text = f'> "{vn_transcript}"\n\n{clean_reply}'
+                else:
+                    final_text = clean_reply
+
+                tracer.log_completed(final_text, status="dispatched")
+                await client.send_message(
+                    chat_id=from_user,
+                    text=final_text,
+                    reply_to_message_id=reply_id if (has_media and reply_id) else None,
+                )
+                log.debug("Sent verified reply to [%s] in %s", sender_name, from_user)
+
+                from . import semantic_memory
+
+                asyncio.create_task(
+                    semantic_memory.extract_facts_from_turn_background(
+                        user_message=combined_text,
+                        assistant_reply=final_text,
+                        sender_name=sender_name,
+                    )
+                )
+            else:
+                tracer.log_completed(None, status="silent_no_reply")
+        finally:
+            await client.stop_typing(chat_id=from_user)
+
+    queue_manager = ChatQueueManager(turn_handler=process_batched_turn, debounce_seconds=1.0)
 
     async def handle_health(request: Request) -> JSONResponse:
         waha_ok = await client.is_reachable()
@@ -75,6 +185,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             has_media = bool(payload.get("hasMedia") or payload.get("media"))
             media_info = payload.get("media") if isinstance(payload.get("media"), dict) else {}
             media_url = str(media_info.get("url", "")) if media_info else ""
+            media_type = str(media_info.get("mimetype", "")) if media_info else None
 
             # Ignore self-messages or completely empty messages without media
             if from_me or (not text and not has_media):
@@ -191,104 +302,20 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 text[:50],
             )
 
-            # Run Autonomous Multi-Step ReAct Agent Loop asynchronously
-            async def process_and_reply() -> None:
-                nonlocal text
-                # Indicate active typing presence while agent reasons and executes tools
-                await client.start_typing(chat_id=from_user)
-                from .logger import AgentTurnTracer
-
-                tracer = AgentTurnTracer(
+            # Dispatch into Per-Chat Queue with 1.0s Burst Debouncing
+            queue_manager.dispatch(
+                IncomingMessageEvent(
                     sender_name=sender_name,
-                    chat_id=from_user,
-                    message_text=text,
+                    from_user=from_user,
+                    reply_id=reply_id,
+                    text=text,
                     has_media=has_media,
+                    media_url=media_url,
+                    media_type=media_type,
+                    timestamp=time.time(),
                 )
-                tracer.log_incoming()
-
-                try:
-                    is_voice_note = False
-                    vn_transcript: str | None = None
-                    media_data: dict[str, str] | None = None
-
-                    if has_media and media_url:
-                        media_res = await client.download_media_base64(media_url)
-                        if media_res:
-                            mime_type, b64_data = media_res
-                            if mime_type.startswith("audio/"):
-                                is_voice_note = True
-                                log.info("Phase 1: Running dedicated audio transcription for [%s]...", sender_name)
-                                from .agent import transcribe_audio_base64
-
-                                vn_transcript = await transcribe_audio_base64(b64_data, mime_type)
-                                if not vn_transcript:
-                                    log.warning("Audio was silent or unintelligible.")
-                                    fallback_msg = '> "(Audio tidak terdengar jelas)"\n\nMaaf, pesan suara tidak terdengar jelas. Bisa tolong ulangi lagi?'
-                                    tracer.log_completed(fallback_msg, status="unintelligible_audio")
-                                    await client.send_message(
-                                        chat_id=from_user,
-                                        text=fallback_msg,
-                                        reply_to_message_id=reply_id,
-                                    )
-                                    return
-                                # Set effective text to the exact verified transcript
-                                text = vn_transcript
-                                tracer.message_text = vn_transcript
-                                log.info("Phase 1 Success: Transcribed VN as: %s", text)
-                            else:
-                                media_data = {"mimeType": mime_type, "data": b64_data}
-
-                    # Phase 2: Run autonomous agent loop on verified text/media
-                    reply_text = await run_agentic_react_loop(
-                        client=client,
-                        sender_name=sender_name,
-                        chat_id=from_user,
-                        message_text=text,
-                        media_data=media_data,
-                        max_steps=5,
-                        tracer=tracer,
-                    )
-
-                    final_text: str | None = None
-                    if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
-                        clean_reply = reply_text.strip()
-                        # If this turn was a Voice Note, guarantee the verified blockquote prefix at Python level
-                        if is_voice_note and vn_transcript:
-                            if clean_reply.startswith("> "):
-                                lines = clean_reply.split("\n", 2)
-                                if len(lines) > 2:
-                                    clean_reply = lines[2].strip()
-                                elif len(lines) > 1:
-                                    clean_reply = lines[1].strip()
-                            final_text = f'> "{vn_transcript}"\n\n{clean_reply}'
-                        else:
-                            final_text = clean_reply
-
-                        tracer.log_completed(final_text, status="dispatched")
-                        await client.send_message(
-                            chat_id=from_user,
-                            text=final_text,
-                            reply_to_message_id=reply_id if (has_media and reply_id) else None,
-                        )
-                        log.debug("Sent verified reply to [%s] in %s", sender_name, from_user)
-
-                        # Schedule passive background fact extraction into semantic memory using the actual transcript text!
-                        from . import semantic_memory
-
-                        asyncio.create_task(
-                            semantic_memory.extract_facts_from_turn_background(
-                                user_message=text,
-                                assistant_reply=final_text,
-                                sender_name=sender_name,
-                            )
-                        )
-                    else:
-                        tracer.log_completed(None, status="silent_no_reply")
-                finally:
-                    await client.stop_typing(chat_id=from_user)
-
-            asyncio.create_task(process_and_reply())
-            return JSONResponse({"status": "received", "sender": sender_name})
+            )
+            return JSONResponse({"status": "queued", "sender": sender_name, "chat_id": from_user})
 
         # Scheduler tick
         elif event == "scheduler.tick":
