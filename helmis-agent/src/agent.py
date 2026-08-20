@@ -318,6 +318,20 @@ GEMINI_TOOLS = [
                 },
             },
             {
+                "name": "send_status_update",
+                "description": "Send a brief 1-line intermediate progress update or acknowledgment to the user in the current chat while you continue processing a multi-step task (e.g. 'Siap Gilang, sedang saya kumpulkan 3 opsi venue di Bogor ya...'). Use this ONLY for multi-step research, heavy document analysis, or complex coordination. NEVER use for instant single-step queries.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "text": {
+                            "type": "STRING",
+                            "description": "Brief, natural 1-line progress update or acknowledgment with ZERO EMOJIS",
+                        }
+                    },
+                    "required": ["text"],
+                },
+            },
+            {
                 "name": "send_whatsapp_message",
                 "description": "Send a WhatsApp message directly to a recipient ('Gilang', 'Bunga', 'group', or phone number). Optionally quote a specific message ID for clarification or context.",
                 "parameters": {
@@ -717,6 +731,40 @@ async def _execute_tool_call_raw(
                 "status": "success",
                 "recipient": recipient,
                 "message": f"Pesan WhatsApp berhasil dikirim ke {recipient}.",
+            }
+
+        elif func_name == "send_status_update":
+            text = str(args.get("text", "")).strip()
+            if not text:
+                return {"status": "error", "error": "Teks status update tidak boleh kosong."}
+            if not client:
+                return {"status": "error", "error": "WAHA client tidak tersedia."}
+
+            gilang_phone = (
+                os.environ.get("GILANG_PHONE", "")
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+            bunga_phone = (
+                os.environ.get("BUNGA_PHONE", "")
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+            target_jid = f"{bunga_phone}@c.us" if "bunga" in default_sender.lower() else f"{gilang_phone}@c.us"
+
+            await client.send_message(chat_id=target_jid, text=text)
+            await client.start_typing(chat_id=target_jid)
+
+            from .memory import log_activity
+
+            log_activity(f'Status update sent to {default_sender} ({target_jid}): "{text}"')
+            log.info("Agent sent status update to %s: %s", target_jid, text[:40])
+
+            return {
+                "status": "success",
+                "message": "Status update terkirim ke WhatsApp. Sekarang lanjutkan dengan eksekusi tool atau sintesis akhir.",
             }
 
         elif func_name == "get_whatsapp_messages":

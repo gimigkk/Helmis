@@ -235,4 +235,141 @@ def test_verify_action_fidelity_passes_successful_turns() -> None:
     assert verified == "Sip, sudah saya hapus ya."
 
 
+async def test_execute_tool_call_send_status_update() -> None:
+    import os
+    from unittest.mock import AsyncMock, patch
+
+    mock_client = AsyncMock()
+    mock_client.send_message = AsyncMock(return_value="msg_status_123")
+    mock_client.start_typing = AsyncMock()
+
+    with patch.dict(os.environ, {"GILANG_PHONE": "628111111111"}):
+        res = await agent.execute_tool_call(
+            func_name="send_status_update",
+            args={"text": "Siap Gilang, sedang saya kumpulkan 3 opsi venue di Bogor ya..."},
+            default_sender="Gilang",
+            client=mock_client,
+        )
+        assert res["status"] == "success"
+        mock_client.send_message.assert_called_once_with(
+            chat_id="628111111111@c.us",
+            text="Siap Gilang, sedang saya kumpulkan 3 opsi venue di Bogor ya...",
+        )
+        mock_client.start_typing.assert_called_once_with(chat_id="628111111111@c.us")
+
+
+async def test_execute_tool_call_send_status_update_empty_error() -> None:
+    res = await agent.execute_tool_call(
+        func_name="send_status_update",
+        args={"text": ""},
+        default_sender="Gilang",
+    )
+    assert res["status"] == "error"
+    assert "tidak boleh kosong" in res["error"]
+
+
+async def test_multistep_react_loop_with_status_update() -> None:
+    import os
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    mock_client = AsyncMock()
+    mock_client.get_messages = AsyncMock(return_value=[])
+    mock_client.send_message = AsyncMock(return_value="msg_sent_ok")
+    mock_client.start_typing = AsyncMock()
+
+    # Mock Gemini HTTP cascading responses:
+    # Step 1: Model calls send_status_update
+    # Step 2: Model calls add_task
+    # Step 3: Model emits final answer
+    step1_response = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "name": "send_status_update",
+                                "args": {"text": "Siap Gilang, sedang saya hitung pembagiannya ya..."},
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    step2_response = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "name": "add_task",
+                                "args": {
+                                    "title": "Bayar tagihan listrik",
+                                    "due": "Besok 12:00 WIB",
+                                    "assignee": "Gilang",
+                                },
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    step3_response = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "Tagihan listrik berhasil dihitung dan task *Bayar tagihan listrik* sudah dicatat besok pukul 12:00 WIB."
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+
+    mock_post = AsyncMock()
+    # Return step1, step2, step3 responses
+    mock_resp1 = MagicMock(status_code=200, json=lambda: step1_response)
+    mock_resp2 = MagicMock(status_code=200, json=lambda: step2_response)
+    mock_resp3 = MagicMock(status_code=200, json=lambda: step3_response)
+    mock_post.side_effect = [mock_resp1, mock_resp2, mock_resp3]
+
+    with patch("httpx.AsyncClient.post", mock_post):
+        with patch.object(agent, "GEMINI_KEYS", ["test_key"]):
+            with patch.dict(
+                os.environ,
+                {
+                    "GEMINI_KEY_1": "test_key",
+                    "GILANG_PHONE": "628111111111",
+                },
+            ):
+                final_reply = await agent.run_agentic_react_loop(
+                    client=mock_client,
+                    sender_name="Gilang",
+                    chat_id="628111111111@c.us",
+                    message_text="Tolong rekap tagihan listrik dan catat tasknya.",
+                    max_steps=5,
+                )
+
+            # Assert intermediate status update was sent
+            mock_client.send_message.assert_called_once_with(
+                chat_id="628111111111@c.us",
+                text="Siap Gilang, sedang saya hitung pembagiannya ya...",
+            )
+            # Assert task was created in memory
+            tasks = memory.list_tasks(status="pending")
+            assert len(tasks) == 1
+            assert tasks[0]["title"] == "Bayar tagihan listrik"
+
+            # Assert final response was correctly returned
+            assert final_reply is not None
+            assert "Tagihan listrik berhasil dihitung" in final_reply
+
+
+
+
 
