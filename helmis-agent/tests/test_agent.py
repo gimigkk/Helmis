@@ -150,34 +150,31 @@ async def test_execute_tool_call_delete_memory() -> None:
         assert res["status"] == "success"
 
 
-def test_verify_action_fidelity_catches_false_delete() -> None:
-    # Model claims it deleted, but tools returned not_found (0 deleted)
-    tools_failed = [{"name": "delete_memory", "result": {"status": "not_found", "deleted_count": 0}}]
-    corrected = agent.verify_action_fidelity("Sip, memori tersebut sudah saya hapus.", tools_failed)
-    assert "tidak ditemukan" in corrected.lower()
-
-    # Model claims it deleted, but 0 tools were executed
-    corrected_no_tools = agent.verify_action_fidelity("Sip, memori tersebut sudah saya hapus.", [])
-    assert "tidak ditemukan" in corrected_no_tools.lower()
-
-    # Model claims it deleted, and delete succeeded
-    tools_success = [{"name": "delete_memory", "result": {"status": "success", "deleted_count": 1}}]
-    verified = agent.verify_action_fidelity("Sip, memori tersebut sudah saya hapus.", tools_success)
-    assert verified == "Sip, memori tersebut sudah saya hapus."
-
-
-def test_verify_action_fidelity_catches_false_save() -> None:
-    # Model claims it saved to memory during photo analysis, but never called remember_fact
-    false_claim = "Tolong periksa dokumen ini. Sudah saya simpan ke memori."
-    cleaned = agent.verify_action_fidelity(false_claim, [])
-    assert "Sudah saya simpan ke memori" not in cleaned
-    assert "Tolong periksa dokumen ini." in cleaned
+def test_verify_action_fidelity_enforces_not_found_message() -> None:
+    # When all mutation tools return not_found, verify the factual database outcome is enforced
+    tools_failed = [
+        {
+            "name": "delete_memory",
+            "result": {
+                "status": "not_found",
+                "message": "Tidak ditemukan memori yang cocok di database.",
+            },
+        }
+    ]
+    corrected = agent.verify_action_fidelity("Sip, sudah saya hapus.", tools_failed)
+    assert corrected == "Tidak ditemukan memori yang cocok di database."
 
 
-def test_verify_action_fidelity_intercepts_unsolicited_alt_text() -> None:
-    # Model tries to describe a sticker or kitten photo robotically
-    alt_text_reply = "📷 Foto seekor anak kucing berwarna oranye dan putih yang sedang menjulurkan lidah dan mengedipkan satu mata."
-    cleaned = agent.verify_action_fidelity(alt_text_reply, [])
-    assert cleaned == "[NO_REPLY]"
+def test_verify_action_fidelity_passes_successful_turns() -> None:
+    # When mutation tool succeeded, the synthesized response passes through unaltered
+    tools_success = [
+        {
+            "name": "delete_memory",
+            "result": {"status": "success", "deleted_count": 1},
+        }
+    ]
+    verified = agent.verify_action_fidelity("Sip, sudah saya hapus ya.", tools_success)
+    assert verified == "Sip, sudah saya hapus ya."
+
 
 

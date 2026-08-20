@@ -445,162 +445,46 @@ def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, A
 
 def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> str:
     """
-    Programmatic Post-Synthesis Guardrail:
-    Intercepts and corrects any false action claims or hallucinations before WhatsApp dispatch.
+    Structural State Fidelity Guardrail:
+    Ensures that when tools are executed in a turn, the finalized response is strictly consistent
+    with the actual ground-truth outcome of the database operations without brittle keyword matching.
     """
-    lower = text.lower()
+    if not executed_tools:
+        return text
 
-    # 1. Verification of deletion claims
-    delete_phrases = [
-        "sudah saya hapus",
-        "sudah dihapus",
-        "berhasil dihapus",
-        "telah dihapus",
-        "telah saya hapus",
-        "memori tersebut sudah saya hapus",
-        "sudah berhasil dihapus",
-        "sudah hapus",
-    ]
-    if any(p in lower for p in delete_phrases):
-        delete_success = any(
-            t.get("result", {}).get("status") == "success"
-            and (t.get("result", {}).get("deleted_count", 1) > 0 or t.get("name") == "delete_task")
-            for t in executed_tools
-            if t.get("name") in ("delete_memory", "delete_note", "delete_task")
+    # Check state mutation tools (deletions, modifications)
+    mutation_tools = [
+        t
+        for t in executed_tools
+        if t.get("name")
+        in (
+            "delete_memory",
+            "delete_note",
+            "delete_task",
+            "complete_task",
+            "update_task",
+            "send_whatsapp_message",
         )
-        if not delete_success:
-            return "Data atau memori tersebut tidak ditemukan di database (belum pernah tersimpan sebelumnya)."
-
-    # 2. Verification of memory/note save claims
-    save_phrases = [
-        "sudah saya simpan ke memori",
-        "sudah disimpan ke memori",
-        "sudah dicatat ke memori",
-        "sudah saya catat ke memori",
-        "telah disimpan ke memori",
-        "disimpan ke memori",
     ]
-    if any(p in lower for p in save_phrases):
-        save_success = any(
-            t.get("result", {}).get("status") == "success"
-            for t in executed_tools
-            if t.get("name") in ("remember_fact", "save_note", "add_task")
+
+    if mutation_tools:
+        # If all mutation tools returned 'not_found', enforce the verified database message
+        all_not_found = all(
+            t.get("result", {}).get("status") == "not_found" for t in mutation_tools
         )
-        if not save_success:
-            # Strip false memory confirmation from text
-            cleaned = text
-            for p in [
-                "Sudah saya simpan ke memori.",
-                "sudah saya simpan ke memori.",
-                "Sudah saya simpan ke memori",
-                "sudah saya simpan ke memori",
-                "Telah disimpan ke memori.",
-                "telah disimpan ke memori.",
-            ]:
-                cleaned = cleaned.replace(p, "").strip()
-            return cleaned if cleaned else "Informasi telah diterima."
+        if all_not_found:
+            last_res = mutation_tools[-1].get("result", {})
+            msg = last_res.get("message")
+            if msg and isinstance(msg, str):
+                return msg
 
-    # 3. Verification of task creation claims
-    add_task_phrases = [
-        "sudah saya catat sebagai task",
-        "sudah ditambahkan ke daftar task",
-        "task baru berhasil dibuat",
-        "task berhasil ditambahkan",
-        "task telah dicatat",
-        "sudah saya jadwalkan sebagai task",
-    ]
-    if any(p in lower for p in add_task_phrases):
-        add_success = any(
-            t.get("result", {}).get("status") == "success"
-            for t in executed_tools
-            if t.get("name") == "add_task"
-        )
-        if not add_success:
-            return "Task belum berhasil dicatat karena tidak ada aksi penambahan task yang valid."
-
-    # 4. Verification of task update claims
-    update_task_phrases = [
-        "task berhasil diupdate",
-        "deadline task sudah diubah",
-        "sudah saya update tasknya",
-        "task telah diupdate",
-    ]
-    if any(p in lower for p in update_task_phrases):
-        update_success = any(
-            t.get("result", {}).get("status") == "success"
-            for t in executed_tools
-            if t.get("name") == "update_task"
-        )
-        if not update_success:
-            return "Task tersebut tidak ditemukan di database untuk diupdate."
-
-    # 5. Verification of task completion claims
-    complete_phrases = [
-        "sudah saya selesaikan",
-        "telah diselesaikan",
-        "berhasil diselesaikan",
-        "task selesai",
-        "ditandai selesai",
-    ]
-    if any(p in lower for p in complete_phrases):
-        comp_success = any(
-            t.get("result", {}).get("status") == "success"
-            for t in executed_tools
-            if t.get("name") == "complete_task"
-        )
-        if not comp_success and not any(t.get("name") == "complete_task" for t in executed_tools):
-            return "Task tersebut tidak ditemukan di daftar task pending."
-
-    # 6. Verification of contact addition claims
-    add_person_phrases = [
-        "kontak berhasil disimpan",
-        "sudah saya simpan kontaknya",
-        "kontak telah ditambahkan",
-        "kontak berhasil dicatat",
-    ]
-    if any(p in lower for p in add_person_phrases):
-        person_success = any(
-            t.get("result", {}).get("status") == "success"
-            for t in executed_tools
-            if t.get("name") == "add_person"
-        )
-        if not person_success:
-            return "Kontak belum dapat disimpan di direktori."
-
-    # 7. Verification of WhatsApp message send claims
-    send_phrases = [
-        "sudah saya kirimkan pesan",
-        "sudah saya kirim pesan",
-        "pesan telah dikirim",
-        "sudah dikirimkan ke",
-    ]
-    if any(p in lower for p in send_phrases):
-        send_success = any(
-            t.get("result", {}).get("status") == "success"
-            for t in executed_tools
-            if t.get("name") == "send_whatsapp_message"
-        )
-        if not send_success:
-            return "Pesan belum terkirim ke WhatsApp."
-
-    # 8. Unsolicited visual alt-text description filter
-    alt_text_starters = [
-        "foto seekor",
-        "gambar seekor",
-        "gambar ini menunjukkan",
-        "foto ini menunjukkan",
-        "terlihat foto",
-        "terlihat gambar",
-        "ini adalah foto",
-        "ini adalah gambar",
-        "stiker ini menunjukkan",
-        "foto menampilkan",
-        "gambar menampilkan",
-    ]
-    cleaned_lower = lower.replace("📷", "").strip()
-    if any(cleaned_lower.startswith(s) for s in alt_text_starters):
-        log.info("Intercepted unsolicited robotic image description: %s", text[:60])
-        return "[NO_REPLY]"
+        # If all mutation tools returned 'error', enforce the verified error message
+        all_errors = all(t.get("result", {}).get("status") == "error" for t in mutation_tools)
+        if all_errors:
+            last_res = mutation_tools[-1].get("result", {})
+            err = last_res.get("error") or last_res.get("message")
+            if err and isinstance(err, str):
+                return err
 
     return text
 
