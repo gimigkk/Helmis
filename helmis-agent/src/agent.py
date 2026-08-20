@@ -583,6 +583,25 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
         if not send_success:
             return "Pesan belum terkirim ke WhatsApp."
 
+    # 8. Unsolicited visual alt-text description filter
+    alt_text_starters = [
+        "foto seekor",
+        "gambar seekor",
+        "gambar ini menunjukkan",
+        "foto ini menunjukkan",
+        "terlihat foto",
+        "terlihat gambar",
+        "ini adalah foto",
+        "ini adalah gambar",
+        "stiker ini menunjukkan",
+        "foto menampilkan",
+        "gambar menampilkan",
+    ]
+    cleaned_lower = lower.replace("📷", "").strip()
+    if any(cleaned_lower.startswith(s) for s in alt_text_starters):
+        log.info("Intercepted unsolicited robotic image description: %s", text[:60])
+        return "[NO_REPLY]"
+
     return text
 
 
@@ -1048,9 +1067,11 @@ async def run_agentic_react_loop(
         f"   - When a user asks to remind another person, the assignee is the other person.\n"
         f"   - When updating or reassigning an existing task, always use 'update_task' rather than creating duplicates with 'add_task'.\n"
         f"   - When a task is reported completed, invoke 'complete_task'.\n\n"
-        f"5. MULTIMODAL INPUTS (IMAGES & DOCUMENTS):\n"
-        f"   - Images & Photos: Accurately read screenshots, documents, receipts, and photos.\n"
-        f"   - PDFs & Documents: Extract tables, invoices, and text directly.\n\n"
+        f"5. STICKERS, REACTION IMAGES, & MULTIMODAL INPUTS:\n"
+        f"   - NEVER provide robotic visual descriptions or alt-text for stickers, memes, or casual photos (DO NOT say 'Foto seekor kucing...', 'Gambar ini menunjukkan...', '📷 ...', etc.).\n"
+        f"   - A sticker or reaction image IS the user's playful expression or reaction (e.g. cheeky :P face, laughing meme, thumbs up).\n"
+        f"   - Treat stickers and casual images as conversational emotional cues: reply with natural witty banter, or output '[NO_REPLY]' if in a group or when no reply is needed.\n"
+        f"   - Only extract data or summarize text from images if the image is an invoice, receipt, document, schedule, or screenshot requiring assistance, or if the user explicitly asked you to analyze/read the image.\n\n"
         f"6. ERROR TRANSPARENCY:\n"
         f"   - If a tool encounters an error, state clearly what happened and ask for clarification.\n"
     )
@@ -1062,11 +1083,18 @@ async def run_agentic_react_loop(
     except Exception as e:
         log.warning("Could not fetch chat history for %s: %s", chat_id, e)
 
-    effective_text = message_text or (
-        "Tolong proses dan tanggapi pesan media ini (gambar / dokumen)."
-        if media_data
-        else ""
-    )
+    if not message_text:
+        if media_data:
+            mime = media_data.get("mimeType", "")
+            if "webp" in mime:
+                effective_text = "(User mengirim stiker WhatsApp)"
+            else:
+                effective_text = "(User mengirim media gambar/dokumen)"
+        else:
+            effective_text = ""
+    else:
+        effective_text = message_text
+
     contents = build_multi_turn_contents(history, sender_name, effective_text)
 
     # Attach media inlineData to current turn if present

@@ -168,8 +168,16 @@ def test_verify_action_fidelity_catches_false_delete() -> None:
 
 def test_verify_action_fidelity_catches_false_save() -> None:
     # Model claims it saved to memory during photo analysis, but never called remember_fact
-    false_claim = "Gambar ini menunjukkan sepiring makanan. Sudah saya simpan ke memori."
+    false_claim = "Tolong periksa dokumen ini. Sudah saya simpan ke memori."
     cleaned = agent.verify_action_fidelity(false_claim, [])
     assert "Sudah saya simpan ke memori" not in cleaned
-    assert "Gambar ini menunjukkan sepiring makanan" in cleaned
+    assert "Tolong periksa dokumen ini." in cleaned
+
+
+def test_verify_action_fidelity_intercepts_unsolicited_alt_text() -> None:
+    # Model tries to describe a sticker or kitten photo robotically
+    alt_text_reply = "📷 Foto seekor anak kucing berwarna oranye dan putih yang sedang menjulurkan lidah dan mengedipkan satu mata."
+    cleaned = agent.verify_action_fidelity(alt_text_reply, [])
+    assert cleaned == "[NO_REPLY]"
+
 
