@@ -91,6 +91,64 @@ async def test_execute_tool_call_send_whatsapp_message() -> None:
         )
 
 
+async def test_execute_tool_call_send_whatsapp_message_cross_party() -> None:
+    import os
+    from unittest.mock import AsyncMock, patch
+
+    mock_client = AsyncMock()
+    mock_client.send_message = AsyncMock(return_value="sent_msg_id")
+
+    with patch.dict(
+        os.environ,
+        {
+            "GILANG_PHONE": "628111111111",
+            "BUNGA_PHONE": "628222222222",
+            "TRIO_GROUP_JID": "120363000000000000@g.us",
+        },
+    ):
+        # 1. Message to Bunga
+        res_bunga = await agent.execute_tool_call(
+            func_name="send_whatsapp_message",
+            args={"recipient": "Bunga", "text": "Halo Bunga dari Helmis"},
+            default_sender="Gilang",
+            client=mock_client,
+        )
+        assert res_bunga["status"] == "success"
+        mock_client.send_message.assert_called_with(
+            chat_id="628222222222@c.us",
+            text="Halo Bunga dari Helmis",
+            reply_to_message_id=None,
+        )
+
+        # 2. Message to Group
+        res_group = await agent.execute_tool_call(
+            func_name="send_whatsapp_message",
+            args={"recipient": "group", "text": "Pengumuman ke grup"},
+            default_sender="Gilang",
+            client=mock_client,
+        )
+        assert res_group["status"] == "success"
+        mock_client.send_message.assert_called_with(
+            chat_id="120363000000000000@g.us",
+            text="Pengumuman ke grup",
+            reply_to_message_id=None,
+        )
+
+        # 3. Message to current / sender
+        res_current = await agent.execute_tool_call(
+            func_name="send_whatsapp_message",
+            args={"recipient": "current", "text": "Sedang saya proses ya..."},
+            default_sender="Gilang",
+            client=mock_client,
+        )
+        assert res_current["status"] == "success"
+        mock_client.send_message.assert_called_with(
+            chat_id="628111111111@c.us",
+            text="Sedang saya proses ya...",
+            reply_to_message_id=None,
+        )
+
+
 async def test_execute_tool_call_get_whatsapp_messages() -> None:
     from unittest.mock import AsyncMock, MagicMock
 

@@ -682,12 +682,18 @@ async def _execute_tool_call_raw(
             trio_group = os.environ.get("TRIO_GROUP_JID", "")
 
             target_jid: str
-            if "gilang" in recipient.lower():
-                target_jid = f"{gilang_phone}@c.us"
-            elif "bunga" in recipient.lower():
+            recip_lower = recipient.lower()
+            if "bunga" in recip_lower:
                 target_jid = f"{bunga_phone}@c.us"
-            elif "group" in recipient.lower() or "trio" in recipient.lower():
+            elif "gilang" in recip_lower:
+                target_jid = f"{gilang_phone}@c.us"
+            elif "group" in recip_lower or "trio" in recip_lower:
                 target_jid = trio_group
+            elif recip_lower in ("current", "me", "sender", "self", ""):
+                if "bunga" in default_sender.lower():
+                    target_jid = f"{bunga_phone}@c.us"
+                else:
+                    target_jid = f"{gilang_phone}@c.us"
             else:
                 clean = recipient.replace("+", "").replace(" ", "").replace("-", "")
                 target_jid = f"{clean}@c.us"
@@ -709,6 +715,7 @@ async def _execute_tool_call_raw(
             )
             return {
                 "status": "success",
+                "recipient": recipient,
                 "message": f"Pesan WhatsApp berhasil dikirim ke {recipient}.",
             }
 
@@ -944,7 +951,11 @@ async def run_agentic_react_loop(
         f"   - Never invent or fabricate data. If a user refers to an unattached file, state that it has not been received.\n\n"
         f"4. TASK & ASSIGNMENT LOGIC:\n"
         f"   - When a user asks for a personal reminder, assign to that user. When asking to remind someone else, assign to the target person.\n"
-        f"   - Use 'update_task' to modify existing tasks and 'complete_task' when finished.\n"
+        f"   - Use 'update_task' to modify existing tasks and 'complete_task' when finished.\n\n"
+        f"5. CONTEXTUAL THINKING & CROSS-PARTY COORDINATION:\n"
+        f"   - When executing actions that resolve conflicts or involve complex breakdowns, naturally include your reasoning context in the final response (e.g. why a specific time was chosen or how costs were split).\n"
+        f"   - Cross-Party Delegation: When a user asks you to inform, ask, or message the other partner (e.g. Gilang asks to notify Bunga), invoke 'send_whatsapp_message(recipient=\"Bunga\", ...)' mid-turn, and confirm to the sender in your final response.\n"
+        f"   - Zero Spam on Fast Queries: For simple local lookups (checking tasks, notes, or memories), deliver the answer directly without intermediate status messages.\n"
     )
 
     # Fetch recent chat history from WAHA
