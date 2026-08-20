@@ -35,9 +35,11 @@ def build_multi_turn_contents(
     history_messages: list[Any],
     sender_name: str,
     current_text: str,
+    media_data: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Format recent chat history into chronological alternating user/model contents for Gemini.
+    Properly handles multimodal media data without injecting synthetic prompt strings.
     """
     contents: list[dict[str, Any]] = []
 
@@ -65,11 +67,26 @@ def build_multi_turn_contents(
         else:
             contents.append({"role": role, "parts": [{"text": content_text}]})
 
-    # Always append current user message as the latest turn
-    current_turn = f"[{sender_name}]: {current_text}"
+    # Prepare current turn parts natively
+    current_parts: list[dict[str, Any]] = []
+    if media_data:
+        current_parts.append({"inlineData": media_data})
+
+    if current_text and current_text.strip():
+        current_parts.append({"text": f"[{sender_name}]: {current_text.strip()}"})
+    elif not media_data:
+        current_parts.append({"text": f"[{sender_name}]: ..."})
+
     if contents and contents[-1]["role"] == "user":
-        contents[-1]["parts"][0]["text"] += f"\n{current_turn}"
+        if (
+            len(current_parts) == 1
+            and "text" in current_parts[0]
+            and "text" in contents[-1]["parts"][-1]
+        ):
+            contents[-1]["parts"][-1]["text"] += f"\n{current_parts[0]['text']}"
+        else:
+            contents[-1]["parts"].extend(current_parts)
     else:
-        contents.append({"role": "user", "parts": [{"text": current_turn}]})
+        contents.append({"role": "user", "parts": current_parts})
 
     return contents
