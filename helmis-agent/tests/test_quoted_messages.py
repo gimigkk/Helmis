@@ -136,3 +136,65 @@ async def test_webhook_extracts_quoted_voice_note_payload(monkeypatch: pytest.Mo
         assert event.quoted_sender == "Bunga"
         assert event.quoted_media_url == "http://waha:3000/api/files/vn1.ogg"
 
+
+@pytest.mark.asyncio
+async def test_webhook_extracts_gows_protobuf_context_info(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatched_events: list[IncomingMessageEvent] = []
+
+    monkeypatch.setattr(webhook_mod, "GILANG_PHONE", "628111111111")
+    monkeypatch.setattr(webhook_mod, "BUNGA_PHONE", "628222222222")
+    monkeypatch.setattr(webhook_mod, "BOT_PHONE", "628999999999")
+
+    client = WahaClient(base_url="http://test", api_key="test", session_name="default")
+    app = webhook_mod.create_webhook_app(client)
+
+    monkeypatch.setattr(
+        queue_mod.ChatQueueManager,
+        "dispatch",
+        lambda self, event: dispatched_events.append(event),
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        payload_gows_vn = {
+            "event": "message",
+            "payload": {
+                "id": "msg_gows_reply",
+                "from": "120363411261097957@g.us",
+                "participant": "628111111111@c.us",
+                "fromMe": False,
+                "body": "coba apa yang gw quote",
+                "hasMedia": False,
+                "_data": {
+                    "Message": {
+                        "extendedTextMessage": {
+                            "text": "coba apa yang gw quote",
+                            "contextInfo": {
+                                "participant": "628222222222@c.us",
+                                "quotedMessage": {
+                                    "audioMessage": {
+                                        "seconds": 8,
+                                        "ptt": True,
+                                        "mimetype": "audio/ogg; codecs=opus",
+                                    }
+                                },
+                            },
+                        }
+                    }
+                },
+            },
+        }
+
+        resp = await ac.post("/webhooks/waha", json=payload_gows_vn)
+        assert resp.status_code == 200
+        assert len(dispatched_events) == 1
+        event = dispatched_events[0]
+        assert event.sender_name == "Gilang"
+        assert event.text == "coba apa yang gw quote"
+        assert event.quoted_type == "ptt"
+        assert event.quoted_sender == "Bunga"
+        assert "8 detik" in str(event.quoted_text)
+
+

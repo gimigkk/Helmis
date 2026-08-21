@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import time
+from typing import Any
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -49,6 +50,107 @@ ALLOWED_CHATS = set(
         ],
     )
 )
+
+
+def extract_quoted_info(
+    payload: dict[str, Any],
+) -> tuple[str | None, str | None, str | None, str | None, str | None]:
+    """
+    Extract quoted / replied message metadata from WAHA payloads across all engines (GOWS, NOWEB, WEBJS).
+    Returns (quoted_text, quoted_sender, quoted_type, quoted_media_url, quoted_media_type).
+    """
+    quoted_text: str | None = None
+    quoted_sender: str | None = None
+    quoted_type: str | None = None
+    quoted_media_url: str | None = None
+    quoted_media_type: str | None = None
+
+    def resolve_sender(participant: str, from_me: bool) -> str:
+        if from_me:
+            return "Helmis"
+        clean = participant.split("@")[0].replace("+", "").replace(" ", "").replace("-", "")
+        if (bool(GILANG_PHONE) and clean == GILANG_PHONE) or clean.startswith("217188174717173"):
+            return "Gilang"
+        if (bool(BUNGA_PHONE) and clean == BUNGA_PHONE) or clean.startswith("279821464654020"):
+            return "Bunga"
+        return "Pesan Sebelumnya"
+
+    # 1. Top-level replyTo
+    reply_to = payload.get("replyTo")
+    if isinstance(reply_to, dict):
+        quoted_type = str(reply_to.get("type", "")).strip().lower() or None
+        quoted_text = str(reply_to.get("body") or reply_to.get("caption") or "").strip() or None
+        media_obj = reply_to.get("media") if isinstance(reply_to.get("media"), dict) else {}
+        if media_obj:
+            quoted_media_url = str(media_obj.get("url", "")) or None
+        part = str(reply_to.get("participant") or reply_to.get("from") or "")
+        quoted_sender = resolve_sender(part, bool(reply_to.get("fromMe", False)))
+
+    # 2. _data.quotedMsg
+    _data_raw = payload.get("_data")
+    _data: dict[str, Any] = _data_raw if isinstance(_data_raw, dict) else {}
+    if not quoted_text and not quoted_type:
+        data_quoted = _data.get("quotedMsg") or payload.get("quotedMsg")
+        if isinstance(data_quoted, dict):
+            quoted_type = str(data_quoted.get("type", "")).strip().lower() or None
+            quoted_text = str(data_quoted.get("body") or data_quoted.get("caption") or "").strip() or None
+            part = str(_data.get("quotedParticipant") or payload.get("quotedParticipant") or "")
+            quoted_sender = resolve_sender(part, bool(data_quoted.get("fromMe", False)))
+
+    # 3. GOWS Protobuf contextInfo (extendedTextMessage.contextInfo or contextInfo)
+    msg_raw = _data.get("Message")
+    msg_obj: dict[str, Any] = msg_raw if isinstance(msg_raw, dict) else {}
+    ext_raw = msg_obj.get("extendedTextMessage")
+    ext_obj: dict[str, Any] = ext_raw if isinstance(ext_raw, dict) else {}
+    context_info = (
+        ext_obj.get("contextInfo")
+        or _data.get("contextInfo")
+        or payload.get("contextInfo")
+    )
+    if isinstance(context_info, dict):
+        part = str(context_info.get("participant") or "")
+        if not quoted_sender and part:
+            quoted_sender = resolve_sender(part, False)
+
+        q_msg = context_info.get("quotedMessage")
+        if isinstance(q_msg, dict):
+            if "audioMessage" in q_msg:
+                audio = q_msg["audioMessage"]
+                sec = audio.get("seconds")
+                quoted_type = "ptt" if audio.get("ptt") else "audio"
+                quoted_text = f"Pesan Suara / Voice Note ({sec} detik)" if sec else "Pesan Suara (Voice Note)"
+            elif "imageMessage" in q_msg:
+                img = q_msg["imageMessage"]
+                caption = str(img.get("caption", "")).strip()
+                quoted_type = "image"
+                quoted_text = f'Foto / Gambar{": " + caption if caption else ""}'
+            elif "conversation" in q_msg:
+                quoted_type = "chat"
+                quoted_text = str(q_msg["conversation"]).strip()
+            elif "extendedTextMessage" in q_msg:
+                quoted_type = "chat"
+                quoted_text = str(q_msg["extendedTextMessage"].get("text", "")).strip()
+            elif "documentMessage" in q_msg:
+                doc = q_msg["documentMessage"]
+                doc_title = doc.get("title") or doc.get("fileName")
+                quoted_type = "document"
+                quoted_text = f'Dokumen{": " + str(doc_title) if doc_title else ""}'
+            elif "stickerMessage" in q_msg:
+                quoted_type = "sticker"
+                quoted_text = "Stiker"
+
+    # Fallback type descriptions if text is still empty
+    if quoted_type and not quoted_text:
+        if quoted_type in ("ptt", "audio"):
+            quoted_text = "Pesan Suara (Voice Note)"
+        elif quoted_type in ("image", "video"):
+            quoted_text = "Foto / Gambar"
+        elif quoted_type == "document":
+            quoted_text = "Dokumen"
+        elif quoted_type == "sticker":
+            quoted_text = "Stiker"
+
+    return quoted_text, quoted_sender, quoted_type, quoted_media_url, quoted_media_type
 
 
 def create_webhook_app(client: WahaClient) -> Starlette:
@@ -287,77 +389,14 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             if is_group and TRIO_GROUP_JID and from_user != TRIO_GROUP_JID:
                 log.debug("Silently ignoring message from unauthorized group: %s", from_user)
                 return JSONResponse({"status": "ignored_non_whitelisted_group"})
-
             # Extract quoted / reply message if present
-            quoted_text: str | None = None
-            quoted_sender: str | None = None
-            quoted_type: str | None = None
-            quoted_media_url: str | None = None
-            quoted_media_type: str | None = None
-
-            # 1. Check WAHA top-level replyTo
-            reply_to_obj = payload.get("replyTo")
-            if isinstance(reply_to_obj, dict):
-                quoted_type = str(reply_to_obj.get("type", "")).strip().lower() or None
-                quoted_text = (
-                    str(reply_to_obj.get("body") or reply_to_obj.get("caption") or "").strip() or None
-                )
-                media_obj = reply_to_obj.get("media") if isinstance(reply_to_obj.get("media"), dict) else {}
-                if media_obj:
-                    quoted_media_url = str(media_obj.get("url", "")) or None
-                    quoted_media_type = str(media_obj.get("mimetype", "")) or None
-
-                q_participant = str(
-                    reply_to_obj.get("participant") or reply_to_obj.get("from") or ""
-                )
-                q_from_me = bool(reply_to_obj.get("fromMe", False))
-                if q_from_me:
-                    quoted_sender = "Helmis"
-                elif (
-                    (bool(GILANG_PHONE) and GILANG_PHONE in q_participant)
-                    or q_participant.startswith("217188174717173")
-                ):
-                    quoted_sender = "Gilang"
-                elif (
-                    (bool(BUNGA_PHONE) and BUNGA_PHONE in q_participant)
-                    or q_participant.startswith("279821464654020")
-                ):
-                    quoted_sender = "Bunga"
-                else:
-                    quoted_sender = "Pesan Sebelumnya"
-
-            # 2. Check WAHA _data.quotedMsg or quotedMsg
-            if not quoted_text and not quoted_type:
-                _data_dict_root = payload.get("_data") if isinstance(payload.get("_data"), dict) else {}
-                data_quoted = _data_dict_root.get("quotedMsg") or payload.get("quotedMsg")
-                if isinstance(data_quoted, dict):
-                    quoted_type = str(data_quoted.get("type", "")).strip().lower() or None
-                    quoted_text = (
-                        str(data_quoted.get("body") or data_quoted.get("caption") or "").strip() or None
-                    )
-                    quoted_media_type = str(data_quoted.get("mimetype", "")).strip() or None
-                    quoted_media_url = str(data_quoted.get("url", "")).strip() or None
-                    q_participant = str(
-                        _data_dict_root.get("quotedParticipant")
-                        or payload.get("quotedParticipant")
-                        or ""
-                    )
-                    q_from_me = bool(data_quoted.get("fromMe", False))
-                    if q_from_me:
-                        quoted_sender = "Helmis"
-                    elif (
-                        (bool(GILANG_PHONE) and GILANG_PHONE in q_participant)
-                        or q_participant.startswith("217188174717173")
-                    ):
-                        quoted_sender = "Gilang"
-                    elif (
-                        (bool(BUNGA_PHONE) and BUNGA_PHONE in q_participant)
-                        or q_participant.startswith("279821464654020")
-                    ):
-                        quoted_sender = "Bunga"
-                    else:
-                        quoted_sender = "Pesan Sebelumnya"
-
+            (
+                quoted_text,
+                quoted_sender,
+                quoted_type,
+                quoted_media_url,
+                quoted_media_type,
+            ) = extract_quoted_info(payload)
             if quoted_text or quoted_type:
                 log.info(
                     "Detected quoted message in [%s] from [%s] (type: %s): %s",
