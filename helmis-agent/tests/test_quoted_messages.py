@@ -82,3 +82,57 @@ async def test_webhook_extracts_reply_to_payload(monkeypatch: pytest.MonkeyPatch
         event2 = dispatched_events[1]
         assert event2.quoted_text == "Aku udah bayar tagihan listrik ya."
         assert event2.quoted_sender == "Bunga"
+
+
+@pytest.mark.asyncio
+async def test_webhook_extracts_quoted_voice_note_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    dispatched_events: list[IncomingMessageEvent] = []
+
+    monkeypatch.setattr(webhook_mod, "GILANG_PHONE", "628111111111")
+    monkeypatch.setattr(webhook_mod, "BUNGA_PHONE", "628222222222")
+    monkeypatch.setattr(webhook_mod, "BOT_PHONE", "628999999999")
+
+    client = WahaClient(base_url="http://test", api_key="test", session_name="default")
+    app = webhook_mod.create_webhook_app(client)
+
+    monkeypatch.setattr(
+        queue_mod.ChatQueueManager,
+        "dispatch",
+        lambda self, event: dispatched_events.append(event),
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        payload_voice_note_quote = {
+            "event": "message",
+            "payload": {
+                "id": "msg_reply_vn",
+                "from": "628111111111@c.us",
+                "fromMe": False,
+                "body": "kalo ini?",
+                "hasMedia": False,
+                "replyTo": {
+                    "id": "msg_vn_1",
+                    "from": "628222222222@c.us",
+                    "participant": "628222222222@c.us",
+                    "fromMe": False,
+                    "type": "ptt",
+                    "hasMedia": True,
+                    "media": {
+                        "url": "http://waha:3000/api/files/vn1.ogg",
+                        "mimetype": "audio/ogg",
+                    },
+                },
+            },
+        }
+
+        resp = await ac.post("/webhooks/waha", json=payload_voice_note_quote)
+        assert resp.status_code == 200
+        assert len(dispatched_events) == 1
+        event = dispatched_events[0]
+        assert event.sender_name == "Gilang"
+        assert event.text == "kalo ini?"
+        assert event.quoted_type == "ptt"
+        assert event.quoted_sender == "Bunga"
+        assert event.quoted_media_url == "http://waha:3000/api/files/vn1.ogg"
+

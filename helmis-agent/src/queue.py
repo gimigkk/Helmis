@@ -29,6 +29,9 @@ class IncomingMessageEvent:
     timestamp: float
     quoted_text: str | None = None
     quoted_sender: str | None = None
+    quoted_type: str | None = None
+    quoted_media_url: str | None = None
+    quoted_media_type: str | None = None
 
 
 class ChatQueueWorker:
