@@ -17,8 +17,9 @@ For complete architectural details, developer guides, and operational playbooks,
 | 📡 **[Communication & Queues](file:///home/gimigkk/Desktop/Projects/Helmis/docs/COMMUNICATION_AND_ROUTING.md)** | WAHA REST client, webhook engine, per-chat 1.0s debouncing & auth |
 | ⏰ **[Proactive Reminder Engine](file:///home/gimigkk/Desktop/Projects/Helmis/docs/PROACTIVE_ENGINE.md)** | Supercronic scheduler, reminder evaluator & automated WhatsApp dispatch |
 | ⚙️ **[Configuration & Skills](file:///home/gimigkk/Desktop/Projects/Helmis/docs/CONFIGURATION_AND_SKILLS.md)** | Environment variables, system prompt, zero-emoji policy & skills |
-| 🧪 **[Development & Testing](file:///home/gimigkk/Desktop/Projects/Helmis/docs/DEVELOPMENT_AND_TESTING.md)** | Local setup, 32-test pytest suite, step tracer & extensibility guide |
+| 🧪 **[Development & Testing](file:///home/gimigkk/Desktop/Projects/Helmis/docs/DEVELOPMENT_AND_TESTING.md)** | Local setup, 36-test pytest suite, step tracer & extensibility guide |
 | 🚀 **[Deployment & Operations](file:///home/gimigkk/Desktop/Projects/Helmis/docs/DEPLOYMENT_AND_OPERATIONS.md)** | Docker Compose runbook, terminal QR auth, backups & troubleshooting |
+| 📋 **[Scenarios & Playbooks](file:///home/gimigkk/Desktop/Projects/Helmis/docs/SCENARIOS_AND_PLAYBOOKS.md)** | 50+ real-world scenarios, thinking-out-loud matrix & 6 core primitives |
 
 ---
 

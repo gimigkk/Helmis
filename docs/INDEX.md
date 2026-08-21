@@ -86,6 +86,12 @@ Production operations and disaster recovery:
 - **Backup & Disaster Recovery**: Automated snapshots via `scripts/backup.sh` and restoration procedures.
 - **Troubleshooting Matrix**: Root cause analysis and step-by-step remediation for WhatsApp disconnections, Gemini 429 rate limits, and audio decoding issues.
 
+### 9. [Scenarios & Thinking-Out-Loud Playbook](file:///home/gimigkk/Desktop/Projects/Helmis/docs/SCENARIOS_AND_PLAYBOOKS.md)
+Comprehensive behavioral catalog and decision matrix:
+- **50+ Real-World Scenarios**: Full coverage of cross-party messaging, finance tracking, split bills, travel itineraries, medication routines, and voice notes.
+- **Thinking-Out-Loud Decision Matrix**: Exact criteria for when to send intermediate status updates vs silent execution vs cross-party messages.
+- **The 6 Universal Architectural Primitives**: End-to-end mapping from primitives to real-world user workflows.
+
 ---
 
 ## Role-Based Reading Recommendations
