@@ -63,9 +63,18 @@ def create_webhook_app(client: WahaClient) -> Starlette:
         from_user = last_event.from_user
         reply_id = last_event.reply_id
 
-        # Combine all debounced texts into a single coherent prompt
-        all_texts = [e.text.strip() for e in batch if e.text and e.text.strip()]
-        combined_text = "\n".join(all_texts)
+        # Combine all debounced texts into a single coherent prompt, preserving quoted context
+        all_texts: list[str] = []
+        for e in batch:
+            t = e.text.strip() if e.text else ""
+            if e.quoted_text:
+                q_label = e.quoted_sender or "Pesan Sebelumnya"
+                quoted_block = f'> [{q_label}]: "{e.quoted_text.strip()}"'
+                t = f"{quoted_block}\n\n{t}" if t else quoted_block
+            if t:
+                all_texts.append(t)
+
+        combined_text = "\n\n".join(all_texts)
 
         has_media = any(e.has_media for e in batch)
         media_event = next((e for e in reversed(batch) if e.has_media and e.media_url), None)
@@ -248,8 +257,73 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 log.debug("Silently ignoring message from unauthorized group: %s", from_user)
                 return JSONResponse({"status": "ignored_non_whitelisted_group"})
 
+            # Extract quoted / reply message if present
+            quoted_text: str | None = None
+            quoted_sender: str | None = None
+
+            # 1. Check WAHA top-level replyTo
+            reply_to_obj = payload.get("replyTo")
+            if isinstance(reply_to_obj, dict):
+                quoted_text = (
+                    str(reply_to_obj.get("body") or reply_to_obj.get("caption") or "").strip() or None
+                )
+                q_participant = str(
+                    reply_to_obj.get("participant") or reply_to_obj.get("from") or ""
+                )
+                q_from_me = bool(reply_to_obj.get("fromMe", False))
+                if q_from_me:
+                    quoted_sender = "Helmis"
+                elif (
+                    (bool(GILANG_PHONE) and GILANG_PHONE in q_participant)
+                    or q_participant.startswith("217188174717173")
+                ):
+                    quoted_sender = "Gilang"
+                elif (
+                    (bool(BUNGA_PHONE) and BUNGA_PHONE in q_participant)
+                    or q_participant.startswith("279821464654020")
+                ):
+                    quoted_sender = "Bunga"
+                else:
+                    quoted_sender = "Pesan Sebelumnya"
+
+            # 2. Check WAHA _data.quotedMsg or quotedMsg
+            if not quoted_text:
+                _data_dict_root = payload.get("_data") if isinstance(payload.get("_data"), dict) else {}
+                data_quoted = _data_dict_root.get("quotedMsg") or payload.get("quotedMsg")
+                if isinstance(data_quoted, dict):
+                    quoted_text = (
+                        str(data_quoted.get("body") or data_quoted.get("caption") or "").strip() or None
+                    )
+                    q_participant = str(
+                        _data_dict_root.get("quotedParticipant")
+                        or payload.get("quotedParticipant")
+                        or ""
+                    )
+                    q_from_me = bool(data_quoted.get("fromMe", False))
+                    if q_from_me:
+                        quoted_sender = "Helmis"
+                    elif (
+                        (bool(GILANG_PHONE) and GILANG_PHONE in q_participant)
+                        or q_participant.startswith("217188174717173")
+                    ):
+                        quoted_sender = "Gilang"
+                    elif (
+                        (bool(BUNGA_PHONE) and BUNGA_PHONE in q_participant)
+                        or q_participant.startswith("279821464654020")
+                    ):
+                        quoted_sender = "Bunga"
+                    else:
+                        quoted_sender = "Pesan Sebelumnya"
+
+            if quoted_text:
+                log.info(
+                    "Detected quoted message in [%s] from [%s]: %s",
+                    from_user,
+                    quoted_sender,
+                    quoted_text[:50],
+                )
+
             # STRICT FILTER 3: Group chat discretion — do NOT interrupt human banter
-            is_group = from_user.endswith("@g.us")
             if is_group:
                 text_lower = text.lower()
                 bot_clean = BOT_PHONE.replace("+", "").replace(" ", "").replace("-", "")
@@ -266,8 +340,10 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     or []
                 )
 
+                is_quoting_bot = (quoted_sender == "Helmis")
                 has_bot_mention = (
-                    "helmis" in text_lower
+                    is_quoting_bot
+                    or "helmis" in text_lower
                     or text_lower.startswith("mis ")
                     or text_lower.startswith("mis,")
                     or text_lower.startswith("mis?")
@@ -313,6 +389,8 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     media_url=media_url,
                     media_type=media_type,
                     timestamp=time.time(),
+                    quoted_text=quoted_text,
+                    quoted_sender=quoted_sender,
                 )
             )
             return JSONResponse({"status": "queued", "sender": sender_name, "chat_id": from_user})

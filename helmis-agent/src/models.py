@@ -51,6 +51,8 @@ class IncomingMessage(BaseModel):
     media_url: str | None = Field(default=None, description="URL to attached media (if any)")
     media_mime: str | None = Field(default=None, description="MIME type of attached media")
     timestamp: int = Field(description="Unix timestamp of the message")
+    quoted_text: str | None = Field(default=None, description="Quoted message text if this is a reply")
+    quoted_sender: str | None = Field(default=None, description="Sender name of the quoted message")
 
 
 # ============================================================
@@ -101,8 +103,8 @@ class GetMessagesInput(BaseModel):
     limit: int = Field(
         default=20,
         ge=1,
-        le=100,
-        description="Number of recent messages to retrieve (1–100, default 20).",
+        le=50,
+        description="Number of recent messages to return (1-50, default 20).",
     )
 
 
@@ -126,6 +128,8 @@ class WahaHistoryMessage(BaseModel):
     text: str | None
     media_url: str | None
     timestamp: int
+    quoted_text: str | None = None
+    quoted_sender: str | None = None
 
 
 # ============================================================

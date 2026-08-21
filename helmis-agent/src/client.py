@@ -260,20 +260,78 @@ class WahaClient:
             return []
 
         messages: list[WahaHistoryMessage] = []
+        gilang_phone = (
+            os.environ.get("GILANG_PHONE", "")
+            .replace("+", "")
+            .replace(" ", "")
+            .replace("-", "")
+        )
+        bunga_phone = (
+            os.environ.get("BUNGA_PHONE", "")
+            .replace("+", "")
+            .replace(" ", "")
+            .replace("-", "")
+        )
+
         for msg in data:
             if isinstance(msg, dict):
-                body_text = msg.get("body") or msg.get("_data", {}).get("Message", {}).get(
-                    "conversation"
+                body_text = (
+                    msg.get("body")
+                    or msg.get("caption")
+                    or msg.get("_data", {}).get("Message", {}).get("conversation")
                 )
+
+                # Check for quoted messages in history
+                quoted_text: str | None = None
+                quoted_sender: str | None = None
+                reply_to = msg.get("replyTo")
+                if isinstance(reply_to, dict):
+                    quoted_text = reply_to.get("body") or reply_to.get("caption")
+                    q_part = str(reply_to.get("participant") or reply_to.get("from") or "")
+                    q_from_me = bool(reply_to.get("fromMe", False))
+                    if q_from_me:
+                        quoted_sender = "Helmis"
+                    elif gilang_phone and gilang_phone in q_part:
+                        quoted_sender = "Gilang"
+                    elif bunga_phone and bunga_phone in q_part:
+                        quoted_sender = "Bunga"
+                    else:
+                        quoted_sender = "Pesan Sebelumnya"
+                elif isinstance(msg.get("_data", {}).get("quotedMsg"), dict):
+                    q_msg = msg["_data"]["quotedMsg"]
+                    quoted_text = q_msg.get("body") or q_msg.get("caption")
+                    q_part = str(msg["_data"].get("quotedParticipant") or "")
+                    q_from_me = bool(q_msg.get("fromMe", False))
+                    if q_from_me:
+                        quoted_sender = "Helmis"
+                    elif gilang_phone and gilang_phone in q_part:
+                        quoted_sender = "Gilang"
+                    elif bunga_phone and bunga_phone in q_part:
+                        quoted_sender = "Bunga"
+                    else:
+                        quoted_sender = "Pesan Sebelumnya"
+
+                formatted_text = body_text
+                if quoted_text and body_text:
+                    formatted_text = (
+                        f'> [{quoted_sender or "Pesan Sebelumnya"}]: "{quoted_text.strip()}"\n\n{body_text}'
+                    )
+                elif quoted_text and not body_text:
+                    formatted_text = (
+                        f'> [{quoted_sender or "Pesan Sebelumnya"}]: "{quoted_text.strip()}"'
+                    )
+
                 messages.append(
                     WahaHistoryMessage(
                         message_id=str(msg.get("id", "")),
                         sender_phone=str(msg.get("from", "")),
-                        text=body_text,
+                        text=formatted_text,
                         media_url=msg.get("media", {}).get("url")
                         if isinstance(msg.get("media"), dict)
                         else None,
                         timestamp=int(msg.get("timestamp", 0)),
+                        quoted_text=quoted_text,
+                        quoted_sender=quoted_sender,
                     )
                 )
         return messages
