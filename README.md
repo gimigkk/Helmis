@@ -1,134 +1,90 @@
 # Helmis
 
-**Personal AI Executive Secretary for Gilang and Bunga** — powered by Google Gemini, autonomous multi-step reasoning, and persistent vector memory, delivered directly through WhatsApp.
+> **Self-hosted autonomous AI executive secretary for WhatsApp**, powered by Google Gemini, multi-step ReAct tool calling, and local semantic memory.
+
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
+[![Docker Compose](https://img.shields.io/badge/docker--compose-v2-2496ED.svg)](docker-compose.yml)
+[![Tests](https://img.shields.io/badge/tests-39%20passed-brightgreen.svg)](helmis-agent/tests/)
+[![License: Private](https://img.shields.io/badge/license-private-lightgrey.svg)](#license)
 
 ---
 
-## 📚 Deep Dive Technical Documentation
+## What is Helmis?
 
-For complete architectural details, developer guides, and operational playbooks, explore our dedicated documentation suite:
+Helmis is a zero-latency, private AI secretary built for real-world personal coordination over WhatsApp. It operates across private direct messages and a shared group chat, managing schedules, tasks, contacts, shared notes, and proactive reminders with strict state fidelity.
 
-| Document | Topic |
+```
+                    ┌──────────────────────────────┐
+                    │      WhatsApp (WAHA GOWS)    │
+                    └──────────────┬───────────────┘
+                                   │  HTTP Webhook / REST
+                                   ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│  Helmis Agent (Starlette + FastMCP Server)                           │
+│                                                                      │
+│  [1. Inbound Filter] ──► [2. 1.0s Chat Queue] ──► [3. Voice/OCR]     │
+│                                                          │           │
+│  [6. State Guardrail] ◄── [5. ReAct Engine] ◄────────────┘           │
+│           │                      │                                   │
+│           ▼                      ▼                                   │
+│     WhatsApp Reply       [15 Native Tools]                           │
+│                                  │                                   │
+│            ┌─────────────────────┴─────────────────────┐             │
+│            ▼                                           ▼             │
+│   Atomic JSON Store                           3072-dim Vector Store  │
+│   (Tasks, Notes, People)                      (Semantic Memories)    │
+└──────────────────────────────────┬───────────────────────────────────┘
+                                   ▲
+                                   │ 5-min Cron Trigger
+                    ┌──────────────┴───────────────┐
+                    │  Supercronic (Scheduler)     │
+                    └──────────────────────────────┘
+```
+
+---
+
+## Live Interaction Examples
+
+### 1. Multi-Step Task Management with Proactive Reminders
+```text
+[Gilang]: Besok jam 18:30 ada meeting dengan Pak Budi di Kuningan, ingetin ya
+[Helmis]: Siap, reminder *Meeting dengan Pak Budi di Kuningan* sudah dijadwalkan untuk besok pukul 18:30 WIB.
+```
+
+### 2. Quoted Voice Note Comprehension (Multimodal)
+```text
+> [Bunga]: "Pesan Suara / Voice Note (8 detik)"
+
+[Gilang]: Ini maksudnya apa ya?
+[Helmis]: Bunga mengingatkan untuk tidak lupa membayar tagihan listrik sebelum jam 12 siang hari ini.
+```
+
+### 3. Cross-Party Delegation & Thinking Out Loud
+```text
+[Gilang]: Tolong tanyain Bunga mau makan malam apa, terus catat pilihannya
+[Helmis]: Sedang mengirimkan pesan konfirmasi makan malam ke Bunga...
+          Pesan sudah dikirim ke Bunga via WhatsApp DM. Begitu ada balasan, saya akan langsung mencatatnya di shared notes.
+```
+
+---
+
+## Core Engineering Primitives
+
+| Primitive | Description |
 |---|---|
-| 📖 **[Documentation Hub](file:///home/gimigkk/Desktop/Projects/Helmis/docs/INDEX.md)** | Master table of contents, maintainer paths & core system invariants |
-| 🏗️ **[System Architecture](file:///home/gimigkk/Desktop/Projects/Helmis/docs/ARCHITECTURE.md)** | System topology, container orchestration & turn execution lifecycle |
-| 🧠 **[Autonomous Agent Core](file:///home/gimigkk/Desktop/Projects/Helmis/docs/AGENT_CORE.md)** | Multi-step ReAct loop, dynamic model cascade, 12 tools & state guardrails |
-| 💾 **[Memory & Vector Storage](file:///home/gimigkk/Desktop/Projects/Helmis/docs/MEMORY_AND_STORAGE.md)** | Atomic JSON store, 3072-dim embeddings & background fact extractor |
-| 📡 **[Communication & Queues](file:///home/gimigkk/Desktop/Projects/Helmis/docs/COMMUNICATION_AND_ROUTING.md)** | WAHA REST client, webhook engine, per-chat 1.0s debouncing & auth |
-| ⏰ **[Proactive Reminder Engine](file:///home/gimigkk/Desktop/Projects/Helmis/docs/PROACTIVE_ENGINE.md)** | Supercronic scheduler, reminder evaluator & automated WhatsApp dispatch |
-| ⚙️ **[Configuration & Skills](file:///home/gimigkk/Desktop/Projects/Helmis/docs/CONFIGURATION_AND_SKILLS.md)** | Environment variables, system prompt, zero-emoji policy & skills |
-| 🧪 **[Development & Testing](file:///home/gimigkk/Desktop/Projects/Helmis/docs/DEVELOPMENT_AND_TESTING.md)** | Local setup, 36-test pytest suite, step tracer & extensibility guide |
-| 🚀 **[Deployment & Operations](file:///home/gimigkk/Desktop/Projects/Helmis/docs/DEPLOYMENT_AND_OPERATIONS.md)** | Docker Compose runbook, terminal QR auth, backups & troubleshooting |
-| 📋 **[Scenarios & Playbooks](file:///home/gimigkk/Desktop/Projects/Helmis/docs/SCENARIOS_AND_PLAYBOOKS.md)** | 50+ real-world scenarios, thinking-out-loud matrix & 6 core primitives |
+| **Autonomous ReAct Core** | Up to 5-step ReAct reasoning loop with 15 native tools (`add_task`, `update_task`, `complete_task`, `save_note`, `remember_fact`, `send_whatsapp_message`, `send_status_update`, etc.). |
+| **Model Cascade & Quota Rotation** | Dynamic speed-first model prioritization (`Flash-Lite` $\rightarrow$ `Flash` $\rightarrow$ `Gemma` $\rightarrow$ `Pro`) with multi-key round-robin rotation on HTTP 429 rate limits. |
+| **Burst Debounce Queue** | Per-chat FIFO queues with a 1.0s sliding debounce window that merges rapid-fire text fragments into single unified turns. |
+| **GOWS Protobuf Quote Parser** | Native extraction of WhatsApp quoted metadata across text, voice notes (with duration and transcription), images (with captions), documents, and stickers. |
+| **State Fidelity Guardrails** | Structural output verification that forces the model to report exact database outcomes, eliminating sycophantic false confirmations. |
+| **Dual Storage Engine** | Thread-safe atomic JSON writes (`helmis_memory.json`) for relational entities alongside 3072-dimensional vector embeddings (`semantic_memories.json`) for episodic recall. |
+| **Supercronic Proactive Engine** | Standalone Alpine Linux scheduler container evaluating due dates in Jakarta time (`WIB`) every 5 minutes. |
 
 ---
 
-## Key Capabilities
+## Quickstart
 
-- 💬 **Native WhatsApp Delivery**: Communicates via private DMs and a shared Trio group chat with zero emojis and crisp WhatsApp formatting.
-- 🧠 **Unified Brain with Discretion**: Remembers shared context, tasks, and directory contacts while preserving DM privacy.
-- 📅 **Task & Schedule Intelligence**: Tracks deadlines, reassigns owners, updates statuses, and evaluates time in Jakarta local time (`WIB`).
-- 🎙️ **Voice Notes & Multimodal OCR**: Dedicated 2-phase pipeline for verbatim audio transcription and visual document parsing (receipts, bills, schedules).
-- ⚡ **Multi-Key Quota Rotation**: Dynamic cascade across Gemini models (`Flash-Lite` $\rightarrow$ `Flash` $\rightarrow$ `Gemma` $\rightarrow$ `Pro`) with automatic key rotation on rate limits (429).
-- ⏰ **Proactive Outreach**: Periodic cron evaluations automatically dispatch reminders to WhatsApp before deadlines arrive.
-- 🛡️ **State Fidelity Guardrails**: Validates that agent responses strictly match actual database outcomes without sycophancy or hallucinated confirmations.
-
----
-
-## Tech Stack
-
-| Component | Technology |
-|---|---|
-| **AI Agent Core** | Autonomous ReAct Engine with Google Gemini (`gemini-3.1-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`) |
-| **Vector Embeddings** | Google `gemini-embedding-001` (3072-dimensional vector space with cosine similarity) |
-| **WhatsApp Bridge** | [WAHA](https://waha.devlike.pro) (GOWS Native Engine) |
-| **Webhook & Transport** | Starlette ASGI + Uvicorn + FastMCP SSE Server |
-| **Proactive Triggers** | Supercronic (Alpine Linux Container) |
-| **Orchestration** | Docker Compose v2 |
-
----
-
-## Architecture Overview
-
-```
-WhatsApp Network ──► WAHA (GOWS) ──HTTP Webhook──► Helmis Agent Container
-                                                         │
-                         ┌───────────────────────────────┼───────────────────────────────┐
-                         ▼                               ▼                               ▼
-                 Google Gemini API               Local Persistence                Proactive Scheduler
-             (Multi-Key Round-Robin)          (Atomic JSON & Vectors)          (5-minute periodic tick)
-                         │                               │                               │
-             ├── Flash-Lite / Flash / Pro        ├── Tasks & Directory           └── trigger.sh -> Webhook
-             ├── 3072-dim Embeddings             ├── Semantic Episodic Facts
-             └── Native Vision & Audio           └── Step Traces (JSONL)
-```
-
----
-
-## Project Structure
-
-```
-Helmis/
-├── README.md                                  # You are here: Project Overview
-├── docker-compose.yml                         # Production container stack
-├── .env.example                               # Environment template
-│
-├── docs/                                      # Complete Deep Dive Documentation
-│   ├── INDEX.md                               # Master Documentation Hub
-│   ├── ARCHITECTURE.md                        # Architecture & Turn Lifecycle
-│   ├── AGENT_CORE.md                          # ReAct Engine, Model Cascade & 15 Tools
-│   ├── MEMORY_AND_STORAGE.md                  # Storage & Vector Memory
-│   ├── COMMUNICATION_AND_ROUTING.md           # WAHA Client, Quotes & Debounce Queue
-│   ├── PROACTIVE_ENGINE.md                    # Cron Scheduler & Reminders
-│   ├── CONFIGURATION_AND_SKILLS.md            # Prompts, Skills & Directives
-│   ├── DEVELOPMENT_AND_TESTING.md             # Pytest Suite & Turn Tracer
-│   ├── DEPLOYMENT_AND_OPERATIONS.md           # Runbooks & Troubleshooting
-│   └── SCENARIOS_AND_PLAYBOOKS.md             # 50 Real-World Scenarios & Thinking Out Loud Matrix
-│
-├── helmis-agent/                              # Core AI Agent & Bridge
-│   ├── Dockerfile
-│   ├── pyproject.toml
-│   ├── src/
-│   │   ├── agent.py                           # ReAct Loop, Cascade & 15 Tools
-│   │   ├── client.py                          # Typed WAHA REST Client
-│   │   ├── history.py                         # Message Deduplication & Turns
-│   │   ├── logger.py                          # Structured ANSI Step Tracer
-│   │   ├── memory.py                          # Structured JSON Persistence
-│   │   ├── models.py                          # Pydantic v2 Data Shapes
-│   │   ├── proactive.py                       # Proactive Reminder Evaluator
-│   │   ├── queue.py                           # Per-Chat Debounce Queue
-│   │   ├── semantic_memory.py                 # Vector Store & Background Extractor
-│   │   ├── server.py                          # FastMCP & Webhook Entry Point
-│   │   └── webhook.py                         # Starlette Webhook Receiver & Quote Parser
-│   └── tests/                                 # 39 Automated Unit & Integration Tests
-│
-├── scheduler/                                 # Proactive Cron Container
-│   ├── Dockerfile
-│   ├── crontab
-│   └── trigger.sh
-│
-├── config/                                    # System Prompts & Skills
-│   ├── system-prompt.md                       # Core Persona & Formatting Rules
-│   └── skills/                                # Specialized Capability Playbooks
-│       ├── people-directory/
-│       ├── schedule-manager/
-│       ├── task-manager/
-│       ├── reminder-engine/
-│       ├── document-reader/
-│       ├── shared-notes/
-│       └── proactive-check/
-│
-└── scripts/
-    ├── setup.sh                               # First-time host provisioning
-    ├── auth.sh                                # Terminal ASCII QR code pairing
-    └── backup.sh                              # Data backup & archive script
-```
-
----
-
-## Quickstart Guide
-
-### 1. Clone & Run Setup
+### 1. Bootstrap Host Environment
 ```bash
 git clone https://github.com/your-username/helmis.git
 cd helmis
@@ -136,43 +92,106 @@ chmod +x scripts/*.sh
 ./scripts/setup.sh
 ```
 
-### 2. Configure Credentials (`.env`)
+### 2. Configure Environment (`.env`)
 ```bash
+cp .env.example .env
 nano .env
 ```
-Fill in your `GEMINI_KEY_1`, `WAHA_API_KEY`, `GILANG_PHONE`, `BUNGA_PHONE`, and `BOT_PHONE`.
+Provide your `GEMINI_KEY_1`, `WAHA_API_KEY`, `GILANG_PHONE`, `BUNGA_PHONE`, and `BOT_PHONE`.
 
-### 3. Pair WhatsApp in Terminal
+### 3. Authenticate WhatsApp Session
 ```bash
 ./scripts/auth.sh
 ```
-Scan the ASCII QR code that appears in your terminal with the bot's WhatsApp phone.
+Scan the terminal ASCII QR code with the bot's WhatsApp account.
 
-### 4. Launch Stack
+### 4. Start Production Containers
 ```bash
 docker compose up -d
 ```
 
 ---
 
-## Operational Commands
+## Developer & Operational Tooling
 
 ```bash
-# Check service status
+# Inspect container health & runtime status
 docker compose ps
 
-# View live agent reasoning trace
+# Follow live agent turn traces & tool executions
 docker compose logs -f agent
 
-# View WhatsApp bridge logs
-docker compose logs -f waha
-
-# Run automated test suite
+# Run the automated pytest suite (39 tests)
 cd helmis-agent && .venv/bin/pytest -v
 
-# Perform manual backup
+# Run type checker & linter
+cd helmis-agent && .venv/bin/ruff check . && .venv/bin/mypy src tests
+
+# Create manual persistent backup
 ./scripts/backup.sh
 ```
+
+---
+
+## Repository Structure
+
+```
+Helmis/
+├── docker-compose.yml                         # Container stack orchestration
+├── .env.example                               # Environment template
+│
+├── helmis-agent/                              # Core AI Agent & Webhook Bridge
+│   ├── src/
+│   │   ├── agent.py                           # ReAct Loop, Model Cascade & 15 Tools
+│   │   ├── client.py                          # Typed WAHA Async REST Client
+│   │   ├── history.py                         # Message Deduplication & Turn Formatter
+│   │   ├── logger.py                          # Structured ANSI Step Tracer
+│   │   ├── memory.py                          # Thread-Safe Atomic JSON Store
+│   │   ├── models.py                          # Pydantic v2 Schema Definitions
+│   │   ├── proactive.py                       # Proactive Deadline & Task Evaluator
+│   │   ├── queue.py                           # Per-Chat Burst Debounce Queue
+│   │   ├── semantic_memory.py                 # Vector Store & Background Fact Extractor
+│   │   ├── server.py                          # FastMCP SSE Server Entry Point
+│   │   └── webhook.py                         # Starlette Webhook & GOWS Quote Extractor
+│   └── tests/                                 # 39 Unit & Integration Tests
+│
+├── scheduler/                                 # Proactive Scheduler Container
+│   ├── Dockerfile
+│   ├── crontab                                # 5-minute periodic tick definition
+│   └── trigger.sh                             # Webhook trigger script
+│
+├── config/                                    # Personas & Capability Playbooks
+│   ├── system-prompt.md                       # Core Identity & Strict Zero-Emoji Rule
+│   └── skills/                                # Modular Skill Directives
+│
+└── docs/                                      # Comprehensive Technical Documentation
+    ├── INDEX.md                               # Master Documentation Hub
+    ├── ARCHITECTURE.md                        # Architecture & Lifecycle
+    ├── AGENT_CORE.md                          # ReAct Engine & Model Cascade
+    ├── MEMORY_AND_STORAGE.md                  # Storage & Vector Memory
+    ├── COMMUNICATION_AND_ROUTING.md           # WAHA Client, Quotes & Debounce Queue
+    ├── PROACTIVE_ENGINE.md                    # Cron Scheduler & Reminders
+    ├── CONFIGURATION_AND_SKILLS.md            # Prompts, Skills & Directives
+    ├── DEVELOPMENT_AND_TESTING.md             # Pytest Suite & Turn Tracer
+    ├── DEPLOYMENT_AND_OPERATIONS.md           # Runbooks & Troubleshooting
+    └── SCENARIOS_AND_PLAYBOOKS.md             # 50 Real-World Scenarios & Thinking Out Loud Matrix
+```
+
+---
+
+## Documentation
+
+For comprehensive technical specifications, explore the **[Documentation Hub](docs/INDEX.md)**:
+
+- **[System Architecture & Turn Lifecycle](docs/ARCHITECTURE.md)**
+- **[Autonomous Agent Core & 15 Tools](docs/AGENT_CORE.md)**
+- **[Memory Architecture & Vector Store](docs/MEMORY_AND_STORAGE.md)**
+- **[Communication, Quotes & Debounce Queues](docs/COMMUNICATION_AND_ROUTING.md)**
+- **[Proactive Reminder Subsystem](docs/PROACTIVE_ENGINE.md)**
+- **[Configuration & Skills Playbooks](docs/CONFIGURATION_AND_SKILLS.md)**
+- **[Development & Testing Guide](docs/DEVELOPMENT_AND_TESTING.md)**
+- **[Deployment & Troubleshooting Runbook](docs/DEPLOYMENT_AND_OPERATIONS.md)**
+- **[50 Real-World Scenarios & Playbooks](docs/SCENARIOS_AND_PLAYBOOKS.md)**
 
 ---
 
