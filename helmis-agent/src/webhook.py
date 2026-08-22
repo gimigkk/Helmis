@@ -37,11 +37,12 @@ BOT_PHONE = (
     os.environ.get("BOT_PHONE", "").replace("+", "").replace(" ", "").replace("-", "")
 )
 GILANG_LID = (
-    os.environ.get("GILANG_LID", "").replace("+", "").replace(" ", "").replace("-", "").split("@")[0]
-)
+    os.environ.get("GILANG_LID") or "217188174717173"
+).replace("+", "").replace(" ", "").replace("-", "").split("@")[0].split(":")[0]
+
 BUNGA_LID = (
-    os.environ.get("BUNGA_LID", "").replace("+", "").replace(" ", "").replace("-", "").split("@")[0]
-)
+    os.environ.get("BUNGA_LID") or "279821464654020"
+).replace("+", "").replace(" ", "").replace("-", "").split("@")[0].split(":")[0]
 
 TRIO_GROUP_JID = os.environ.get("TRIO_GROUP_JID", "")
 ALLOWED_CHATS = set(
@@ -53,6 +54,8 @@ ALLOWED_CHATS = set(
             TRIO_GROUP_JID if TRIO_GROUP_JID else None,
             f"{GILANG_LID}@lid" if GILANG_LID else None,
             f"{BUNGA_LID}@lid" if BUNGA_LID else None,
+            "217188174717173@lid",
+            "279821464654020@lid",
         ],
     )
 )
@@ -74,10 +77,10 @@ def extract_quoted_info(
     def resolve_sender(participant: str, from_me: bool) -> str:
         if from_me:
             return "Helmis"
-        clean = participant.split("@")[0].replace("+", "").replace(" ", "").replace("-", "")
-        if (bool(GILANG_PHONE) and clean == GILANG_PHONE) or (bool(GILANG_LID) and clean == GILANG_LID):
+        clean = participant.split("@")[0].split(":")[0].replace("+", "").replace(" ", "").replace("-", "")
+        if (bool(GILANG_PHONE) and clean == GILANG_PHONE) or (bool(GILANG_LID) and (clean == GILANG_LID or clean.startswith(GILANG_LID))):
             return "Gilang"
-        if (bool(BUNGA_PHONE) and clean == BUNGA_PHONE) or (bool(BUNGA_LID) and clean == BUNGA_LID):
+        if (bool(BUNGA_PHONE) and clean == BUNGA_PHONE) or (bool(BUNGA_LID) and (clean == BUNGA_LID or clean.startswith(BUNGA_LID))):
             return "Bunga"
         return "Pesan Sebelumnya"
 
@@ -358,8 +361,8 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 or payload.get("_data", {}).get("author")
                 or ""
             )
-            clean_author = author.split("@")[0].replace("+", "").replace(" ", "").replace("-", "")
-            clean_from = from_user.split("@")[0].replace("+", "").replace(" ", "").replace("-", "")
+            clean_author = author.split("@")[0].split(":")[0].replace("+", "").replace(" ", "").replace("-", "")
+            clean_from = from_user.split("@")[0].split(":")[0].replace("+", "").replace(" ", "").replace("-", "")
             notify_name = str(
                 payload.get("_data", {}).get("notifyName") or payload.get("notifyName") or ""
             )
@@ -368,21 +371,23 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             sender_name: str | None = None
             if (
                 (bool(GILANG_PHONE) and (clean_from == GILANG_PHONE or clean_author == GILANG_PHONE))
-                or (bool(GILANG_LID) and (clean_from == GILANG_LID or clean_author == GILANG_LID))
+                or (bool(GILANG_LID) and (clean_from.startswith(GILANG_LID) or clean_author.startswith(GILANG_LID)))
                 or "gilang" in notify_name.lower()
             ):
                 sender_name = "Gilang"
             elif (
                 (bool(BUNGA_PHONE) and (clean_from == BUNGA_PHONE or clean_author == BUNGA_PHONE))
-                or (bool(BUNGA_LID) and (clean_from == BUNGA_LID or clean_author == BUNGA_LID))
+                or (bool(BUNGA_LID) and (clean_from.startswith(BUNGA_LID) or clean_author.startswith(BUNGA_LID)))
                 or "bunga" in notify_name.lower()
             ):
                 sender_name = "Bunga"
 
+            log.info("Webhook message from=%s (clean_from=%s) author=%s (clean_author=%s) resolved_sender=%s text=%r", from_user, clean_from, author, clean_author, sender_name, text[:40])
+
             # Silently drop messages from anyone else
             if not sender_name:
-                log.debug(
-                    "Silently dropping message from unauthorized sender: from=%s author=%s (%s)",
+                log.warning(
+                    "Dropping message from unauthorized sender: from=%s author=%s (%s)",
                     from_user,
                     author,
                     notify_name,
