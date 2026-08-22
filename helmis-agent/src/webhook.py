@@ -36,6 +36,12 @@ BUNGA_PHONE = (
 BOT_PHONE = (
     os.environ.get("BOT_PHONE", "").replace("+", "").replace(" ", "").replace("-", "")
 )
+GILANG_LID = (
+    os.environ.get("GILANG_LID", "").replace("+", "").replace(" ", "").replace("-", "").split("@")[0]
+)
+BUNGA_LID = (
+    os.environ.get("BUNGA_LID", "").replace("+", "").replace(" ", "").replace("-", "").split("@")[0]
+)
 
 TRIO_GROUP_JID = os.environ.get("TRIO_GROUP_JID", "")
 ALLOWED_CHATS = set(
@@ -45,8 +51,8 @@ ALLOWED_CHATS = set(
             f"{GILANG_PHONE}@c.us" if GILANG_PHONE else None,
             f"{BUNGA_PHONE}@c.us" if BUNGA_PHONE else None,
             TRIO_GROUP_JID if TRIO_GROUP_JID else None,
-            os.environ.get("GILANG_LID"),
-            os.environ.get("BUNGA_LID"),
+            f"{GILANG_LID}@lid" if GILANG_LID else None,
+            f"{BUNGA_LID}@lid" if BUNGA_LID else None,
         ],
     )
 )
@@ -69,9 +75,9 @@ def extract_quoted_info(
         if from_me:
             return "Helmis"
         clean = participant.split("@")[0].replace("+", "").replace(" ", "").replace("-", "")
-        if (bool(GILANG_PHONE) and clean == GILANG_PHONE) or clean.startswith("217188174717173"):
+        if (bool(GILANG_PHONE) and clean == GILANG_PHONE) or (bool(GILANG_LID) and clean == GILANG_LID):
             return "Gilang"
-        if (bool(BUNGA_PHONE) and clean == BUNGA_PHONE) or clean.startswith("279821464654020"):
+        if (bool(BUNGA_PHONE) and clean == BUNGA_PHONE) or (bool(BUNGA_LID) and clean == BUNGA_LID):
             return "Bunga"
         return "Pesan Sebelumnya"
 
@@ -362,15 +368,13 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             sender_name: str | None = None
             if (
                 (bool(GILANG_PHONE) and (clean_from == GILANG_PHONE or clean_author == GILANG_PHONE))
-                or clean_from.startswith("217188174717173")
-                or clean_author.startswith("217188174717173")
+                or (bool(GILANG_LID) and (clean_from == GILANG_LID or clean_author == GILANG_LID))
                 or "gilang" in notify_name.lower()
             ):
                 sender_name = "Gilang"
             elif (
                 (bool(BUNGA_PHONE) and (clean_from == BUNGA_PHONE or clean_author == BUNGA_PHONE))
-                or clean_from.startswith("279821464654020")
-                or clean_author.startswith("279821464654020")
+                or (bool(BUNGA_LID) and (clean_from == BUNGA_LID or clean_author == BUNGA_LID))
                 or "bunga" in notify_name.lower()
             ):
                 sender_name = "Bunga"

@@ -5,7 +5,7 @@
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
 [![Docker Compose](https://img.shields.io/badge/docker--compose-v2-2496ED.svg)](docker-compose.yml)
 [![Tests](https://img.shields.io/badge/tests-39%20passed-brightgreen.svg)](helmis-agent/tests/)
-[![License: Private](https://img.shields.io/badge/license-private-lightgrey.svg)](#license)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
@@ -196,5 +196,5 @@ For comprehensive technical specifications, explore the **[Documentation Hub](do
 ---
 
 ## License
-
-Private repository for personal use by Gilang & Bunga.
+ 
+Distributed under the MIT License. See [LICENSE](LICENSE) for details.

@@ -22,7 +22,7 @@ async def test_queue_debounces_burst_messages() -> None:
     mgr.dispatch(
         IncomingMessageEvent(
             sender_name="Gilang",
-            from_user="6281932062070@c.us",
+            from_user="628111111111@c.us",
             reply_id="m1",
             text="Halo helmis",
             has_media=False,
@@ -35,7 +35,7 @@ async def test_queue_debounces_burst_messages() -> None:
     mgr.dispatch(
         IncomingMessageEvent(
             sender_name="Gilang",
-            from_user="6281932062070@c.us",
+            from_user="628111111111@c.us",
             reply_id="m2",
             text="tolong ingetin besok",
             has_media=False,
