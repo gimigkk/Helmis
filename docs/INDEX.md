@@ -38,7 +38,7 @@ Detailed architectural overview of Helmis:
 The intelligence layer of Helmis:
 - **Dynamic Model Cascade**: Dynamic query of Google Gemini models with intelligent speed/capability prioritization (`Flash-Lite` -> `Flash` -> `Gemma` -> `Pro`).
 - **Multi-Key Quota Rotation**: Round-robin key rotation across independent Google accounts to bypass rate limits (429/404 handling).
-- **Tool Calling System**: Detailed specifications, JSON schemas, parameters, and return types for all 12 agentic tools.
+- **Tool Calling System**: Detailed specifications, JSON schemas, parameters, and return types for all 15 native agentic tools (including `send_status_update`).
 - **Multi-Turn Context Builder**: Chronological history construction, speaker attribution (`[Gilang]`, `[Bunga]`), and native multimodal media injection.
 - **State Fidelity Guardrail**: Output verification that prevents hallucinations when items are not found or operations fail.
 - **Voice Note & Document OCR**: 2-phase pipeline featuring dedicated zero-hallucination speech transcription and multimodal document analysis.
@@ -55,6 +55,7 @@ Data persistence and long-term intelligence:
 WhatsApp ingestion, routing, and transport:
 - **WAHA REST Client (`WahaClient`)**: Async HTTP client for `/api/sendText`, `/api/sendFile`, `/api/messages`, and typing indicators.
 - **Webhook Receiver**: Starlette HTTP server running in a dedicated thread on port 8644.
+- **Quoted Message & Reply Architecture**: Engine-agnostic quote extraction supporting GOWS Protobuf (`audioMessage` with duration, `imageMessage`, `documentMessage`, `stickerMessage`) and WebJS `quotedMsg`.
 - **Multi-Filter Authorization**: Strict sender whitelisting (`GILANG_PHONE`, `BUNGA_PHONE`, WhatsApp LIDs, notifyName), dropping unauthorized users silently.
 - **Group Chat Discretion & Banter Filter**: Heuristic mention detection (`@helmis`, `mis `) to avoid interrupting human conversation in group chats.
 - **Per-Chat Debounce Queue**: Independent async workers per chat ID with a 1.0-second burst debounce window that coalesces rapid multi-message bursts into a single prompt.
@@ -75,7 +76,7 @@ Behavioral tuning and capability playbooks:
 ### 7. [Development, Testing & Observability](file:///home/gimigkk/Desktop/Projects/Helmis/docs/DEVELOPMENT_AND_TESTING.md)
 Developer setup, test suite, and step tracing:
 - **Local Environment**: Python 3.12+ virtualenv setup and package management via `pyproject.toml`.
-- **Test Suite**: 32 unit and integration tests covering agent loops, HTTP clients, deduplication, memory, queues, and vector math.
+- **Test Suite**: 39 unit and integration tests covering agent loops, quoted messages, HTTP clients, deduplication, memory, queues, and vector math.
 - **Structured Step Tracer (`AgentTurnTracer`)**: ANSI-formatted real-time console tracing and persistent JSON Lines audit logging (`agent_traces.jsonl`).
 - **Extensibility Guide**: Step-by-step instructions for adding new tools, skills, and model providers.
 

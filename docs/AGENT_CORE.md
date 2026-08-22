@@ -168,6 +168,12 @@ Helmis defines **12 native tools** exposed directly to Gemini via OpenAI/Gemini-
   - `since_hours_ago` (*integer, optional*): Number of hours to look back.
   - `limit` (*integer, optional*): Max messages (default 20, max 50).
 
+#### 15. `send_status_update`
+- **Purpose**: Send a fast, 1-line intermediate progress or thinking acknowledgment to WhatsApp while keeping the typing indicator active for long multi-step research or multi-file operations.
+- **Parameters**:
+  - `text` (*string, required*): Short 1-sentence progress note (e.g. `'Sedang mengecek riwayat chat dan dokumen kemarin...'`).
+- **Behavior**: Transmits the message to the active chat and immediately resumes WhatsApp active typing presence (`start_typing()`).
+
 ---
 
 ## 4. Multi-Turn Context Assembly (`build_multi_turn_contents`)

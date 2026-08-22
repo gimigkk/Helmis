@@ -134,3 +134,57 @@ sequenceDiagram
 - **Concurrent Chat Isolation**: Gilang's DM, Bunga's DM, and the Trio Group Chat execute in parallel. A long-running turn in one chat does not block processing in another.
 - **Sequential FIFO within Chat**: Consecutive messages within the same chat are guaranteed to execute sequentially without race conditions.
 - **Burst Debounce Algorithm**: When a message arrives, the worker enters a debounce loop, sleeping in small intervals (20–50ms) and checking for new messages. As long as messages arrive within 1.0 second of each other, they are coalesced into a single array of `IncomingMessageEvent` objects and processed as a unified turn.
+
+---
+
+## 5. Quoted Message & Reply Payload Architecture
+
+WhatsApp users frequently quote or swipe-reply to prior messages, voice notes, photos, and system responses. WAHA represents quotes differently depending on whether it runs the GOWS (Go WebSocket) engine or WebJS/Noweb engine. Helmis implements engine-agnostic quote extraction (`extract_quoted_info` in `helmis-agent/src/webhook.py`).
+
+### Supported Payload Structures
+
+```
+WAHA Webhook Payload
+├── 1. Top-Level 'replyTo' (WAHA Generic)
+│   ├── body / caption: Quoted plain text
+│   ├── type: 'chat', 'ptt', 'audio', 'image', 'document'
+│   └── participant / from: Sender JID
+│
+├── 2. Raw WebJS '_data.quotedMsg' (WhatsApp Web Engine)
+│   ├── body / caption: Quoted text
+│   ├── type: Message type
+│   └── _data.quotedParticipant: Sender JID
+│
+└── 3. GOWS Protobuf '_data.Message.extendedTextMessage.contextInfo' (Go WebSocket Engine)
+    ├── participant: Sender JID
+    └── quotedMessage:
+        ├── audioMessage: { seconds: 8, ptt: true, mimetype: "audio/ogg" }  ──► "Pesan Suara / Voice Note (8 detik)"
+        ├── imageMessage: { caption: "...", mimetype: "image/jpeg" }       ──► "Foto / Gambar: Caption"
+        ├── conversation / extendedTextMessage: { text: "..." }            ──► Plain text quote
+        ├── documentMessage: { title: "...", fileName: "..." }             ──► "Dokumen: filename.pdf"
+        └── stickerMessage: { ... }                                        ──► "Stiker"
+```
+
+### Multimodal Quoting & Prompt Formatting
+
+When a message with a quote is debounced, Helmis prefixes the user's turn with standard WhatsApp markdown blockquote formatting:
+
+```text
+> [Bunga]: "Pesan Suara / Voice Note (8 detik)"
+
+coba apa yang gw quote
+```
+
+If a quoted voice note has a direct download URL, Phase 1 automatically downloads and transcribes the audio into the quote header:
+```text
+> [Bunga]: "Pesan Suara (Voice Note): \"Jangan lupa bayar tagihan ya\""
+
+maksudnya gimana?
+```
+
+### Group Chat Quoting Trigger
+If a user quotes any message previously sent by Helmis in the Trio Group Chat (`quoted_sender == "Helmis"`), the message is treated as explicitly directed to Helmis, triggering an immediate response even if `@Helmis` was not typed.
+
+### Strict Anti-Hallucination Guardrail
+System instructions enforce that Gemini must look *only* at the `> [Sender]: ...` block in the current turn. If the user asks what was quoted and no quote block exists in the prompt, Helmis must state truthfully: *"Tidak ada pesan atau media yang ter-quote pada pesan ini"* rather than inventing a fictional quote from chat history.
+

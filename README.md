@@ -76,19 +76,20 @@ Helmis/
 ├── docs/                                      # Complete Deep Dive Documentation
 │   ├── INDEX.md                               # Master Documentation Hub
 │   ├── ARCHITECTURE.md                        # Architecture & Turn Lifecycle
-│   ├── AGENT_CORE.md                          # ReAct Engine & Model Cascade
+│   ├── AGENT_CORE.md                          # ReAct Engine, Model Cascade & 15 Tools
 │   ├── MEMORY_AND_STORAGE.md                  # Storage & Vector Memory
-│   ├── COMMUNICATION_AND_ROUTING.md           # WAHA Client & Debounce Queue
+│   ├── COMMUNICATION_AND_ROUTING.md           # WAHA Client, Quotes & Debounce Queue
 │   ├── PROACTIVE_ENGINE.md                    # Cron Scheduler & Reminders
 │   ├── CONFIGURATION_AND_SKILLS.md            # Prompts, Skills & Directives
 │   ├── DEVELOPMENT_AND_TESTING.md             # Pytest Suite & Turn Tracer
-│   └── DEPLOYMENT_AND_OPERATIONS.md           # Runbooks & Troubleshooting
+│   ├── DEPLOYMENT_AND_OPERATIONS.md           # Runbooks & Troubleshooting
+│   └── SCENARIOS_AND_PLAYBOOKS.md             # 50 Real-World Scenarios & Thinking Out Loud Matrix
 │
 ├── helmis-agent/                              # Core AI Agent & Bridge
 │   ├── Dockerfile
 │   ├── pyproject.toml
 │   ├── src/
-│   │   ├── agent.py                           # ReAct Loop, Cascade & Tools
+│   │   ├── agent.py                           # ReAct Loop, Cascade & 15 Tools
 │   │   ├── client.py                          # Typed WAHA REST Client
 │   │   ├── history.py                         # Message Deduplication & Turns
 │   │   ├── logger.py                          # Structured ANSI Step Tracer
@@ -98,8 +99,8 @@ Helmis/
 │   │   ├── queue.py                           # Per-Chat Debounce Queue
 │   │   ├── semantic_memory.py                 # Vector Store & Background Extractor
 │   │   ├── server.py                          # FastMCP & Webhook Entry Point
-│   │   └── webhook.py                         # Starlette Webhook Receiver
-│   └── tests/                                 # 32 Automated Unit & Integration Tests
+│   │   └── webhook.py                         # Starlette Webhook Receiver & Quote Parser
+│   └── tests/                                 # 39 Automated Unit & Integration Tests
 │
 ├── scheduler/                                 # Proactive Cron Container
 │   ├── Dockerfile
