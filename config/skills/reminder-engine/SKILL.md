@@ -22,8 +22,10 @@ store it, fire it at the right time, and confirm it was handled.
 - "besok pagi jam 8" -> `Besok, 08:00 WIB`
 
 Confirmation Example:
-"Oke [Name], nanti jam [Time] WIB akan saya ingatkan untuk *[Task]*."
+- Single: "Oke [Name], nanti jam [Time] WIB akan saya ingatkan untuk *[Task]*."
+- Shared / Couple: "Siap, nanti jam [Time] WIB akan saya ingatkan kalian berdua untuk *[Task]*."
 
 ## Firing a Proactive Reminder
 When a reminder triggers:
-"Halo [Name], pengingat: *[Task]* (Waktu: [Due])."
+- Individual: "Halo [Name], pengingat: *[Task]* (Waktu: [Due])."
+- Shared / Group: "Halo Guys, pengingat bersama: *[Task]* (Waktu: [Due])."

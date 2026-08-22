@@ -126,7 +126,7 @@ GEMINI_TOOLS = [
                         },
                         "assignee": {
                             "type": "STRING",
-                            "description": "Person responsible: 'Gilang' or 'Bunga'",
+                            "description": "Person responsible: 'Gilang', 'Bunga', or 'Both' (for shared couple/team tasks)",
                         },
                     },
                     "required": ["title", "due"],
@@ -171,7 +171,7 @@ GEMINI_TOOLS = [
                         },
                         "new_assignee": {
                             "type": "STRING",
-                            "description": "New assignee: 'Gilang' or 'Bunga'",
+                            "description": "New assignee: 'Gilang', 'Bunga', or 'Both'",
                         },
                         "new_due": {
                             "type": "STRING",
@@ -1000,8 +1000,10 @@ async def run_agentic_react_loop(
         f"   - Never claim an action succeeded unless its tool returned status 'success'.\n"
         f"   - Never invent or fabricate data. If a user refers to an unattached file, state that it has not been received.\n\n"
         f"4. TASK & ASSIGNMENT LOGIC:\n"
-        f"   - When a user asks for a personal reminder, assign to that user. When asking to remind someone else, assign to the target person.\n"
-        f"   - Use 'update_task' to modify existing tasks and 'complete_task' when finished.\n\n"
+        f"   - Single-person tasks: When Gilang asks for a reminder for himself, assign to 'Gilang'. When asking to remind Bunga, assign to 'Bunga'.\n"
+        f"   - Shared / Couple tasks: When a task involves both ('kita', 'kita berdua', 'bersama', 'shared', 'bareng', 'agenda kita'), assign to 'Both'. Shared task reminders will be dispatched to both partners or the Trio group chat.\n"
+        f"   - When listing tasks, if the user asks for all tasks or general tasks, list both individual and 'Both' shared tasks.\n"
+        f"   - Use 'update_task' to modify existing tasks/reassign between 'Gilang', 'Bunga', or 'Both', and 'complete_task' when finished.\n\n"
         f"5. CONTEXTUAL THINKING & CROSS-PARTY COORDINATION:\n"
         f"   - When executing actions that resolve conflicts or involve complex breakdowns, naturally include your reasoning context in the final response (e.g. why a specific time was chosen or how costs were split).\n"
         f"   - Cross-Party Delegation: When a user asks you to inform, ask, or message the other partner (e.g. Gilang asks to notify Bunga), invoke 'send_whatsapp_message(recipient=\"Bunga\", ...)' mid-turn, and confirm to the sender in your final response.\n"

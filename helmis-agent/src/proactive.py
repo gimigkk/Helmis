@@ -57,8 +57,8 @@ If there are tasks that need a proactive reminder right now, output a JSON array
 [
   {{
     "title": "exact task title",
-    "assignee": "Gilang or Bunga",
-    "message": "Concise WhatsApp reminder text in Indonesian with ZERO EMOJIS, e.g. 'Halo Gilang, pengingat: *[task title]* (Waktu: [due]).'"
+    "assignee": "Gilang, Bunga, or Both",
+    "message": "Concise WhatsApp reminder text in Indonesian with ZERO EMOJIS, e.g. 'Halo Gilang dan Bunga, pengingat bersama: *[task title]* (Waktu: [due]).' or 'Halo Gilang, pengingat: *[task title]* (Waktu: [due]).'"
   }}
 ]
 If no reminders are due right now, output exactly: []
@@ -106,18 +106,40 @@ Only output valid JSON, nothing else.
             log.info("No reminders due at this tick.")
             return
 
+        trio_group_jid = os.environ.get("TRIO_GROUP_JID", "")
+
         for item in reminders:
             title = item.get("title")
-            assignee = str(item.get("assignee", "Gilang"))
+            assignee = str(item.get("assignee", "Gilang")).strip()
             msg_text = item.get("message")
             if not msg_text:
                 continue
 
-            target_phone = GILANG_PHONE if "bunga" not in assignee.lower() else BUNGA_PHONE
-            target_jid = f"{target_phone}@c.us"
+            is_both = (
+                "both" in assignee.lower()
+                or "semua" in assignee.lower()
+                or "shared" in assignee.lower()
+                or "trio" in assignee.lower()
+                or ("gilang" in assignee.lower() and "bunga" in assignee.lower())
+            )
 
-            log.info("Sending proactive reminder to %s (%s): %s", assignee, target_jid, msg_text)
-            await client.send_message(chat_id=target_jid, text=msg_text)
+            if is_both:
+                if trio_group_jid:
+                    log.info("Sending shared proactive reminder to group %s: %s", trio_group_jid, msg_text)
+                    await client.send_message(chat_id=trio_group_jid, text=msg_text)
+                else:
+                    if GILANG_PHONE:
+                        await client.send_message(chat_id=f"{GILANG_PHONE}@c.us", text=msg_text)
+                    if BUNGA_PHONE:
+                        await client.send_message(chat_id=f"{BUNGA_PHONE}@c.us", text=msg_text)
+            elif "bunga" in assignee.lower():
+                if BUNGA_PHONE:
+                    log.info("Sending proactive reminder to Bunga (%s@c.us): %s", BUNGA_PHONE, msg_text)
+                    await client.send_message(chat_id=f"{BUNGA_PHONE}@c.us", text=msg_text)
+            else:
+                if GILANG_PHONE:
+                    log.info("Sending proactive reminder to Gilang (%s@c.us): %s", GILANG_PHONE, msg_text)
+                    await client.send_message(chat_id=f"{GILANG_PHONE}@c.us", text=msg_text)
 
             # Mark task as reminded in memory and log activity
             for t in tasks:

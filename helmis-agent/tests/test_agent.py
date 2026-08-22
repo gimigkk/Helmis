@@ -58,6 +58,36 @@ async def test_execute_tool_call_add_and_list_task() -> None:
     assert res_list["count"] == 0
 
 
+async def test_execute_tool_call_add_and_update_shared_task() -> None:
+    res = await agent.execute_tool_call(
+        func_name="add_task",
+        args={
+            "title": "Bayar sewa apartemen",
+            "due": "Tomorrow 10:00 WIB",
+            "assignee": "Both",
+        },
+        default_sender="Gilang",
+    )
+    assert res["status"] == "success"
+    assert res["task"]["assignee"] == "Both"
+
+    # Update to individual and back to Both
+    res_up = await agent.execute_tool_call(
+        func_name="update_task",
+        args={"title": "Bayar sewa", "new_assignee": "Bunga"},
+        default_sender="Gilang",
+    )
+    assert res_up["status"] == "success"
+    assert res_up["task"]["assignee"] == "Bunga"
+
+    res_clean = await agent.execute_tool_call(
+        func_name="delete_task",
+        args={"title": "Bayar sewa"},
+        default_sender="Gilang",
+    )
+    assert res_clean["status"] == "success"
+
+
 async def test_execute_tool_call_empty_title_error() -> None:
     res = await agent.execute_tool_call(
         func_name="add_task",
