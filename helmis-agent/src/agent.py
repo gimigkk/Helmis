@@ -15,11 +15,14 @@ from .history import build_multi_turn_contents
 from .memory import (
     add_person,
     add_task,
+    append_to_note,
     complete_task,
     delete_note,
     delete_task,
     get_memory_context_summary,
+    get_note,
     get_person,
+    list_notes,
     list_tasks,
     save_note,
     search_memory,
@@ -232,7 +235,7 @@ GEMINI_TOOLS = [
             },
             {
                 "name": "save_note",
-                "description": "Save a shared note, memo, or key fact to persistent storage.",
+                "description": "Save or completely overwrite a shared note, memo, or document in persistent storage.",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
@@ -240,6 +243,37 @@ GEMINI_TOOLS = [
                         "content": {"type": "STRING", "description": "Note body"},
                     },
                     "required": ["title", "content"],
+                },
+            },
+            {
+                "name": "get_note",
+                "description": "Retrieve the complete text and details of a specific note or memo by its title.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {"type": "STRING", "description": "Title or keyword of the note to retrieve"}
+                    },
+                    "required": ["title"],
+                },
+            },
+            {
+                "name": "list_notes",
+                "description": "List all shared notes, memos, and documents currently saved in memory.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "append_to_note",
+                "description": "Append text or items to an existing note, or create a new note if it does not exist yet. Ideal for living lists like groceries, packing lists, gift ideas, or recommendations.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {"type": "STRING", "description": "Title of the note to append to"},
+                        "text": {"type": "STRING", "description": "The item or text to append to the note"},
+                    },
+                    "required": ["title", "text"],
                 },
             },
             {
@@ -379,6 +413,42 @@ GEMINI_TOOLS = [
                     "required": ["target"],
                 },
             },
+            {
+                "name": "send_whatsapp_media",
+                "description": "Send a media attachment (image, photo, document, PDF) directly to a WhatsApp recipient ('Gilang', 'Bunga', 'group', or phone number).",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "recipient": {
+                            "type": "STRING",
+                            "description": "Target: 'Gilang', 'Bunga', 'group', or phone number",
+                        },
+                        "media_url": {
+                            "type": "STRING",
+                            "description": "Public URL or accessible local path of the media/image/document file",
+                        },
+                        "caption": {
+                            "type": "STRING",
+                            "description": "Optional caption for the media in WhatsApp markdown with ZERO EMOJIS",
+                        },
+                    },
+                    "required": ["recipient", "media_url"],
+                },
+            },
+            {
+                "name": "web_search",
+                "description": "Search the live web for real-time information, places, restaurants, operating hours, recipes, weather, news, or factual lookups.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "Search query keywords (e.g. 'restoran sunda senopati jam buka', 'cuaca bandung besok')",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
         ]
     }
 ]
@@ -478,6 +548,7 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
             "complete_task",
             "update_task",
             "send_whatsapp_message",
+            "send_whatsapp_media",
         )
     ]
 
@@ -621,11 +692,42 @@ async def _execute_tool_call_raw(
         elif func_name == "save_note":
             title = args.get("title", "")
             content = args.get("content", "")
+            if not title or not content:
+                return {"status": "error", "error": "Judul dan isi catatan tidak boleh kosong."}
             note = save_note(title=title, content=content)
             return {
                 "status": "success",
                 "note": note,
                 "message": f"Catatan '{title}' berhasil disimpan.",
+            }
+
+        elif func_name == "get_note":
+            title = str(args.get("title", "")).strip()
+            if not title:
+                return {"status": "error", "error": "Judul catatan tidak boleh kosong."}
+            found_note = get_note(title)
+            if found_note:
+                return {"status": "success", "note": found_note}
+            return {
+                "status": "not_found",
+                "error": f"Tidak ditemukan catatan dengan judul '{title}'.",
+                "help_needed": "Gunakan 'list_notes' untuk melihat semua catatan yang tersimpan.",
+            }
+
+        elif func_name == "list_notes":
+            notes = list_notes()
+            return {"status": "success", "count": len(notes), "notes": notes}
+
+        elif func_name == "append_to_note":
+            title = str(args.get("title", "")).strip()
+            text = str(args.get("text") or args.get("addition") or "").strip()
+            if not title or not text:
+                return {"status": "error", "error": "Judul catatan dan teks tambahan tidak boleh kosong."}
+            appended = append_to_note(title=title, addition=text)
+            return {
+                "status": "success",
+                "note": appended,
+                "message": f"Berhasil menambahkan ke catatan '{appended.get('title')}'.",
             }
 
         elif func_name == "delete_note":
@@ -868,6 +970,61 @@ async def _execute_tool_call_raw(
                 "count": len(formatted_msgs),
                 "messages": formatted_msgs[:limit],
             }
+
+        elif func_name == "send_whatsapp_media":
+            recipient = str(args.get("recipient", "")).strip()
+            media_url = str(args.get("media_url", "")).strip()
+            caption = args.get("caption")
+            if not media_url:
+                return {"status": "error", "error": "URL media tidak boleh kosong."}
+            if not client:
+                return {"status": "error", "error": "WAHA client tidak tersedia."}
+
+            gilang_phone = (
+                os.environ.get("GILANG_PHONE", "")
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+            bunga_phone = (
+                os.environ.get("BUNGA_PHONE", "")
+                .replace("+", "")
+                .replace(" ", "")
+                .replace("-", "")
+            )
+            trio_group = os.environ.get("TRIO_GROUP_JID", "")
+
+            recip_lower = recipient.lower()
+            if "bunga" in recip_lower:
+                target_jid = f"{bunga_phone}@c.us"
+            elif "gilang" in recip_lower:
+                target_jid = f"{gilang_phone}@c.us"
+            elif "group" in recip_lower or "trio" in recip_lower:
+                target_jid = trio_group
+            elif recip_lower in ("current", "me", "sender", "self", ""):
+                target_jid = f"{bunga_phone}@c.us" if "bunga" in default_sender.lower() else f"{gilang_phone}@c.us"
+            else:
+                clean = recipient.replace("+", "").replace(" ", "").replace("-", "")
+                target_jid = f"{clean}@c.us"
+
+            await client.send_media(chat_id=target_jid, media_url=media_url, caption=caption)
+            from .memory import log_activity
+
+            log_activity(f'Media sent to {recipient} ({target_jid}): url={media_url} caption="{caption or ""}"')
+            log.info("Agent sent media to %s: %s (caption: %s)", target_jid, media_url, caption)
+            return {
+                "status": "success",
+                "recipient": recipient,
+                "message": f"Media berhasil dikirim ke WhatsApp {recipient}.",
+            }
+
+        elif func_name == "web_search":
+            query = str(args.get("query", "")).strip()
+            if not query:
+                return {"status": "error", "error": "Query pencarian tidak boleh kosong."}
+            from .search import search_web
+            search_res = await search_web(query=query)
+            return search_res
 
         return {"status": "error", "error": f"Tool '{func_name}' tidak dikenal."}
 

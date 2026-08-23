@@ -218,12 +218,75 @@ async def test_execute_tool_call_save_and_delete_note() -> None:
     )
     assert res_save["status"] == "success"
 
+    res_get = await agent.execute_tool_call(
+        func_name="get_note",
+        args={"title": "WiFi"},
+        default_sender="Gilang",
+    )
+    assert res_get["status"] == "success"
+    assert res_get["note"]["content"] == "secret123"
+
+    res_list = await agent.execute_tool_call(
+        func_name="list_notes",
+        args={},
+        default_sender="Gilang",
+    )
+    assert res_list["status"] == "success"
+    assert res_list["count"] >= 1
+
+    res_append = await agent.execute_tool_call(
+        func_name="append_to_note",
+        args={"title": "WiFi", "text": "SSID: Home_5G"},
+        default_sender="Gilang",
+    )
+    assert res_append["status"] == "success"
+    assert "SSID: Home_5G" in res_append["note"]["content"]
+
     res_del = await agent.execute_tool_call(
         func_name="delete_note",
         args={"title": "WiFi"},
         default_sender="Gilang",
     )
     assert res_del["status"] == "success"
+
+
+async def test_execute_tool_call_send_whatsapp_media() -> None:
+    from unittest.mock import AsyncMock
+
+    mock_client = AsyncMock()
+    mock_client.send_media = AsyncMock(return_value="sent_media_id")
+
+    res = await agent.execute_tool_call(
+        func_name="send_whatsapp_media",
+        args={
+            "recipient": "Bunga",
+            "media_url": "https://example.com/invoice.pdf",
+            "caption": "Ini invoice kemarin",
+        },
+        default_sender="Gilang",
+        client=mock_client,
+    )
+    assert res["status"] == "success"
+    mock_client.send_media.assert_called_once()
+
+
+async def test_execute_tool_call_web_search() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    mock_res = {
+        "status": "success",
+        "query": "restoran sunda",
+        "count": 1,
+        "results": [{"title": "Restoran Sunda", "snippet": "Buka jam 10", "url": "https://example.com"}],
+    }
+    with patch("src.search.search_web", new=AsyncMock(return_value=mock_res)):
+        res = await agent.execute_tool_call(
+            func_name="web_search",
+            args={"query": "restoran sunda"},
+            default_sender="Gilang",
+        )
+    assert res["status"] == "success"
+    assert res["count"] == 1
 
 
 async def test_execute_tool_call_delete_memory() -> None:

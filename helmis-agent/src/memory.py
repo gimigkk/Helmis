@@ -317,20 +317,94 @@ def get_person(name: str) -> dict[str, Any] | None:
 
 
 def save_note(title: str, content: str) -> dict[str, Any]:
-    """Save a note to memory."""
+    """Save or update a note in memory."""
+    if not title or not title.strip():
+        raise ValueError("Judul catatan tidak boleh kosong")
+    if not content or not content.strip():
+        raise ValueError("Isi catatan tidak boleh kosong")
+
+    clean_title = title.strip()
+    clean_content = content.strip()
     mem = load_memory()
+    notes = mem.setdefault("notes", [])
+
+    # Update existing note if same title
+    for n in notes:
+        if n.get("title", "").lower() == clean_title.lower():
+            n["content"] = clean_content
+            n["updated_at"] = get_current_time_str()
+            save_memory(mem)
+            return cast(dict[str, Any], n)
+
     note_data = {
-        "title": title.strip(),
-        "content": content.strip(),
+        "title": clean_title,
+        "content": clean_content,
         "created_at": get_current_time_str(),
+        "updated_at": get_current_time_str(),
     }
-    mem.setdefault("notes", []).append(note_data)
+    notes.append(note_data)
+    save_memory(mem)
+    return note_data
+
+
+def get_note(title: str) -> dict[str, Any] | None:
+    """Find a note in memory by title keyword or substring match."""
+    if not title or not title.strip():
+        return None
+    mem = load_memory()
+    notes = mem.get("notes", [])
+    q = title.lower().strip()
+    for n in notes:
+        if q in n.get("title", "").lower():
+            return cast(dict[str, Any], n)
+    return None
+
+
+def list_notes() -> list[dict[str, Any]]:
+    """List all stored notes with their titles and full contents."""
+    mem = load_memory()
+    return cast(list[dict[str, Any]], mem.get("notes", []))
+
+
+def append_to_note(title: str, addition: str) -> dict[str, Any]:
+    """Append text or list items to an existing note, or create it if not found."""
+    if not title or not title.strip():
+        raise ValueError("Judul catatan tidak boleh kosong")
+    if not addition or not addition.strip():
+        raise ValueError("Teks tambahan tidak boleh kosong")
+
+    clean_title = title.strip()
+    clean_addition = addition.strip()
+    mem = load_memory()
+    notes = mem.setdefault("notes", [])
+
+    for n in notes:
+        if clean_title.lower() in n.get("title", "").lower():
+            existing_content = str(n.get("content", "")).rstrip()
+            if existing_content:
+                n["content"] = f"{existing_content}\n{clean_addition}"
+            else:
+                n["content"] = clean_addition
+            n["updated_at"] = get_current_time_str()
+            save_memory(mem)
+            return cast(dict[str, Any], n)
+
+    # Note did not exist, create new
+    note_data = {
+        "title": clean_title,
+        "content": clean_addition,
+        "created_at": get_current_time_str(),
+        "updated_at": get_current_time_str(),
+    }
+    notes.append(note_data)
     save_memory(mem)
     return note_data
 
 
 def delete_note(title: str) -> dict[str, Any]:
     """Delete a note from memory by title substring."""
+    if not title or not title.strip():
+        return {"status": "error", "error": "Judul catatan tidak boleh kosong."}
     mem = load_memory()
     notes = mem.get("notes", [])
     q = title.lower().strip()
