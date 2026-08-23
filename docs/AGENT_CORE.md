@@ -125,42 +125,69 @@ Helmis defines **12 native tools** exposed directly to Gemini via OpenAI/Gemini-
   - `name` (*string, required*): Name or alias to search for.
 
 #### 8. `save_note`
-- **Purpose**: Store a shared note, memo, list, or key fact.
+- **Purpose**: Store or overwrite a shared note, memo, list, or document.
 - **Parameters**:
   - `title` (*string, required*): Note title.
   - `content` (*string, required*): Note body.
 
-#### 9. `delete_note`
+#### 9. `get_note`
+- **Purpose**: Retrieve the complete text and details of a specific note by title.
+- **Parameters**:
+  - `title` (*string, required*): Title keyword of note to view.
+
+#### 10. `list_notes`
+- **Purpose**: List all shared notes and memos currently saved in persistent memory.
+- **Parameters**: None.
+
+#### 11. `append_to_note`
+- **Purpose**: Append text or list items to an existing note, or create a new note if it does not exist yet (ideal for groceries, packing lists, gift ideas).
+- **Parameters**:
+  - `title` (*string, required*): Title of the note.
+  - `text` (*string, required*): Item or text to append.
+
+#### 12. `delete_note`
 - **Purpose**: Delete a note by title keyword match.
 - **Parameters**:
   - `title` (*string, required*): Title keyword of note to delete.
 
-#### 10. `remember_fact`
+#### 13. `remember_fact`
 - **Purpose**: Store a durable personal fact or preference in episodic semantic memory.
 - **Parameters**:
   - `fact` (*string, required*): Verbatim fact or preference.
   - `user_id` (*string, optional*): `'Gilang'`, `'Bunga'`, or `'Both'`.
 - **Behavior**: Calculates 3072-dimensional embedding and stores in `semantic_memories.json`.
 
-#### 11. `delete_memory`
+#### 14. `delete_memory`
 - **Purpose**: Delete personal facts from semantic vector memory.
 - **Parameters**:
   - `query` (*string, required*): Keyword or semantic query to purge.
   - `user_id` (*string, optional*): Target user.
 
-#### 12. `recall_memory` / `search_memory`
+#### 15. `recall_memory` / `search_memory`
 - **Purpose**: Search vector embeddings (`recall_memory`) or full text across all tables (`search_memory`).
 - **Parameters**:
   - `query` / `keyword` (*string, required*): Search term.
 
-#### 13. `send_whatsapp_message`
+#### 16. `send_whatsapp_message`
 - **Purpose**: Proactively send a WhatsApp message to Gilang, Bunga, or the Trio group chat.
 - **Parameters**:
   - `recipient` (*string, required*): `'Gilang'`, `'Bunga'`, `'group'`, or phone number.
   - `text` (*string, required*): Message text with ZERO EMOJIS.
   - `quote_message_id` (*string, optional*): WhatsApp message ID to quote.
 
-#### 14. `get_whatsapp_messages`
+#### 17. `send_whatsapp_media`
+- **Purpose**: Send a photo, image, document, or PDF directly to WhatsApp.
+- **Parameters**:
+  - `recipient` (*string, required*): `'Gilang'`, `'Bunga'`, `'group'`, or phone number.
+  - `media_url` (*string, required*): Public URL or accessible local file path.
+  - `caption` (*string, optional*): Optional caption with ZERO EMOJIS.
+
+#### 18. `web_search`
+- **Purpose**: Search the live web for real-time information, weather, places, operating hours, news, or recipes.
+- **Parameters**:
+  - `query` (*string, required*): Search query keywords.
+
+#### 19. `get_whatsapp_messages`
 - **Purpose**: Fetch verified WhatsApp chat history with optional date range filters.
 - **Parameters**:
   - `target` (*string, required*): `'Gilang'`, `'Bunga'`, or `'Group'`.
@@ -168,7 +195,7 @@ Helmis defines **12 native tools** exposed directly to Gemini via OpenAI/Gemini-
   - `since_hours_ago` (*integer, optional*): Number of hours to look back.
   - `limit` (*integer, optional*): Max messages (default 20, max 50).
 
-#### 15. `send_status_update`
+#### 20. `send_status_update`
 - **Purpose**: Send a fast, 1-line intermediate progress or thinking acknowledgment to WhatsApp while keeping the typing indicator active for long multi-step research or multi-file operations.
 - **Parameters**:
   - `text` (*string, required*): Short 1-sentence progress note (e.g. `'Sedang mengecek riwayat chat dan dokumen kemarin...'`).

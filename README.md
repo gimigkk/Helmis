@@ -4,14 +4,14 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
 [![Docker Compose](https://img.shields.io/badge/docker--compose-v2-2496ED.svg)](docker-compose.yml)
-[![Tests](https://img.shields.io/badge/tests-39%20passed-brightgreen.svg)](helmis-agent/tests/)
+[![Tests](https://img.shields.io/badge/tests-45%20passed-brightgreen.svg)](helmis-agent/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
 ## What is Helmis?
 
-Helmis is a zero-latency, private AI secretary built for real-world personal coordination over WhatsApp. It operates across private direct messages and a shared group chat, managing schedules, tasks, contacts, shared notes, and proactive reminders with strict state fidelity.
+Helmis is a zero-latency, private AI secretary built for real-world personal coordination over WhatsApp. It operates across private direct messages and a shared group chat, managing schedules, tasks, contacts, shared notes, live web search, and proactive reminders with strict state fidelity.
 
 ```
                     ┌──────────────────────────────┐
@@ -27,7 +27,7 @@ Helmis is a zero-latency, private AI secretary built for real-world personal coo
 │  [6. State Guardrail] ◄── [5. ReAct Engine] ◄────────────┘           │
 │           │                      │                                   │
 │           ▼                      ▼                                   │
-│     WhatsApp Reply       [15 Native Tools]                           │
+│     WhatsApp Reply       [20 Native Tools]                           │
 │                                  │                                   │
 │            ┌─────────────────────┴─────────────────────┐             │
 │            ▼                                           ▼             │
@@ -59,11 +59,10 @@ Helmis is a zero-latency, private AI secretary built for real-world personal coo
 [Helmis]: Bunga mengingatkan untuk tidak lupa membayar tagihan listrik sebelum jam 12 siang hari ini.
 ```
 
-### 3. Cross-Party Delegation & Thinking Out Loud
+### 3. Living Shared Lists & Live Web Search
 ```text
-[Gilang]: Tolong tanyain Bunga mau makan malam apa, terus catat pilihannya
-[Helmis]: Sedang mengirimkan pesan konfirmasi makan malam ke Bunga...
-          Pesan sudah dikirim ke Bunga via WhatsApp DM. Begitu ada balasan, saya akan langsung mencatatnya di shared notes.
+[Gilang]: Cariin restoran sunda enak dekat Senopati terus tambahin ke catatan rekomendasi kita
+[Helmis]: Menemukan *Dapur Sunda Senopati* (buka sampai 22:00 WIB). Restoran sudah saya tambahkan ke catatan *Rekomendasi Restoran*.
 ```
 
 ---
@@ -72,7 +71,7 @@ Helmis is a zero-latency, private AI secretary built for real-world personal coo
 
 | Primitive | Description |
 |---|---|
-| **Autonomous ReAct Core** | Up to 5-step ReAct reasoning loop with 15 native tools (`add_task`, `update_task`, `complete_task`, `save_note`, `remember_fact`, `send_whatsapp_message`, `send_status_update`, etc.). |
+| **Autonomous ReAct Core** | Up to 5-step ReAct reasoning loop with 20 native tools (`add_task`, `list_tasks`, `save_note`, `get_note`, `list_notes`, `append_to_note`, `web_search`, `send_whatsapp_media`, `send_whatsapp_message`, `send_status_update`, etc.). |
 | **Model Cascade & Quota Rotation** | Dynamic speed-first model prioritization (`Flash-Lite` $\rightarrow$ `Flash` $\rightarrow$ `Gemma` $\rightarrow$ `Pro`) with multi-key round-robin rotation on HTTP 429 rate limits. |
 | **Burst Debounce Queue** | Per-chat FIFO queues with a 1.0s sliding debounce window that merges rapid-fire text fragments into single unified turns. |
 | **GOWS Protobuf Quote Parser** | Native extraction of WhatsApp quoted metadata across text, voice notes (with duration and transcription), images (with captions), documents, and stickers. |
@@ -121,7 +120,7 @@ docker compose ps
 # Follow live agent turn traces & tool executions
 docker compose logs -f agent
 
-# Run the automated pytest suite (39 tests)
+# Run the automated pytest suite (45 tests)
 cd helmis-agent && .venv/bin/pytest -v
 
 # Run type checker & linter
@@ -142,7 +141,7 @@ Helmis/
 │
 ├── helmis-agent/                              # Core AI Agent & Webhook Bridge
 │   ├── src/
-│   │   ├── agent.py                           # ReAct Loop, Model Cascade & 15 Tools
+│   │   ├── agent.py                           # ReAct Loop, Cascade & 20 Native Tools
 │   │   ├── client.py                          # Typed WAHA Async REST Client
 │   │   ├── history.py                         # Message Deduplication & Turn Formatter
 │   │   ├── logger.py                          # Structured ANSI Step Tracer
@@ -150,10 +149,11 @@ Helmis/
 │   │   ├── models.py                          # Pydantic v2 Schema Definitions
 │   │   ├── proactive.py                       # Proactive Deadline & Task Evaluator
 │   │   ├── queue.py                           # Per-Chat Burst Debounce Queue
+│   │   ├── search.py                          # Live Web Search (DuckDuckGo & Tavily)
 │   │   ├── semantic_memory.py                 # Vector Store & Background Fact Extractor
 │   │   ├── server.py                          # FastMCP SSE Server Entry Point
 │   │   └── webhook.py                         # Starlette Webhook & GOWS Quote Extractor
-│   └── tests/                                 # 39 Unit & Integration Tests
+│   └── tests/                                 # 45 Unit & Integration Tests
 │
 ├── scheduler/                                 # Proactive Scheduler Container
 │   ├── Dockerfile

@@ -38,7 +38,7 @@ Detailed architectural overview of Helmis:
 The intelligence layer of Helmis:
 - **Dynamic Model Cascade**: Dynamic query of Google Gemini models with intelligent speed/capability prioritization (`Flash-Lite` -> `Flash` -> `Gemma` -> `Pro`).
 - **Multi-Key Quota Rotation**: Round-robin key rotation across independent Google accounts to bypass rate limits (429/404 handling).
-- **Tool Calling System**: Detailed specifications, JSON schemas, parameters, and return types for all 15 native agentic tools (including `send_status_update`).
+- **Tool Calling System**: Detailed specifications, JSON schemas, parameters, and return types for all 20 native agentic tools (including `web_search`, `list_notes`, `append_to_note`, `get_note`, `send_whatsapp_media`, and `send_status_update`).
 - **Multi-Turn Context Builder**: Chronological history construction, speaker attribution (`[Gilang]`, `[Bunga]`), and native multimodal media injection.
 - **State Fidelity Guardrail**: Output verification that prevents hallucinations when items are not found or operations fail.
 - **Voice Note & Document OCR**: 2-phase pipeline featuring dedicated zero-hallucination speech transcription and multimodal document analysis.
@@ -76,7 +76,7 @@ Behavioral tuning and capability playbooks:
 ### 7. [Development, Testing & Observability](file:///home/gimigkk/Desktop/Projects/Helmis/docs/DEVELOPMENT_AND_TESTING.md)
 Developer setup, test suite, and step tracing:
 - **Local Environment**: Python 3.12+ virtualenv setup and package management via `pyproject.toml`.
-- **Test Suite**: 39 unit and integration tests covering agent loops, quoted messages, HTTP clients, deduplication, memory, queues, and vector math.
+- **Test Suite**: 45 unit and integration tests covering agent loops, web search, living notes, quoted messages, HTTP clients, deduplication, memory, queues, and vector math.
 - **Structured Step Tracer (`AgentTurnTracer`)**: ANSI-formatted real-time console tracing and persistent JSON Lines audit logging (`agent_traces.jsonl`).
 - **Extensibility Guide**: Step-by-step instructions for adding new tools, skills, and model providers.
 
