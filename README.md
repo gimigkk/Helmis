@@ -141,8 +141,11 @@ Helmis/
 │
 ├── helmis-agent/                              # Core AI Agent & Webhook Bridge
 │   ├── src/
-│   │   ├── agent.py                           # ReAct Loop, Cascade & 20 Native Tools
+│   │   ├── agent.py                           # Lean ReAct Loop Orchestrator (~230 lines)
+│   │   ├── agent_tools.py                     # GEMINI_TOOLS Schema & 20-Tool Dispatcher
+│   │   ├── cascade.py                         # Dynamic Model Cascade & Multi-Key Rotation
 │   │   ├── client.py                          # Typed WAHA Async REST Client
+│   │   ├── guardrails.py                      # State Fidelity Guardrails & Directives
 │   │   ├── history.py                         # Message Deduplication & Turn Formatter
 │   │   ├── logger.py                          # Structured ANSI Step Tracer
 │   │   ├── memory.py                          # Thread-Safe Atomic JSON Store
@@ -152,8 +155,9 @@ Helmis/
 │   │   ├── search.py                          # Live Web Search (DuckDuckGo & Tavily)
 │   │   ├── semantic_memory.py                 # Vector Store & Background Fact Extractor
 │   │   ├── server.py                          # FastMCP SSE Server Entry Point
+│   │   ├── transcribe.py                      # Phase-1 Multimodal Speech Extraction
 │   │   └── webhook.py                         # Starlette Webhook & GOWS Quote Extractor
-│   └── tests/                                 # 45 Unit & Integration Tests
+│   └── tests/                                 # 46 Unit & Integration Tests
 │
 ├── scheduler/                                 # Proactive Scheduler Container
 │   ├── Dockerfile
