@@ -28,10 +28,13 @@ or shared. Track status, deadlines, and escalate before things slip.
 - Reassign task -> call update_task(title=..., new_assignee="Both" / "Gilang" / "Bunga")
 
 ## Listing Tasks
+Always sort by urgency by default (soonest upcoming deadline or overdue first, tasks without deadline at the bottom), unless the user explicitly asks for a different order (e.g. alphabetical or by creation date).
+
 Format cleanly without repetitive headers or filler:
 ```
 Daftar tugas [Name / Bersama]:
 1. *[Title]* (Hari ini, [Time] WIB)
 2. *[Title]* (Besok, [Time] WIB)
+3. *[Title]* (No deadline)
 ```
 If no tasks: "Belum ada tugas yang tercatat untuk [Name]."

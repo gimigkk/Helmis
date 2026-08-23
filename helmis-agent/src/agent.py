@@ -137,14 +137,18 @@ GEMINI_TOOLS = [
             },
             {
                 "name": "list_tasks",
-                "description": "List current tasks and reminders from storage to inspect pending or scheduled items.",
+                "description": "List current tasks and reminders from storage. By default, items are sorted by urgency (earliest deadline first).",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
                         "status": {
                             "type": "STRING",
                             "description": "Filter by status: 'pending', 'completed', or 'all'",
-                        }
+                        },
+                        "sort_by": {
+                            "type": "STRING",
+                            "description": "Sorting criteria: 'urgency' (default, earliest deadline/overdue first), 'created' (newest first), or 'alphabetical'",
+                        },
                     },
                 },
             },
@@ -613,8 +617,9 @@ async def _execute_tool_call_raw(
 
         elif func_name == "list_tasks":
             status = args.get("status", "pending")
-            tasks = list_tasks(status=status)
-            return {"status": "success", "count": len(tasks), "tasks": tasks}
+            sort_by = args.get("sort_by", "urgency")
+            tasks = list_tasks(status=status, sort_by=sort_by)
+            return {"status": "success", "count": len(tasks), "sorted_by": sort_by, "tasks": tasks}
 
         elif func_name == "complete_task":
             title = args.get("title", "")
@@ -1159,6 +1164,7 @@ async def run_agentic_react_loop(
         f"4. TASK & ASSIGNMENT LOGIC:\n"
         f"   - Single-person tasks: When Gilang asks for a reminder for himself, assign to 'Gilang'. When asking to remind Bunga, assign to 'Bunga'.\n"
         f"   - Shared / Couple tasks: When a task involves both ('kita', 'kita berdua', 'bersama', 'shared', 'bareng', 'agenda kita'), assign to 'Both'. Shared task reminders will be dispatched to both partners or the Trio group chat.\n"
+        f"   - Urgency-First Presentation: When listing tasks to the user, ALWAYS present them sorted by urgency (soonest deadline / overdue first) by default, unless the user explicitly requests otherwise (e.g. alphabetical or by creation date).\n"
         f"   - When listing tasks, if the user asks for all tasks or general tasks, list both individual and 'Both' shared tasks.\n"
         f"   - Use 'update_task' to modify existing tasks/reassign between 'Gilang', 'Bunga', or 'Both', and 'complete_task' when finished.\n\n"
         f"5. CONTEXTUAL THINKING & CROSS-PARTY COORDINATION:\n"

@@ -51,6 +51,34 @@ def test_task_lifecycle() -> None:
     assert len(memory.list_tasks(status="all")) == 0
 
 
+def test_list_tasks_urgency_sorting() -> None:
+    memory.add_task(title="Beli tiket pesawat", due="No deadline", assignee="Gilang")
+    memory.add_task(title="Jemput adik di stasiun", due="Lusa jam 14:00 WIB", assignee="Gilang")
+    memory.add_task(title="Bayar tagihan listrik", due="Hari ini, 15:00 WIB", assignee="Both")
+    memory.add_task(title="Meeting dokter gigi", due="Besok, 09:00 WIB", assignee="Bunga")
+
+    # Default urgency sort
+    tasks_urgency = memory.list_tasks(status="pending")
+    assert len(tasks_urgency) == 4
+    assert tasks_urgency[0]["title"] == "Bayar tagihan listrik"  # Today
+    assert tasks_urgency[1]["title"] == "Meeting dokter gigi"    # Tomorrow
+    assert tasks_urgency[2]["title"] == "Jemput adik di stasiun" # Day after tomorrow
+    assert tasks_urgency[3]["title"] == "Beli tiket pesawat"     # No deadline
+
+    # Alphabetical sort
+    tasks_alpha = memory.list_tasks(status="pending", sort_by="alphabetical")
+    assert tasks_alpha[0]["title"] == "Bayar tagihan listrik"
+    assert tasks_alpha[1]["title"] == "Beli tiket pesawat"
+    assert tasks_alpha[2]["title"] == "Jemput adik di stasiun"
+    assert tasks_alpha[3]["title"] == "Meeting dokter gigi"
+
+    # Clean up
+    memory.delete_task("Beli tiket")
+    memory.delete_task("Jemput adik")
+    memory.delete_task("Bayar tagihan")
+    memory.delete_task("Meeting dokter")
+
+
 def test_person_directory() -> None:
     person = memory.add_person(
         name="Dr. Sarah", phone="+628111222333", role="Dentist", notes="Appointment every 6 months"

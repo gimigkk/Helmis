@@ -8,8 +8,9 @@ Provides clean Python methods to query and update memory.
 import json
 import logging
 import os
+import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -126,7 +127,10 @@ def get_memory_context_summary() -> str:
     now_str, period_info = get_time_of_day_info()
 
     tasks = mem.get("tasks", [])
-    active_tasks = [t for t in tasks if t.get("status") != "completed"]
+    active_tasks = sorted(
+        [t for t in tasks if t.get("status") != "completed"],
+        key=lambda t: parse_due_timestamp(t.get("due", "")),
+    )
 
     def format_task_line(t: dict[str, Any]) -> str:
         due = t.get("due", "No deadline")
@@ -256,13 +260,116 @@ def update_task(
     return None
 
 
-def list_tasks(status: str = "pending") -> list[dict[str, Any]]:
-    """List tasks filtered by status ('pending', 'completed', 'all'). Default is pending."""
+def parse_due_timestamp(due_str: str) -> float:
+    """
+    Parse a task due string into a Unix timestamp for urgency sorting.
+    Tasks with earliest deadlines get the lowest timestamp (sorted first).
+    Tasks with no deadline or unparseable text get infinity (sorted last).
+    """
+    if not due_str or not due_str.strip() or "no deadline" in due_str.lower():
+        return float("inf")
+
+    clean = due_str.strip().lower()
+    now = datetime.now(TZ)
+
+    # Extract time HH:MM or HH.MM
+    hour = 23
+    minute = 59
+    time_match = re.search(r"(\d{1,2})[:.](\d{2})", clean)
+    if time_match:
+        hour = int(time_match.group(1))
+        minute = int(time_match.group(2))
+    elif "pagi" in clean:
+        hour = 8
+        minute = 0
+    elif "siang" in clean:
+        hour = 12
+        minute = 0
+    elif "sore" in clean:
+        hour = 16
+        minute = 0
+    elif "malam" in clean:
+        hour = 20
+        minute = 0
+
+    # 1. Relative keywords: "hari ini", "today"
+    if "hari ini" in clean or "today" in clean:
+        target_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        return target_dt.timestamp()
+
+    # 2. "besok", "tomorrow"
+    if "besok" in clean or "tomorrow" in clean:
+        target_dt = (now + timedelta(days=1)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+        return target_dt.timestamp()
+
+    # 3. "lusa"
+    if "lusa" in clean:
+        target_dt = (now + timedelta(days=2)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+        return target_dt.timestamp()
+
+    # 4. ISO YYYY-MM-DD
+    iso_match = re.search(r"(\d{4})-(\d{2})-(\d{2})", clean)
+    if iso_match:
+        try:
+            target_dt = datetime(
+                int(iso_match.group(1)),
+                int(iso_match.group(2)),
+                int(iso_match.group(3)),
+                hour,
+                minute,
+                0,
+                tzinfo=TZ,
+            )
+            return target_dt.timestamp()
+        except Exception:
+            pass
+
+    # 5. Indonesian & English month names
+    id_months = {
+        "januari": 1, "jan": 1,
+        "februari": 2, "feb": 2,
+        "maret": 3, "mar": 3,
+        "april": 4, "apr": 4,
+        "mei": 5, "may": 5,
+        "juni": 6, "jun": 6,
+        "juli": 7, "jul": 7,
+        "agustus": 8, "agt": 8, "aug": 8, "august": 8,
+        "september": 9, "sep": 9,
+        "oktober": 10, "okt": 10, "oct": 10, "october": 10,
+        "november": 11, "nov": 11,
+        "desember": 12, "des": 12, "dec": 12, "december": 12,
+    }
+    date_month_match = re.search(r"(\d{1,2})\s+([a-zA-Z]+)(?:\s+(\d{4}))?", clean)
+    if date_month_match:
+        day = int(date_month_match.group(1))
+        month_str = date_month_match.group(2).lower()
+        year = int(date_month_match.group(3)) if date_month_match.group(3) else now.year
+        if month_str in id_months:
+            try:
+                target_dt = datetime(year, id_months[month_str], day, hour, minute, 0, tzinfo=TZ)
+                return target_dt.timestamp()
+            except Exception:
+                pass
+
+    return float("inf")
+
+
+def list_tasks(status: str = "pending", sort_by: str = "urgency") -> list[dict[str, Any]]:
+    """
+    List tasks filtered by status ('pending', 'completed', 'all').
+    Default sort order is by urgency (earliest deadline first, no-deadline items last).
+    """
     mem = load_memory()
     tasks = cast(list[dict[str, Any]], mem.get("tasks", []))
-    if status == "all":
-        return tasks
-    return [t for t in tasks if t.get("status") == status]
+    filtered = tasks if status == "all" else [t for t in tasks if t.get("status") == status]
+
+    if sort_by == "urgency":
+        return sorted(filtered, key=lambda t: parse_due_timestamp(t.get("due", "")))
+    elif sort_by == "created":
+        return sorted(filtered, key=lambda t: str(t.get("created_at", "")), reverse=True)
+    elif sort_by == "alphabetical":
+        return sorted(filtered, key=lambda t: str(t.get("title", "")).lower())
+    return filtered
 
 
 def complete_task(title: str) -> dict[str, Any] | None:
