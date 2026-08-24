@@ -303,7 +303,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     else:
                         media_data = {"mimeType": mime_type, "data": b64_data}
 
-            # If no direct media was attached, check if a quoted media message was referenced
+            # If no direct media was attached, check if a quoted or recent media message was referenced
             if not media_data:
                 quoted_media_event = next(
                     (
@@ -315,7 +315,10 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     ),
                     None,
                 )
+                target_url: str | None = None
+                media_type_label: str = "media"
                 if quoted_media_event:
+                    media_type_label = quoted_media_event.quoted_type or "media"
                     target_url = quoted_media_event.quoted_media_url
                     if not target_url:
                         try:
@@ -338,21 +341,52 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                                 target_url = target_msg.media_url
                         except Exception as ex:
                             log.warning("Could not resolve quoted media from chat history: %s", ex)
-
-                    if target_url:
+                else:
+                    # Contextual follow-up fallback: if user text refers to recent media ("di video ini?", "itu motor apa?")
+                    text_lower = combined_text.lower()
+                    if any(
+                        kw in text_lower
+                        for kw in (
+                            "video",
+                            "foto",
+                            "gambar",
+                            "dokumen",
+                            "ini",
+                            "itu",
+                            "motor",
+                            "mobil",
+                            "plat",
+                            "orang",
+                            "suara",
+                        )
+                    ):
                         try:
-                            q_media_res = await client.download_media_base64(target_url)
-                            if q_media_res:
-                                q_mime, q_b64 = q_media_res
-                                if not q_mime.startswith("audio/"):
-                                    media_data = {"mimeType": q_mime, "data": q_b64}
-                                    log.info(
-                                        "Attached quoted %s (%s) to turn context",
-                                        quoted_media_event.quoted_type or "media",
-                                        q_mime,
-                                    )
+                            recent_msgs = await client.get_messages(chat_id=from_user, limit=6)
+                            recent_media_msg = next(
+                                (m for m in reversed(recent_msgs) if m.media_url), None
+                            )
+                            if recent_media_msg and recent_media_msg.media_url:
+                                target_url = recent_media_msg.media_url
+                                media_type_label = "contextual_recent"
                         except Exception as ex:
-                            log.warning("Could not download quoted media %s: %s", target_url, ex)
+                            log.warning(
+                                "Could not resolve recent media for contextual follow-up: %s", ex
+                            )
+
+                if target_url:
+                    try:
+                        q_media_res = await client.download_media_base64(target_url)
+                        if q_media_res:
+                            q_mime, q_b64 = q_media_res
+                            if not q_mime.startswith("audio/"):
+                                media_data = {"mimeType": q_mime, "data": q_b64}
+                                log.info(
+                                    "Attached %s (%s) to turn context",
+                                    media_type_label,
+                                    q_mime,
+                                )
+                    except Exception as ex:
+                        log.warning("Could not download media %s: %s", target_url, ex)
 
             # Phase 2: Run autonomous agent loop on verified text/media
             reply_text = await run_agentic_react_loop(

@@ -140,7 +140,7 @@ async def run_agentic_react_loop(
             "systemInstruction": {"parts": [{"text": full_system_instruction}]},
             "contents": contents,
             "tools": GEMINI_TOOLS,
-            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 350},
+            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2048},
         }
 
         # Attempt call with Multi-Model & Multi-Key Cascade
