@@ -39,6 +39,55 @@ class WahaClientError(Exception):
         super().__init__(f"WAHA API error {status_code}: {detail}")
 
 
+def normalize_mime_type(raw_mime: str, url: str = "") -> str:
+    """Normalize raw Content-Type and URL extensions to Gemini-supported MIME types."""
+    mime = raw_mime.split(";")[0].strip().lower() if raw_mime else ""
+    url_lower = url.lower()
+
+    # Video mappings
+    if "mp4" in mime or ".mp4" in url_lower or ".m4v" in url_lower:
+        return "video/mp4"
+    if "quicktime" in mime or "mov" in mime or ".mov" in url_lower:
+        return "video/quicktime"
+    if "webm" in mime or ".webm" in url_lower:
+        return "video/webm"
+    if "3gp" in mime or ".3gp" in url_lower or "3gpp" in mime or ".3gpp" in url_lower:
+        return "video/3gpp"
+    if "avi" in mime or ".avi" in url_lower:
+        return "video/avi"
+    if "mpeg" in mime or ".mpg" in url_lower or ".mpeg" in url_lower:
+        return "video/mpeg"
+
+    # Audio mappings
+    if "ogg" in mime or "opus" in mime or ".ogg" in url_lower or ".opus" in url_lower:
+        return "audio/ogg"
+    if "mp3" in mime or ".mp3" in url_lower:
+        return "audio/mp3"
+    if "m4a" in mime or ".m4a" in url_lower or "aac" in mime or ".aac" in url_lower:
+        return "audio/m4a"
+    if "wav" in mime or ".wav" in url_lower:
+        return "audio/wav"
+
+    # Image mappings
+    if "png" in mime or ".png" in url_lower:
+        return "image/png"
+    if "webp" in mime or ".webp" in url_lower:
+        return "image/webp"
+    if "jpeg" in mime or "jpg" in mime or ".jpeg" in url_lower or ".jpg" in url_lower:
+        return "image/jpeg"
+    if "heic" in mime or ".heic" in url_lower:
+        return "image/heic"
+
+    # Document mappings
+    if "pdf" in mime or ".pdf" in url_lower:
+        return "application/pdf"
+
+    if mime and mime not in ("application/octet-stream", "binary/octet-stream"):
+        return mime
+
+    return "image/jpeg"
+
+
 class WahaClient:
     """
     Async HTTP client for the WAHA REST API.
@@ -386,32 +435,7 @@ class WahaClient:
             response = await self._http.get(target_url, headers=self._headers, timeout=15.0)
             if response.status_code == 200:
                 raw_mime = response.headers.get("content-type", "").lower()
-                mime_type = raw_mime.split(";")[0].strip()
-
-                # Normalise MIME types for Gemini multimodal API
-                if not mime_type or mime_type in ("application/octet-stream", "binary/octet-stream"):
-                    url_lower = target_url.lower()
-                    if ".ogg" in url_lower or ".opus" in url_lower:
-                        mime_type = "audio/ogg"
-                    elif ".mp3" in url_lower:
-                        mime_type = "audio/mp3"
-                    elif ".m4a" in url_lower:
-                        mime_type = "audio/m4a"
-                    elif ".pdf" in url_lower:
-                        mime_type = "application/pdf"
-                    elif ".png" in url_lower:
-                        mime_type = "image/png"
-                    elif ".mp4" in url_lower or ".m4v" in url_lower:
-                        mime_type = "video/mp4"
-                    elif ".mov" in url_lower:
-                        mime_type = "video/quicktime"
-                    elif ".webm" in url_lower:
-                        mime_type = "video/webm"
-                    elif ".3gp" in url_lower or ".3gpp" in url_lower:
-                        mime_type = "video/3gpp"
-                    else:
-                        mime_type = "image/jpeg"
-
+                mime_type = normalize_mime_type(raw_mime, target_url)
                 b64_data = base64.b64encode(response.content).decode("utf-8")
                 return mime_type, b64_data
         except Exception as e:
