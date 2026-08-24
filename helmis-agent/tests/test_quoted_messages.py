@@ -198,3 +198,65 @@ async def test_webhook_extracts_gows_protobuf_context_info(
         assert "8 detik" in str(event.quoted_text)
 
 
+@pytest.mark.asyncio
+async def test_webhook_extracts_quoted_video_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatched_events: list[IncomingMessageEvent] = []
+
+    monkeypatch.setattr(webhook_mod, "GILANG_PHONE", "628111111111")
+    monkeypatch.setattr(webhook_mod, "BUNGA_PHONE", "628222222222")
+    monkeypatch.setattr(webhook_mod, "BOT_PHONE", "628999999999")
+
+    client = WahaClient(base_url="http://test", api_key="test", session_name="default")
+    app = webhook_mod.create_webhook_app(client)
+
+    monkeypatch.setattr(
+        queue_mod.ChatQueueManager,
+        "dispatch",
+        lambda self, event: dispatched_events.append(event),
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        payload_video_quote = {
+            "event": "message",
+            "payload": {
+                "id": "msg_reply_vid",
+                "from": "628111111111@c.us",
+                "fromMe": False,
+                "body": "Itu video apa",
+                "hasMedia": False,
+                "_data": {
+                    "Message": {
+                        "extendedTextMessage": {
+                            "text": "Itu video apa",
+                            "contextInfo": {
+                                "stanzaId": "vid_msg_123",
+                                "participant": "628111111111@c.us",
+                                "quotedMessage": {
+                                    "videoMessage": {
+                                        "caption": "lagi naik vespa",
+                                        "mimetype": "video/mp4",
+                                    }
+                                },
+                            },
+                        }
+                    }
+                },
+            },
+        }
+
+        resp = await ac.post("/webhooks/waha", json=payload_video_quote)
+        assert resp.status_code == 200
+        assert len(dispatched_events) == 1
+        event = dispatched_events[0]
+        assert event.sender_name == "Gilang"
+        assert event.text == "Itu video apa"
+        assert event.quoted_type == "video"
+        assert event.quoted_sender == "Gilang"
+        assert event.quoted_stanza_id == "vid_msg_123"
+        assert "lagi naik vespa" in str(event.quoted_text)
+
+
+

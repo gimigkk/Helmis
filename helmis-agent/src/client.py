@@ -401,6 +401,14 @@ class WahaClient:
                         mime_type = "application/pdf"
                     elif ".png" in url_lower:
                         mime_type = "image/png"
+                    elif ".mp4" in url_lower or ".m4v" in url_lower:
+                        mime_type = "video/mp4"
+                    elif ".mov" in url_lower:
+                        mime_type = "video/quicktime"
+                    elif ".webm" in url_lower:
+                        mime_type = "video/webm"
+                    elif ".3gp" in url_lower or ".3gpp" in url_lower:
+                        mime_type = "video/3gpp"
                     else:
                         mime_type = "image/jpeg"
 

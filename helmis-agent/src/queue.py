@@ -32,6 +32,7 @@ class IncomingMessageEvent:
     quoted_type: str | None = None
     quoted_media_url: str | None = None
     quoted_media_type: str | None = None
+    quoted_stanza_id: str | None = None
 
 
 class ChatQueueWorker:
