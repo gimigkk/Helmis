@@ -12,6 +12,7 @@ from .cascade import (
     GEMINI_KEYS,
     GEMINI_MODELS,
     fetch_available_gemini_models,
+    get_cascade_models,
     get_next_gemini_key,
     load_all_skills,
     load_system_prompt,
@@ -128,6 +129,9 @@ async def run_agentic_react_loop(
         media_data=media_data,
     )
 
+    is_video = bool(media_data and str(media_data.get("mimeType", "")).startswith("video/"))
+    candidate_models = get_cascade_models(is_video=is_video)
+    timeout_secs = 25.0 if is_video else 6.0
     executed_tools: list[dict[str, Any]] = []
 
     for step in range(max_steps):
@@ -141,13 +145,13 @@ async def run_agentic_react_loop(
 
         # Attempt call with Multi-Model & Multi-Key Cascade
         response_data: dict[str, Any] | None = None
-        active_model = GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-flash-lite-latest"
-        for model in GEMINI_MODELS:
+        active_model = candidate_models[0] if candidate_models else "gemini-flash-latest"
+        for model in candidate_models:
             for _ in range(len(GEMINI_KEYS) or 1):
                 api_key = get_next_gemini_key()
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 try:
-                    async with httpx.AsyncClient(timeout=5.0) as http_client:
+                    async with httpx.AsyncClient(timeout=timeout_secs) as http_client:
                         resp = await http_client.post(url, json=payload)
                         if resp.status_code == 200:
                             response_data = resp.json()

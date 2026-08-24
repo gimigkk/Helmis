@@ -85,8 +85,24 @@ def fetch_available_gemini_models() -> list[str]:
 # Dynamically Discovered Model Cascade
 GEMINI_MODELS: list[str] = fetch_available_gemini_models()
 log.info(
-    "Initialized dynamic Gemini model cascade with %d models: %s", len(GEMINI_MODELS), GEMINI_MODELS
+    "Initialized dynamic Gemini model cascade with %d models: %s",
+    len(GEMINI_MODELS),
+    GEMINI_MODELS,
 )
+
+
+def get_cascade_models(is_video: bool = False) -> list[str]:
+    """Return model cascade tailored for the turn modality."""
+    if is_video:
+        # Video multimodal reasoning requires full Flash/Pro models (Flash-Lite lacks temporal video frame tokenization)
+        video_models = [
+            m
+            for m in GEMINI_MODELS
+            if "flash-lite" not in m.lower() and "flash_lite" not in m.lower()
+        ]
+        return video_models or GEMINI_MODELS
+    return GEMINI_MODELS
+
 
 _key_index = 0
 
