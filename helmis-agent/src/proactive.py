@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from .agent import GEMINI_KEYS, GEMINI_MODELS, get_next_gemini_key
+from .cascade import GEMINI_KEYS, GEMINI_MODELS, get_next_gemini_key
 from .client import WahaClient
 from .memory import load_memory, save_memory
 
