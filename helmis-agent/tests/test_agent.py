@@ -88,6 +88,37 @@ async def test_execute_tool_call_add_and_update_shared_task() -> None:
     assert res_clean["status"] == "success"
 
 
+async def test_execute_tool_call_add_urgent_task_with_lead_time() -> None:
+    res = await agent.execute_tool_call(
+        func_name="add_task",
+        args={
+            "title": "Submit Proposal Hibah",
+            "due": "Tomorrow 17:00 WIB",
+            "assignee": "Gilang",
+            "priority": "urgent",
+            "lead_time_minutes": 120,
+        },
+        default_sender="Gilang",
+    )
+    assert res["status"] == "success"
+    assert res["task"]["priority"] == "urgent"
+    assert res["task"]["lead_time_minutes"] == 120
+
+    # Update priority and lead time
+    res_up = await agent.execute_tool_call(
+        func_name="update_task",
+        args={
+            "title": "Submit Proposal",
+            "new_priority": "normal",
+            "new_lead_time_minutes": 60,
+        },
+        default_sender="Gilang",
+    )
+    assert res_up["status"] == "success"
+    assert res_up["task"]["priority"] == "normal"
+    assert res_up["task"]["lead_time_minutes"] == 60
+
+
 async def test_execute_tool_call_empty_title_error() -> None:
     res = await agent.execute_tool_call(
         func_name="add_task",
