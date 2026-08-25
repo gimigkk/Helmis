@@ -112,10 +112,23 @@ def test_split_into_bubbles_explicit_separator() -> None:
     assert bubbles[1] == "Btw besok ada meeting jam 10 pagi, mau diingetin?"
 
 
+def test_split_into_bubbles_conversational_paragraphs() -> None:
+    from src.webhook import split_into_bubbles
+
+    text = (
+        "Ah iya bener, hari ini maksudnya. Sorry Gilang, *ILT Personal Productivity Asah* jam 15:00 WIB nanti sore ya.\n\n"
+        "Istirahat sana biar fresh pas mulai nanti."
+    )
+    bubbles = split_into_bubbles(text)
+    assert len(bubbles) == 2
+    assert "Ah iya bener" in bubbles[0]
+    assert "Istirahat sana" in bubbles[1]
+
+
 def test_split_into_bubbles_keeps_structured_list_together() -> None:
     from src.webhook import split_into_bubbles
 
-    text = "Daftar tugas Gilang:\n1. *Check in Asah* (18:00 WIB)\n2. *Beli susu* (20:00 WIB)"
+    text = "Daftar tugas Gilang:\n\n1. *Check in Asah* (18:00 WIB)\n2. *Beli susu* (20:00 WIB)"
     bubbles = split_into_bubbles(text)
     assert len(bubbles) == 1
     assert "1. *Check in Asah*" in bubbles[0]

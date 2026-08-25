@@ -268,8 +268,8 @@ def split_into_bubbles(text: str) -> list[str]:
     """
     Split an assistant reply into natural human WhatsApp message bubbles.
     - If explicit '---' separator is used, split into separate message bubbles.
-    - If message contains long multi-part paragraphs (>180 chars total) with distinct conversational thoughts, split by paragraphs.
-    - Keeps single code blocks, formatted task lists, and compact messages in a single cohesive bubble.
+    - If text contains multiple conversational paragraphs ('\n\n'), split each conversational paragraph into its own bubble.
+    - Preserves structured lists (e.g. header + numbered bullets), code blocks, and single cohesive notes in a single bubble.
     """
     if not text or not text.strip():
         return []
@@ -280,15 +280,13 @@ def split_into_bubbles(text: str) -> list[str]:
     if "\n---\n" in clean or "\n--- \n" in clean:
         parts = [p.strip() for p in re.split(r"\n---(?:\s*)\n", clean) if p.strip()]
         if parts:
-            return parts[:4]
+            return parts[:5]
 
-    # 2. Keep single code blocks or short messages in 1 bubble
+    # 2. Keep single code blocks in 1 bubble
     if clean.startswith("```") and clean.endswith("```"):
         return [clean]
-    if len(clean) < 220:
-        return [clean]
 
-    # 3. Check for natural conversational paragraphs
+    # 3. Split by paragraphs (\n\n)
     paragraphs = [p.strip() for p in clean.split("\n\n") if p.strip()]
     if len(paragraphs) <= 1:
         return [clean]
@@ -298,24 +296,43 @@ def split_into_bubbles(text: str) -> list[str]:
 
     for p in paragraphs:
         lines = p.splitlines()
+        # Check if p is a structured list (numbered 1., 2. or bullets -, *, •)
         is_list = any(
             line.strip().startswith(tuple(f"{i}." for i in range(1, 20)))
             or line.strip().startswith(("- ", "* ", "• "))
             for line in lines
         )
-        if is_list and current_bubble and len(current_bubble[-1]) < 90:
-            # Group short header with the list in 1 bubble
-            current_bubble.append(p)
-        elif not is_list and current_bubble:
-            bubbles.append("\n\n".join(current_bubble))
-            current_bubble = [p]
+
+        if is_list:
+            # If there's a short intro header before this list (e.g. "Daftar tugas:"), group them into 1 bubble
+            if (
+                current_bubble
+                and len(current_bubble) == 1
+                and len(current_bubble[0]) < 120
+                and not any(
+                    current_bubble[0].strip().startswith(tuple(f"{i}." for i in range(1, 20)))
+                    for line in current_bubble[0].splitlines()
+                )
+            ):
+                current_bubble.append(p)
+                bubbles.append("\n\n".join(current_bubble))
+                current_bubble = []
+            else:
+                if current_bubble:
+                    bubbles.append("\n\n".join(current_bubble))
+                    current_bubble = []
+                bubbles.append(p)
         else:
+            # Conversational paragraph
+            if current_bubble:
+                bubbles.append("\n\n".join(current_bubble))
+                current_bubble = []
             current_bubble.append(p)
 
     if current_bubble:
         bubbles.append("\n\n".join(current_bubble))
 
-    return bubbles[:4] if bubbles else [clean]
+    return bubbles[:5] if bubbles else [clean]
 
 
 def create_webhook_app(client: WahaClient) -> Starlette:
