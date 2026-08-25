@@ -206,6 +206,11 @@ async def run_agentic_react_loop(
             )
             executed_tools.append({"name": func_name, "args": func_args, "result": tool_result})
 
+            if turn_state is not None:
+                if func_name in ("send_vault_file", "send_whatsapp_media", "send_whatsapp_message") and tool_result.get("status") == "success":
+                    turn_state["dispatched_items"] = turn_state.get("dispatched_items", 0) + 1
+                turn_state["last_completed_tool"] = func_name
+
             if tracer:
                 tracer.log_step(
                     step=step + 1,

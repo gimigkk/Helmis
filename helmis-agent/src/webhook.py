@@ -454,10 +454,13 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     except Exception as ex:
                         log.warning("Could not download media %s: %s", target_url, ex)
 
-            # Watchdog task: if agent is taking > 4.0 seconds, send a specific, contextual reassurance message
+            # Watchdog task: if agent is taking > 7.5 seconds (genuinely stuck or deep research), send reassurance
             async def progress_watchdog() -> None:
                 try:
-                    await asyncio.sleep(4.0)
+                    await asyncio.sleep(7.5)
+                    # Don't fire if items were already dispatched to the chat or turn finished
+                    if turn_state.get("dispatched_items", 0) > 0:
+                        return
                     action_desc = describe_intent_action(
                         text=combined_text,
                         has_media=has_media,
@@ -466,7 +469,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                         current_tool=turn_state.get("current_tool"),
                         tool_args=turn_state.get("tool_args"),
                     )
-                    log.info("Agent turn taking >4.0s for [%s]: %s", sender_name, action_desc)
+                    log.info("Agent turn taking >7.5s for [%s]: %s", sender_name, action_desc)
                     await client.start_typing(chat_id=from_user)
                     reassurance_msg = f"Sebentar ya, {action_desc}..."
                     await client.send_message(chat_id=from_user, text=reassurance_msg)
