@@ -136,11 +136,17 @@ def get_memory_context_summary() -> str:
         due = t.get("due", "No deadline")
         title = t.get("title", "")
         assignee = t.get("assignee", "Gilang")
-        if t.get("reminded"):
+        p_val = t.get("priority", "normal")
+        priority_tag = f" [{p_val.upper()}]" if p_val != "normal" else ""
+        lead_val = t.get("lead_time_minutes", 0)
+        lead_tag = f" (Lead: {lead_val}m)" if lead_val else ""
+        if t.get("reminded") or t.get("due_reminded"):
             remind_status = f" | [REMINDER SENT to {assignee} at {t.get('reminded_at', 'earlier')}]"
+        elif t.get("kickoff_reminded"):
+            remind_status = f" | [KICKOFF PREP SENT to {assignee}]"
         else:
             remind_status = " | [Reminder NOT sent yet]"
-        return f"- [{due}] {title} (Assignee: {assignee}){remind_status}"
+        return f"- [{due}]{priority_tag} {title}{lead_tag} (Assignee: {assignee}){remind_status}"
 
     tasks_summary = (
         "\n".join([format_task_line(t) for t in active_tasks])
@@ -201,13 +207,23 @@ def log_activity(summary: str) -> None:
     save_memory(mem)
 
 
-def add_task(title: str, due: str = "", assignee: str = "Gilang") -> dict[str, Any]:
+def add_task(
+    title: str,
+    due: str = "",
+    assignee: str = "Gilang",
+    priority: str = "normal",
+    lead_time_minutes: int = 0,
+) -> dict[str, Any]:
     """Add a new task to memory (or update existing if same title and pending)."""
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")
     clean_title = title.strip()
     clean_due = due.strip() if due else "No deadline"
     clean_assignee = assignee.strip() if assignee else "Gilang"
+    clean_priority = priority.strip().lower() if priority else "normal"
+    if clean_priority not in ("urgent", "normal", "low"):
+        clean_priority = "normal"
+    clean_lead = int(lead_time_minutes or 0)
 
     mem = load_memory()
     tasks = mem.setdefault("tasks", [])
@@ -217,6 +233,8 @@ def add_task(title: str, due: str = "", assignee: str = "Gilang") -> dict[str, A
         if t.get("title", "").lower() == clean_title.lower() and t.get("status") == "pending":
             t["due"] = clean_due
             t["assignee"] = clean_assignee
+            t["priority"] = clean_priority
+            t["lead_time_minutes"] = clean_lead
             t["updated_at"] = get_current_time_str()
             save_memory(mem)
             return cast(dict[str, Any], t)
@@ -225,7 +243,14 @@ def add_task(title: str, due: str = "", assignee: str = "Gilang") -> dict[str, A
         "title": clean_title,
         "due": clean_due,
         "assignee": clean_assignee,
+        "priority": clean_priority,
+        "lead_time_minutes": clean_lead,
         "status": "pending",
+        "kickoff_reminded": False,
+        "due_reminded": False,
+        "nudge_count": 0,
+        "last_nudged_at": None,
+        "nudge_stopped": False,
         "created_at": get_current_time_str(),
     }
     tasks.append(new_task)
@@ -239,6 +264,8 @@ def update_task(
     new_due: str | None = None,
     new_assignee: str | None = None,
     new_status: str | None = None,
+    new_priority: str | None = None,
+    new_lead_time_minutes: int | None = None,
 ) -> dict[str, Any] | None:
     """Update existing task fields by title substring match."""
     mem = load_memory()
@@ -250,10 +277,23 @@ def update_task(
                 t["title"] = new_title.strip()
             if new_due:
                 t["due"] = new_due.strip()
+                # Reset reminder lifecycle on reschedule / snooze
+                t["kickoff_reminded"] = False
+                t["due_reminded"] = False
+                t["reminded"] = False
+                t["nudge_count"] = 0
+                t["last_nudged_at"] = None
+                t["nudge_stopped"] = False
             if new_assignee:
                 t["assignee"] = new_assignee.strip()
             if new_status:
                 t["status"] = new_status.strip()
+            if new_priority:
+                p = new_priority.strip().lower()
+                if p in ("urgent", "normal", "low"):
+                    t["priority"] = p
+            if new_lead_time_minutes is not None:
+                t["lead_time_minutes"] = int(new_lead_time_minutes)
             t["updated_at"] = get_current_time_str()
             save_memory(mem)
             return cast(dict[str, Any], t)

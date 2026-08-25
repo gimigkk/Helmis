@@ -25,6 +25,14 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                             "type": "STRING",
                             "description": "Person responsible: 'Gilang', 'Bunga', or 'Both' (for shared couple/team tasks)",
                         },
+                        "priority": {
+                            "type": "STRING",
+                            "description": "Urgency level: 'urgent' (activates 10-minute nag escalation loop until confirmed), 'normal' (standard single reminder), or 'low' (gentle/backlog)",
+                        },
+                        "lead_time_minutes": {
+                            "type": "INTEGER",
+                            "description": "Preparation buffer in minutes for non-instant tasks (e.g. 120 for assignments/proposals, 180 for flights, 30 for meetings). 0 for instant tasks.",
+                        },
                     },
                     "required": ["title", "due"],
                 },
@@ -62,7 +70,7 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
             },
             {
                 "name": "update_task",
-                "description": "Update or reassign an existing task (change assignee, deadline, or title).",
+                "description": "Update or reassign an existing task (change assignee, deadline, priority, lead time, or title).",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
@@ -81,6 +89,14 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         "new_title": {
                             "type": "STRING",
                             "description": "New title if renaming",
+                        },
+                        "new_priority": {
+                            "type": "STRING",
+                            "description": "New priority: 'urgent', 'normal', or 'low'",
+                        },
+                        "new_lead_time_minutes": {
+                            "type": "INTEGER",
+                            "description": "New preparation buffer in minutes",
                         },
                     },
                     "required": ["title"],
