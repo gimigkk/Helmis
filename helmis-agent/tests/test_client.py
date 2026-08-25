@@ -218,11 +218,11 @@ async def test_get_messages_returns_empty_list(httpx_mock: HTTPXMock) -> None:
 
 @pytest.mark.asyncio
 async def test_is_reachable_returns_true_on_success(httpx_mock: HTTPXMock) -> None:
-    """is_reachable returns True when WAHA health endpoint returns 2xx."""
+    """is_reachable returns True when WAHA sessions endpoint returns 2xx list."""
     httpx_mock.add_response(
         method="GET",
-        url="http://waha-test:3000/health",
-        json={"status": "ok"},
+        url="http://waha-test:3000/api/sessions",
+        json=[{"name": "default", "status": "WORKING"}],
     )
     client = make_client(httpx_mock)
 
@@ -231,10 +231,10 @@ async def test_is_reachable_returns_true_on_success(httpx_mock: HTTPXMock) -> No
 
 @pytest.mark.asyncio
 async def test_is_reachable_returns_false_on_server_error(httpx_mock: HTTPXMock) -> None:
-    """is_reachable returns False when WAHA health endpoint returns 5xx."""
+    """is_reachable returns False when WAHA sessions endpoint returns 5xx."""
     httpx_mock.add_response(
         method="GET",
-        url="http://waha-test:3000/health",
+        url="http://waha-test:3000/api/sessions",
         status_code=503,
     )
     client = make_client(httpx_mock)
@@ -248,7 +248,7 @@ async def test_is_reachable_returns_false_on_network_error(httpx_mock: HTTPXMock
     httpx_mock.add_exception(
         httpx.ConnectError("Connection refused"),
         method="GET",
-        url="http://waha-test:3000/health",
+        url="http://waha-test:3000/api/sessions",
     )
     client = make_client(httpx_mock)
 

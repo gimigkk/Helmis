@@ -32,7 +32,7 @@ services:
     networks:
       - helmis-net
     ports:
-      - "3000:3000"           # REST API + dashboard
+      - "${WAHA_PORT_MAPPING:-3000:3000}"           # REST API + dashboard
     volumes:
       - waha-sessions:/app/.sessions
     environment:
@@ -70,7 +70,7 @@ services:
     environment:
       WAHA_BASE_URL: ${WAHA_BASE_URL}
       WAHA_API_KEY: ${WAHA_API_KEY}
-      WAHA_SESSION_NAME: ${WAHA_SESSION_NAME}
+      WAHA_SESSION_NAME: ${WAHA_SESSION_NAME:-default}
       GILANG_PHONE: ${GILANG_PHONE}
       BUNGA_PHONE: ${BUNGA_PHONE}
       BOT_PHONE: ${BOT_PHONE}

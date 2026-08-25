@@ -27,7 +27,7 @@ graph TD
             AuthF["Security & Auth Filter<br/>(Whitelist & Banter Gate)"]
             QueueMgr["ChatQueueManager<br/>(1.0s Burst Debounce & Per-Chat Workers)"]
             ReActLoop["ReAct Agentic Loop<br/>(Multi-Step Tool Engine)"]
-            ToolDisp["Tool Dispatcher<br/>(12 Local & MCP Tools)"]
+            ToolDisp["Tool Dispatcher<br/>(29 Local & MCP Tools)"]
             Guardrail["State Fidelity Guardrail<br/>(Fidelity Verification)"]
             Tracer["AgentTurnTracer<br/>(Structured Terminal & JSONL Trace)"]
             MCP["MCPServer (FastMCP)<br/>(Port 8765 /sse)"]
@@ -40,6 +40,7 @@ graph TD
 
         subgraph "Local Persistent Storage (./data)"
             JSONStore[("helmis_memory.json<br/>Tasks, Directory, Notes, Logs")]
+            VaultStore[("vault/ & file_catalog.json<br/>PDFs, Binary Files & Metadata")]
             VecStore[("semantic_memories.json<br/>Episodic Vector Embeddings")]
             TraceLog[("agent_traces.jsonl<br/>Execution Logs")]
         end
@@ -63,6 +64,7 @@ graph TD
     ReActLoop <-->|Multi-Key LLM Calls| GeminiAPI
     ReActLoop <--> ToolDisp
     ToolDisp <--> JSONStore
+    ToolDisp <--> VaultStore
     ToolDisp <--> VecStore
     ToolDisp -->|Outbound WhatsApp| WAHA
     ReActLoop --> Guardrail
@@ -82,7 +84,7 @@ The entire system is orchestrated via `docker-compose.yml` on a dedicated Docker
 
 | Container Name | Base Image / Context | Internal Port | Exposed Port | Purpose |
 |---|---|---|---|---|
-| `helmis-waha` | `devlikeapro/waha:latest` | `3000` | `3000:3000` | WhatsApp Web WebSocket bridge (GOWS engine) + Dashboard |
+| `helmis-waha` | `devlikeapro/waha:latest` | `3000` | `3005:3000` (Configurable) | WhatsApp Web WebSocket bridge (GOWS engine) + Dashboard |
 | `helmis-agent` | `./helmis-agent` (Python 3.12-slim) | `8644`, `8765` | `8644` (Internal), `8765` (Internal) | Core AI ReAct Brain, Webhooks, Storage, MCP SSE server |
 | `helmis-scheduler` | `./scheduler` (Alpine + Supercronic) | N/A | N/A | Crontab runner triggering proactive check evaluations |
 
@@ -92,6 +94,8 @@ The entire system is orchestrated via `docker-compose.yml` on a dedicated Docker
 Host Filesystem
 ├── ./data/                                  <== Mounted into /app/data:z
 │   ├── helmis_memory.json                   # Structured persistent state (tasks, notes, contacts)
+│   ├── file_catalog.json                    # Metadata catalog for Document Vault
+│   ├── vault/                               # Binary PDFs, photos, scans, receipts & workspaces
 │   ├── semantic_memories.json               # Episodic vector embeddings & facts
 │   └── agent_traces.jsonl                   # Step-by-step turn execution traces
 │

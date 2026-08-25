@@ -201,6 +201,67 @@ Helmis defines **12 native tools** exposed directly to Gemini via OpenAI/Gemini-
   - `text` (*string, required*): Short 1-sentence progress note (e.g. `'Sedang mengecek riwayat chat dan dokumen kemarin...'`).
 - **Behavior**: Transmits the message to the active chat and immediately resumes WhatsApp active typing presence (`start_typing()`).
 
+#### 21. `save_vault_file`
+- **Purpose**: Save and catalog files, documents, photos, or generated text into the Document Vault (`./data/vault/`).
+- **Parameters**:
+  - `filename` (*string, required*): Meaningful filename (e.g. `'brosur_elera_education.pdf'`).
+  - `category` (*string, required*): `'health'`, `'id_cards'`, `'travel'`, `'receipts'`, `'documents'`, `'media'`, or `'projects'`.
+  - `description` (*string, required*): Short summary of the file.
+  - `tags` (*list of strings, optional*): Search tags.
+  - `content_text` (*string, optional*): Text content for notes/markdown/code.
+  - `media_data` (*string, optional*): Base64 data for binary files.
+  - `owner` (*string, optional*): `'Gilang'`, `'Bunga'`, or `'shared'`.
+  - `custom_dir` (*string, optional*): Specific workspace path (e.g. `'projects/freelance_webdev'`).
+
+#### 22. `read_vault_file`
+- **Purpose**: Read the digital text contents of a document in the Document Vault.
+- **Parameters**:
+  - `file_id_or_name` (*string, required*): The file ID or filename (or search query) of the document.
+  - `max_chars` (*integer, optional*): Maximum characters to extract (default 4000).
+- **Behavior**: Uses `pypdf` to extract text from digital PDF pages, decodes UTF-8 text files directly, or returns catalog OCR summaries for images.
+
+#### 23. `search_vault_files`
+- **Purpose**: Search the Document Vault catalog by keyword, category, owner, or tags.
+- **Parameters**:
+  - `query` (*string, required*): Search query or keyword.
+  - `category` (*string, optional*): Category filter.
+  - `owner` (*string, optional*): `'Gilang'`, `'Bunga'`, or `'shared'`.
+
+#### 24. `list_vault_files`
+- **Purpose**: List cataloged files in the Document Vault with optional category or directory filtering.
+- **Parameters**:
+  - `category` (*string, optional*): Category filter.
+  - `owner` (*string, optional*): Owner filter.
+  - `custom_dir` (*string, optional*): Relative subfolder path.
+
+#### 25. `send_vault_file`
+- **Purpose**: Send a file from the Document Vault directly to a WhatsApp chat.
+- **Parameters**:
+  - `target` (*string, required*): File ID or filename.
+  - `recipient` (*string, required*): `'Gilang'`, `'Bunga'`, `'group'`, or phone number.
+  - `caption` (*string, optional*): Message caption.
+
+#### 26. `move_vault_files`
+- **Purpose**: Polymorphic file mover for single or multiple files with collision auto-versioning (`_v2.pdf`).
+- **Parameters**:
+  - `target` (*string, required*): File ID, exact filename, or search query.
+  - `destination_directory` (*string, required*): Destination folder path (e.g. `'projects/kriyamic'`).
+
+#### 27. `delete_vault_files`
+- **Purpose**: Delete a document from the vault and remove it from the catalog.
+- **Parameters**:
+  - `target` (*string, required*): File ID or exact filename.
+
+#### 28. `create_vault_directory`
+- **Purpose**: Create a new custom subdirectory inside the Document Vault.
+- **Parameters**:
+  - `directory_path` (*string, required*): Subdirectory path (e.g. `'projects/kuliah'`).
+
+#### 29. `delete_vault_directory`
+- **Purpose**: Delete a custom subdirectory from the Document Vault (root category directories are protected).
+- **Parameters**:
+  - `directory_path` (*string, required*): Subdirectory path to remove.
+
 ---
 
 ## 4. Multi-Turn Context Assembly (`build_multi_turn_contents`)

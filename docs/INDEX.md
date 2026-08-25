@@ -38,15 +38,16 @@ Detailed architectural overview of Helmis:
 The intelligence layer of Helmis:
 - **Dynamic Model Cascade**: Dynamic query of Google Gemini models with intelligent speed/capability prioritization (`Flash-Lite` -> `Flash` -> `Gemma` -> `Pro`).
 - **Multi-Key Quota Rotation**: Round-robin key rotation across independent Google accounts to bypass rate limits (429/404 handling).
-- **Tool Calling System**: Detailed specifications, JSON schemas, parameters, and return types for all 20 native agentic tools (including `web_search`, `list_notes`, `append_to_note`, `get_note`, `send_whatsapp_media`, and `send_status_update`).
+- **Tool Calling System**: Detailed specifications, JSON schemas, parameters, and return types for all 29 native agentic tools (including `read_vault_file`, `save_vault_file`, `move_vault_files`, `delete_vault_files`, `web_search`, `list_notes`, `append_to_note`, `get_note`, `send_whatsapp_media`, and `send_status_update`).
 - **Multi-Turn Context Builder**: Chronological history construction, speaker attribution (`[Gilang]`, `[Bunga]`), and native multimodal media injection.
 - **State Fidelity Guardrail**: Output verification that prevents hallucinations when items are not found or operations fail.
-- **Voice Note & Document OCR**: 2-phase pipeline featuring dedicated zero-hallucination speech transcription and multimodal document analysis.
+- **Voice Note & Document OCR/PDF**: Zero-hallucination speech transcription, native image vision, and digital text extraction from multi-page PDFs via `pypdf`.
 
 ### 3. [Memory Architecture & Semantic Vector Store](file:///home/gimigkk/Desktop/Projects/Helmis/docs/MEMORY_AND_STORAGE.md)
 Data persistence and long-term intelligence:
 - **Unified Brain Architecture**: Cross-user contextual awareness with privacy discretion.
 - **Structured Storage (`helmis_memory.json`)**: Thread-safe atomic file writes (`os.fsync`), schema definitions for tasks, people directory, shared notes, and activity logs.
+- **Document Vault (`./data/vault/`)**: Production-grade document storage with 100% SHA-256 binary preservation, metadata cataloging (`file_catalog.json`), POSIX file locking (`fcntl.flock`), and collision versioning (`_v2.pdf`).
 - **Semantic Vector Memory (`semantic_memories.json`)**: 3072-dimensional vector embeddings via `gemini-embedding-001`, cosine similarity search, and score thresholding.
 - **Background Episodic Memory Extractor**: Passive extraction of personal facts, habits, and preferences after each turn without adding latency to the conversation.
 - **Task Lifecycle**: Full state transitions (`pending` -> `reminded` -> `completed` / `deleted`).
@@ -69,14 +70,14 @@ Proactive intelligence and cron triggers:
 ### 6. [Configuration, Prompts & Skills System](file:///home/gimigkk/Desktop/Projects/Helmis/docs/CONFIGURATION_AND_SKILLS.md)
 Behavioral tuning and capability playbooks:
 - **Environment Variables**: Comprehensive reference table with types, default values, and security best practices.
-- **System Prompt Architecture**: Identity, tone, WhatsApp markdown rules (`*bold*`, `_italic_`), ZERO EMOJI mandate, and Indonesian temporal greetings rules.
+- **System Prompt Architecture**: Identity, tone, WhatsApp markdown rules (`*bold*`, `_italic_`), ZERO EMOJI mandate, zero hallucination vault rules, and Indonesian temporal greetings rules.
 - **Dynamic Skills Architecture**: Automatic discovery and injection of `SKILL.md` playbooks from `config/skills/`.
-- **Skill Playbooks**: Detailed breakdown of `people-directory`, `schedule-manager`, `task-manager`, `reminder-engine`, `document-reader`, `shared-notes`, and `proactive-check`.
+- **Skill Playbooks**: Detailed breakdown of `vault-manager`, `people-directory`, `schedule-manager`, `task-manager`, `reminder-engine`, `document-reader`, `shared-notes`, and `proactive-check`.
 
 ### 7. [Development, Testing & Observability](file:///home/gimigkk/Desktop/Projects/Helmis/docs/DEVELOPMENT_AND_TESTING.md)
 Developer setup, test suite, and step tracing:
 - **Local Environment**: Python 3.12+ virtualenv setup and package management via `pyproject.toml`.
-- **Test Suite**: 45 unit and integration tests covering agent loops, web search, living notes, quoted messages, HTTP clients, deduplication, memory, queues, and vector math.
+- **Test Suite**: 82 unit, integration, data-integrity, and red-team fuzzing tests covering agent loops, Document Vault CRUD, PDF bombs, path traversal, Unicode, web search, living notes, quoted messages, HTTP clients, deduplication, memory, queues, and vector math.
 - **Structured Step Tracer (`AgentTurnTracer`)**: ANSI-formatted real-time console tracing and persistent JSON Lines audit logging (`agent_traces.jsonl`).
 - **Extensibility Guide**: Step-by-step instructions for adding new tools, skills, and model providers.
 

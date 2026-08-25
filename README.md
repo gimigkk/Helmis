@@ -4,14 +4,14 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
 [![Docker Compose](https://img.shields.io/badge/docker--compose-v2-2496ED.svg)](docker-compose.yml)
-[![Tests](https://img.shields.io/badge/tests-45%20passed-brightgreen.svg)](helmis-agent/tests/)
+[![Tests](https://img.shields.io/badge/tests-82%20passed-brightgreen.svg)](helmis-agent/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
 ## What is Helmis?
 
-Helmis is a zero-latency, private AI secretary built for real-world personal coordination over WhatsApp. It operates across private direct messages and a shared group chat, managing schedules, tasks, contacts, shared notes, live web search, and proactive reminders with strict state fidelity.
+Helmis is a zero-latency, private AI secretary built for real-world personal coordination over WhatsApp. It operates across private direct messages and a shared group chat, managing schedules, tasks, contacts, shared notes, Document Vault, digital PDF extraction, live web search, and proactive reminders with strict state fidelity.
 
 ```
                     ┌──────────────────────────────┐
@@ -22,17 +22,17 @@ Helmis is a zero-latency, private AI secretary built for real-world personal coo
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Helmis Agent (Starlette + FastMCP Server)                           │
 │                                                                      │
-│  [1. Inbound Filter] ──► [2. 1.0s Chat Queue] ──► [3. Voice/OCR]     │
+│  [1. Inbound Filter] ──► [2. 1.0s Chat Queue] ──► [3. Voice/OCR/PDF] │
 │                                                          │           │
 │  [6. State Guardrail] ◄── [5. ReAct Engine] ◄────────────┘           │
 │           │                      │                                   │
 │           ▼                      ▼                                   │
-│     WhatsApp Reply       [20 Native Tools]                           │
+│     WhatsApp Reply       [29 Native Tools]                           │
 │                                  │                                   │
-│            ┌─────────────────────┴─────────────────────┐             │
-│            ▼                                           ▼             │
-│   Atomic JSON Store                           3072-dim Vector Store  │
-│   (Tasks, Notes, People)                      (Semantic Memories)    │
+│            ┌─────────────────────┼─────────────────────┐             │
+│            ▼                     ▼                     ▼             │
+│   Atomic JSON Store     Document Vault        3072-dim Vector Store  │
+│   (Tasks, Notes)        (PDFs, Files, Docs)   (Semantic Memories)    │
 └──────────────────────────────────┬───────────────────────────────────┘
                                    ▲
                                    │ 5-min Cron Trigger
@@ -59,10 +59,10 @@ Helmis is a zero-latency, private AI secretary built for real-world personal coo
 [Helmis]: Bunga mengingatkan untuk tidak lupa membayar tagihan listrik sebelum jam 12 siang hari ini.
 ```
 
-### 3. Living Shared Lists & Live Web Search
+### 3. Document Vault & Digital PDF Inspection
 ```text
-[Gilang]: Cariin restoran sunda enak dekat Senopati terus tambahin ke catatan rekomendasi kita
-[Helmis]: Menemukan *Dapur Sunda Senopati* (buka sampai 22:00 WIB). Restoran sudah saya tambahkan ke catatan *Rekomendasi Restoran*.
+[Gilang]: Cek brosur Elera di brankas dokumen, biaya les TK berapa ya?
+[Helmis]: Berdasarkan dokumen *brosur_elera_education.pdf*, biaya pendaftaran untuk jenjang TK-SD adalah Rp 125.000 dengan paket bulanan Rp 450.000.
 ```
 
 ---
@@ -71,7 +71,8 @@ Helmis is a zero-latency, private AI secretary built for real-world personal coo
 
 | Primitive | Description |
 |---|---|
-| **Autonomous ReAct Core** | Up to 5-step ReAct reasoning loop with 20 native tools (`add_task`, `list_tasks`, `save_note`, `get_note`, `list_notes`, `append_to_note`, `web_search`, `send_whatsapp_media`, `send_whatsapp_message`, `send_status_update`, etc.). |
+| **Autonomous ReAct Core** | Up to 5-step ReAct reasoning loop with 29 native tools (`read_vault_file`, `save_vault_file`, `move_vault_files`, `add_task`, `list_tasks`, `save_note`, `get_note`, `list_notes`, `append_to_note`, `web_search`, `send_whatsapp_media`, `send_whatsapp_message`, `send_status_update`, etc.). |
+| **Document Vault & PDF Reading** | Byte-for-byte binary preservation with `pypdf` digital text extraction, metadata indexing (`file_catalog.json`), POSIX file locking (`fcntl.flock`), and collision versioning (`_v2.pdf`). |
 | **Model Cascade & Quota Rotation** | Dynamic speed-first model prioritization (`Flash-Lite` $\rightarrow$ `Flash` $\rightarrow$ `Gemma` $\rightarrow$ `Pro`) with multi-key round-robin rotation on HTTP 429 rate limits. |
 | **Burst Debounce Queue** | Per-chat FIFO queues with a 1.0s sliding debounce window that merges rapid-fire text fragments into single unified turns. |
 | **GOWS Protobuf Quote Parser** | Native extraction of WhatsApp quoted metadata across text, voice notes (with duration and transcription), images (with captions), documents, and stickers. |

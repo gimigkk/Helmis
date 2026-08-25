@@ -204,3 +204,83 @@ Deleting memories requires handling both explicit keyword matches and conceptual
    - If Pass 1 finds 0 matches, computes vector embedding of the deletion query.
    - Identifies any stored memories with cosine similarity $\ge 0.78$.
    - Purges matched memories from storage and returns the count of deleted items.
+
+---
+
+## 7. Document Vault Storage Architecture (`./data/vault/`)
+
+Helmis features a dedicated, production-grade Document Vault and metadata cataloging engine designed to store, index, inspect, and dispatch binary documents, PDFs, photos, scans, and receipts.
+
+```
+data/vault/
+├── health/         # BPJS, medical records, doctor prescriptions, MCU lab results
+│   ├── gilang/
+│   ├── bunga/
+│   └── shared/
+├── id_cards/       # KTP, SIM, NPWP, Paspor, Kartu Keluarga, Akta
+│   ├── gilang/
+│   ├── bunga/
+│   └── shared/
+├── travel/         # Flight e-tickets, hotel vouchers, train tickets, visas
+│   ├── gilang/
+│   ├── bunga/
+│   └── shared/
+├── receipts/       # Proof of payment, invoices, bills, warranty cards, tax BPE
+│   ├── gilang/
+│   ├── bunga/
+│   └── shared/
+├── documents/      # CV, work contracts, NDA, degree diplomas, tutoring modules
+│   ├── gilang/
+│   ├── bunga/
+│   └── shared/
+├── media/          # Saved media photos, videos, audio clips
+│   ├── gilang/
+│   ├── bunga/
+│   └── shared/
+└── projects/       # Custom project workspaces (e.g. freelance_webdev, kriyamic)
+```
+
+### Metadata Catalog Schema (`file_catalog.json`)
+
+All file entries are indexed in `data/file_catalog.json` with thread-safe and multi-process file locking via `fcntl.flock`:
+
+```json
+{
+  "files": [
+    {
+      "id": "doc_1787680000000_abc12345",
+      "filename": "brosur_elera_education.pdf",
+      "category": "projects",
+      "owner": "Gilang",
+      "relative_path": "projects/freelance_webdev/brosur_elera_education.pdf",
+      "size_bytes": 276480,
+      "mime_type": "application/pdf",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "description": "Brosur Bimbingan Belajar Elera Education",
+      "tags": ["les", "kursus", "elera", "pendidikan"],
+      "ocr_summary": "Bimbel Elera Education: Biaya pendaftaran TK-SD Rp 125.000...",
+      "created_at": "Tuesday, 25 August 2026 - 19:30 WIB",
+      "updated_at": "Tuesday, 25 August 2026 - 19:30 WIB"
+    }
+  ]
+}
+```
+
+### 100% Binary Data Integrity & Preservation
+- **Direct Base64 Byte Decoding**: When a user sends an attachment (PDF, image, ZIP), the raw binary bytes are decoded directly into `./data/vault/` rather than saving text summaries, ensuring 100% SHA-256 byte-for-byte fidelity.
+- **Fast WhatsApp Dispatching**: Files $\le 10\text{MB}$ are encoded as `data:<mime>;base64,...` payloads with explicit `filename` and `mimetype` headers in `/api/sendFile`, ensuring WhatsApp renders document cards natively without "Untitled" labels.
+
+### Document Vault Tool Suite
+
+| Tool Name | Operation & Behavior |
+|---|---|
+| `save_vault_file` | Saves and catalogs incoming attachments or created text files with clean slug naming. |
+| `read_vault_file` | Reads file content directly: extracts multi-page text via `pypdf`, decodes UTF-8 text/markdown/code, or returns OCR metadata for images. |
+| `search_vault_files` | Searches across filenames, descriptions, tags, OCR summaries, and owner filters. |
+| `list_vault_files` | Lists cataloged files filtered by category, owner, or custom directory path. |
+| `send_vault_file` | Dispatches stored files directly to WhatsApp chats via Data URIs or HTTP streaming. |
+| `move_vault_files` | Polymorphic single/bulk file mover with collision auto-versioning (`_v2.pdf`). |
+| `delete_vault_files` | Polymorphic exact ID/name file deletion. |
+| `create_vault_directory` | Creates custom directory structures under `./data/vault/`. |
+| `delete_vault_directory` | Safely deletes directories (default root categories are strictly protected). |
+

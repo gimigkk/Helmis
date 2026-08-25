@@ -41,14 +41,16 @@ mypy src/
 
 ## 2. Automated Test Suite (Pytest)
 
-The test suite contains **32 comprehensive unit and integration tests** located under `helmis-agent/tests/`. Tests execute against local mocks without requiring live WhatsApp or Gemini API connections.
+The test suite contains **82 comprehensive unit, integration, binary data-integrity, and red-team adversarial fuzzing tests** located under `helmis-agent/tests/`. Tests execute against local mocks without requiring live WhatsApp or Gemini API connections.
 
 ```bash
 # Run entire test suite
 pytest -v
 
 # Run a specific test module
-pytest tests/test_agent.py -v
+pytest tests/test_vault.py -v
+pytest tests/test_fuzz_vault.py -v
+pytest tests/test_data_integrity.py -v
 ```
 
 ### Test Suite Architecture
@@ -58,21 +60,28 @@ helmis-agent/tests/
 ├── conftest.py                   # Shared pytest fixtures & mock environment variables
 ├── test_agent.py                 # Tool schema validation, dispatcher & state fidelity tests
 ├── test_client.py                # WAHA REST client, HTTP error handling & typing indicators
+├── test_data_integrity.py        # 100% SHA-256 binary fidelity, PDF/ZIP preservation & streaming
+├── test_fuzz_vault.py            # Adversarial PDF bombs, path traversal, Unicode & 30-task race conditions
 ├── test_history.py               # Message deduplication cache & multi-turn history builder
-├── test_memory.py                # Structured memory store, task lifecycle & time periods
+├── test_memory.py                # Structured memory store, task lifecycle, Indonesian time expressions
+├── test_proactive_engine.py      # Proactive reminder engine, 30m kickoff, snooze & escalation loops
 ├── test_queue.py                 # Per-chat burst debouncing & concurrent chat isolation
-└── test_semantic_memory.py       # Cosine similarity vector math, embeddings & two-pass deletion
+├── test_quoted_messages.py       # Quoted message, voice note, and video context extraction
+├── test_search.py                # DuckDuckGo web search integration & timeout resilience
+├── test_semantic_memory.py       # Cosine similarity vector math, embeddings & two-pass deletion
+└── test_vault.py                 # Document Vault CRUD, catalog self-healing, directory guards & pypdf
 ```
 
 ### Key Test Scenarios Covered
 
 | Test File | Key Test Cases |
 |---|---|
-| `test_agent.py` | Validates that all 12 Gemini tools conform to Gemini API schemas; verifies that `verify_action_fidelity()` overrides hallucinated text when tools return `not_found` or `error`; tests error handling on empty task titles. |
-| `test_client.py` | Uses `pytest-httpx` to mock WAHA endpoints (`/api/sendText`, `/api/sendFile`, `/api/messages`, `/api/startTyping`, `/health`); verifies status code error mapping (`WahaClientError`). |
-| `test_history.py` | Verifies 60-second in-memory message deduplication; tests chronological sorting and speaker tagging (`[Gilang]`, `[Bunga]`) in `build_multi_turn_contents()`. |
-| `test_memory.py` | Tests WIB time-of-day greeting categorization (`Pagi`, `Siang`, `Sore`, `Malam`); verifies task state transitions (`pending` $\rightarrow$ `completed` $\rightarrow$ `deleted`). |
-| `test_queue.py` | Simulates multi-message bursts to verify 1.0s debouncing into a single turn; verifies that independent chats execute concurrently without blocking. |
+| `test_agent.py` | Validates all Gemini tools conform to Gemini API schemas; verifies `verify_action_fidelity()` overrides hallucinated text; tests error handling. |
+| `test_client.py` | Uses `pytest-httpx` to mock WAHA endpoints (`/api/sendText`, `/api/sendFile`, `/api/messages`, `/api/startTyping`, `/api/sessions`); verifies error mapping. |
+| `test_data_integrity.py` | Validates 100% SHA-256 byte preservation on 270 kB PDFs, JPEGs, and ZIPs; ensures ReAct tools bypass text degradation when media bytes are present. |
+| `test_fuzz_vault.py` | Hardened against corrupt/0-byte PDF bombs, path traversal attacks (`/etc/passwd`), extreme Unicode/emojis, 10MB payloads, and 30-task POSIX file lock concurrency. |
+| `test_proactive_engine.py` | Verifies Stage 1 kickoff notifications, Stage 2 due alerts, 15m urgent nag loops, and partner escalation logic. |
+| `test_vault.py` | Validates Document Vault save, search, move with collision auto-versioning (`_v2.pdf`), `read_vault_file` (`pypdf` + UTF-8), catalog auto-repair, and directory safety. |
 | `test_semantic_memory.py` | Verifies floating-point cosine similarity calculations; tests episodic fact storage, similarity threshold filtering, and two-pass deletion. |
 
 ---
