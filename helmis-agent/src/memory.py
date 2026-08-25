@@ -267,44 +267,50 @@ def update_task(
     new_priority: str | None = None,
     new_lead_time_minutes: int | None = None,
 ) -> dict[str, Any] | None:
-    """Update existing task fields by title substring match."""
+    """Update existing task fields by title (exact match first, then substring)."""
     mem = load_memory()
     tasks = mem.get("tasks", [])
     query = title.lower().strip()
-    for t in tasks:
-        if query in t.get("title", "").lower():
-            if new_title:
-                t["title"] = new_title.strip()
-            if new_due:
-                t["due"] = new_due.strip()
-                # Reset reminder lifecycle on reschedule / snooze
-                t["kickoff_reminded"] = False
-                t["due_reminded"] = False
-                t["reminded"] = False
-                t["nudge_count"] = 0
-                t["last_nudged_at"] = None
-                t["nudge_stopped"] = False
-            if new_assignee:
-                t["assignee"] = new_assignee.strip()
-            if new_status:
-                t["status"] = new_status.strip()
-            if new_priority:
-                p = new_priority.strip().lower()
-                if p in ("urgent", "normal", "low"):
-                    t["priority"] = p
-            if new_lead_time_minutes is not None:
-                t["lead_time_minutes"] = int(new_lead_time_minutes)
-            t["updated_at"] = get_current_time_str()
-            save_memory(mem)
-            return cast(dict[str, Any], t)
+
+    # Pass 1: Exact match
+    target_task = next((t for t in tasks if t.get("title", "").lower().strip() == query), None)
+    # Pass 2: Substring match
+    if not target_task:
+        target_task = next((t for t in tasks if query in t.get("title", "").lower()), None)
+
+    if target_task:
+        if new_title:
+            target_task["title"] = new_title.strip()
+        if new_due:
+            target_task["due"] = new_due.strip()
+            # Reset reminder lifecycle on reschedule / snooze
+            target_task["kickoff_reminded"] = False
+            target_task["due_reminded"] = False
+            target_task["reminded"] = False
+            target_task["nudge_count"] = 0
+            target_task["last_nudged_at"] = None
+            target_task["nudge_stopped"] = False
+        if new_assignee:
+            target_task["assignee"] = new_assignee.strip()
+        if new_status:
+            target_task["status"] = new_status.strip()
+        if new_priority:
+            p = new_priority.strip().lower()
+            if p in ("urgent", "normal", "low"):
+                target_task["priority"] = p
+        if new_lead_time_minutes is not None:
+            target_task["lead_time_minutes"] = int(new_lead_time_minutes)
+        target_task["updated_at"] = get_current_time_str()
+        save_memory(mem)
+        return cast(dict[str, Any], target_task)
     return None
 
 
 def parse_due_timestamp(due_str: str) -> float:
     """
     Parse a task due string into a Unix timestamp for urgency sorting.
-    Tasks with earliest deadlines get the lowest timestamp (sorted first).
-    Tasks with no deadline or unparseable text get infinity (sorted last).
+    Supports relative dates (hari ini, besok, lusa), day-of-week (Senin..Minggu),
+    ISO format (YYYY-MM-DD), and Indonesian/English month names.
     """
     if not due_str or not due_str.strip() or "no deadline" in due_str.lower():
         return float("inf")
@@ -347,7 +353,27 @@ def parse_due_timestamp(due_str: str) -> float:
         target_dt = (now + timedelta(days=2)).replace(hour=hour, minute=minute, second=0, microsecond=0)
         return target_dt.timestamp()
 
-    # 4. ISO YYYY-MM-DD
+    # 4. Day of Week (Senin .. Minggu)
+    id_days = {
+        "senin": 0, "monday": 0, "mon": 0,
+        "selasa": 1, "tuesday": 1, "tue": 1,
+        "rabu": 2, "wednesday": 2, "wed": 2,
+        "kamis": 3, "thursday": 3, "thu": 3,
+        "jumat": 4, "jum'at": 4, "friday": 4, "fri": 4,
+        "sabtu": 5, "saturday": 5, "sat": 5,
+        "minggu": 6, "ahad": 6, "sunday": 6, "sun": 6,
+    }
+    for day_name, day_idx in id_days.items():
+        if re.search(rf"\b{day_name}\b", clean):
+            days_ahead = (day_idx - now.weekday()) % 7
+            if days_ahead == 0:
+                # If day is today but specified hour is already in the past, roll to next week
+                if (hour < now.hour) or (hour == now.hour and minute <= now.minute):
+                    days_ahead = 7
+            target_dt = (now + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+            return target_dt.timestamp()
+
+    # 5. ISO YYYY-MM-DD
     iso_match = re.search(r"(\d{4})-(\d{2})-(\d{2})", clean)
     if iso_match:
         try:
@@ -364,7 +390,7 @@ def parse_due_timestamp(due_str: str) -> float:
         except Exception:
             pass
 
-    # 5. Indonesian & English month names
+    # 6. Indonesian & English month names (e.g. 28 Agustus 2026 or 28 Agustus)
     id_months = {
         "januari": 1, "jan": 1,
         "februari": 2, "feb": 2,
@@ -413,27 +439,54 @@ def list_tasks(status: str = "pending", sort_by: str = "urgency") -> list[dict[s
 
 
 def complete_task(title: str) -> dict[str, Any] | None:
-    """Mark a task as completed by title substring match."""
+    """Mark a task as completed by title (exact match first, then substring)."""
     mem = load_memory()
     tasks = mem.get("tasks", [])
     query = title.lower().strip()
-    for t in tasks:
-        if query in t.get("title", "").lower() and t.get("status") != "completed":
-            t["status"] = "completed"
-            t["completed_at"] = get_current_time_str()
-            save_memory(mem)
-            return cast(dict[str, Any], t)
+
+    # Pass 1: Exact match on active tasks
+    target_task = next(
+        (t for t in tasks if t.get("title", "").lower().strip() == query and t.get("status") != "completed"),
+        None,
+    )
+    # Pass 2: Substring match
+    if not target_task:
+        target_task = next(
+            (t for t in tasks if query in t.get("title", "").lower() and t.get("status") != "completed"),
+            None,
+        )
+
+    if target_task:
+        target_task["status"] = "completed"
+        target_task["completed_at"] = get_current_time_str()
+        save_memory(mem)
+        return cast(dict[str, Any], target_task)
     return None
 
 
 def delete_task(title: str) -> bool:
-    """Delete a task by title substring match."""
+    """Delete a single task by title (exact match first, then best substring match)."""
     mem = load_memory()
     tasks = mem.get("tasks", [])
-    initial_len = len(tasks)
-    mem["tasks"] = [t for t in tasks if title.lower() not in t.get("title", "").lower()]
-    save_memory(mem)
-    return len(mem["tasks"]) < initial_len
+    query = title.lower().strip()
+
+    # Pass 1: Exact match
+    target_idx = next(
+        (i for i, t in enumerate(tasks) if t.get("title", "").lower().strip() == query),
+        None,
+    )
+    # Pass 2: Substring match (delete only the single matched item, never bulk)
+    if target_idx is None:
+        target_idx = next(
+            (i for i, t in enumerate(tasks) if query in t.get("title", "").lower()),
+            None,
+        )
+
+    if target_idx is not None:
+        tasks.pop(target_idx)
+        save_memory(mem)
+        return True
+    return False
 
 
 def add_person(name: str, phone: str = "", role: str = "", notes: str = "") -> dict[str, Any]:

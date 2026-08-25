@@ -208,3 +208,29 @@ async def test_completed_task_skips_all_reminders() -> None:
         await handle_proactive_scheduler_tick(mock_client)
 
     assert not mock_client.send_message.called
+
+
+@pytest.mark.asyncio
+async def test_proactive_ancient_overdue_task_silently_marked() -> None:
+    """Verify that a task that was already >2 hours overdue when first loaded is silently marked reminded."""
+    mock_client = AsyncMock(spec=WahaClient)
+
+    # Task due 3 days ago (2026-08-20)
+    add_task(
+        title="Tugas Lama",
+        due="2026-08-20 10:00 WIB",
+        assignee="Gilang",
+    )
+
+    mock_dt = datetime(2026, 8, 26, 12, 0, 0, tzinfo=TZ)
+    with patch("src.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = mock_dt
+        await handle_proactive_scheduler_tick(mock_client)
+
+    # Must NOT spam live message for task from days ago
+    assert not mock_client.send_message.called
+
+    mem = load_memory()
+    t = mem["tasks"][0]
+    assert t["due_reminded"] is True
+    assert t["nudge_stopped"] is True

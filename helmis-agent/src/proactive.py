@@ -127,7 +127,17 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
         # 2. STAGE 2: Final Deadline Alert
         # ---------------------------------------------------------------------
         if not due_reminded:
-            # Trigger if within 5 minutes of due or overdue
+            # Safeguard: If task is already > 2 hours overdue when first loaded, silently mark reminded
+            if (now_ts - due_ts) > 7200:
+                t["due_reminded"] = True
+                t["reminded"] = True
+                t["reminded_at"] = now_str
+                t["nudge_stopped"] = True
+                log.info("Task '%s' was already >2h overdue. Silently marked reminded to avoid false alarms.", title)
+                updated_any = True
+                continue
+
+            # Trigger if within 5 minutes of due or overdue within recent window
             if now_ts >= (due_ts - 300):
                 msg_text = (
                     f"Halo {assignee}, pengingat deadline: *{title}* ({due_str}). "

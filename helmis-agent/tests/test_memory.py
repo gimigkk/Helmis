@@ -98,3 +98,28 @@ def test_save_note_and_search() -> None:
     results = memory.search_memory("secret")
     assert len(results["notes"]) == 1
     assert results["notes"][0]["title"] == "WiFi Password"
+
+
+def test_parse_due_timestamp_day_of_week() -> None:
+    ts_jumat = memory.parse_due_timestamp("Jumat, 14:00 WIB")
+    assert ts_jumat != float("inf")
+    ts_minggu = memory.parse_due_timestamp("Minggu jam 10:00")
+    assert ts_minggu != float("inf")
+    ts_senin = memory.parse_due_timestamp("Senin 09:00 WIB")
+    assert ts_senin != float("inf")
+
+
+def test_delete_task_exact_match_does_not_wipe_substrings() -> None:
+    memory.add_task("tugas", "Tomorrow 10:00 WIB")
+    memory.add_task("tugas ekonomi syariah", "Tomorrow 12:00 WIB")
+    memory.add_task("tugas statistik", "Tomorrow 14:00 WIB")
+
+    deleted = memory.delete_task("tugas")
+    assert deleted is True
+
+    pending = memory.list_tasks(status="pending")
+    titles = [t["title"] for t in pending]
+    assert "tugas" not in titles
+    assert "tugas ekonomi syariah" in titles
+    assert "tugas statistik" in titles
+    assert len(pending) == 2
