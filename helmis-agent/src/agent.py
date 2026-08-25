@@ -48,7 +48,7 @@ async def run_agentic_react_loop(
     chat_id: str,
     message_text: str,
     media_data: dict[str, str] | None = None,
-    max_steps: int = 5,
+    max_steps: int = 12,
     tracer: Any | None = None,
     turn_state: dict[str, Any] | None = None,
 ) -> str | None:
@@ -145,6 +145,7 @@ async def run_agentic_react_loop(
     candidate_models = get_cascade_models(is_video=is_video)
     timeout_secs = 25.0 if is_video else 6.0
     executed_tools: list[dict[str, Any]] = []
+    active_model = candidate_models[0] if candidate_models else "gemini-flash-lite-latest"
 
     for step in range(max_steps):
         log.debug("Running Agentic ReAct step %d/%d for [%s]...", step + 1, max_steps, sender_name)
@@ -158,7 +159,6 @@ async def run_agentic_react_loop(
         # Attempt call with Multi-Model & Multi-Key Cascade
         response_data: dict[str, Any] | None = None
         active_candidates = candidate_models[:4]
-        active_model = active_candidates[0] if active_candidates else "gemini-flash-lite-latest"
         for model in active_candidates:
             for _ in range(min(len(GEMINI_KEYS), 2)):
                 api_key = get_next_gemini_key()
@@ -259,6 +259,35 @@ async def run_agentic_react_loop(
                 return None
             log.debug("Agent finalized response in %d steps: %s", step + 1, cleaned[:60])
             return cleaned
+
+    # If loop finished after executing tools without emitting final text, synthesize clean confirmation
+    if executed_tools:
+        success_tools = [t for t in executed_tools if t.get("result", {}).get("status") == "success"]
+        if success_tools:
+            contents.append({
+                "role": "user",
+                "parts": [{"text": "Beri konfirmasi santai dalam 1-2 kalimat bahwa tindakan di atas sudah selesai dilakukan."}]
+            })
+            payload = {
+                "systemInstruction": {"parts": [{"text": full_system_instruction}]},
+                "contents": contents,
+                "generationConfig": {"temperature": 0.0, "maxOutputTokens": 256},
+            }
+            try:
+                api_key = get_next_gemini_key()
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
+                async with httpx.AsyncClient(timeout=5.0) as http_client:
+                    resp = await http_client.post(url, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        cand = data.get("candidates", [])
+                        if cand:
+                            txt = cand[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                            if txt and txt.strip():
+                                return verify_action_fidelity(txt.strip(), executed_tools)
+            except Exception as ex:
+                log.warning("Final synthesis error: %s", ex)
+            return f"Sip, {len(success_tools)} tindakan berhasil diproses."
 
     log.debug("Agent finished execution steps silently without emitting chat message.")
     return None

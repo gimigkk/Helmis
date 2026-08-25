@@ -542,7 +542,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     chat_id=from_user,
                     message_text=combined_text,
                     media_data=media_data,
-                    max_steps=5,
+                    max_steps=12,
                     tracer=tracer,
                     turn_state=turn_state,
                 )
