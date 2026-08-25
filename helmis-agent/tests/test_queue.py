@@ -100,3 +100,30 @@ async def test_queue_processes_different_chats_concurrently() -> None:
     assert "bunga@c.us" in completed_chats
     assert "gilang@c.us" in completed_chats
     assert completed_chats[0] == "bunga@c.us"
+
+
+def test_split_into_bubbles_explicit_separator() -> None:
+    from src.webhook import split_into_bubbles
+
+    text = "Sip Gilang, udah kusimpan nomor kontaknya ya.\n---\nBtw besok ada meeting jam 10 pagi, mau diingetin?"
+    bubbles = split_into_bubbles(text)
+    assert len(bubbles) == 2
+    assert bubbles[0] == "Sip Gilang, udah kusimpan nomor kontaknya ya."
+    assert bubbles[1] == "Btw besok ada meeting jam 10 pagi, mau diingetin?"
+
+
+def test_split_into_bubbles_keeps_structured_list_together() -> None:
+    from src.webhook import split_into_bubbles
+
+    text = "Daftar tugas Gilang:\n1. *Check in Asah* (18:00 WIB)\n2. *Beli susu* (20:00 WIB)"
+    bubbles = split_into_bubbles(text)
+    assert len(bubbles) == 1
+    assert "1. *Check in Asah*" in bubbles[0]
+    assert "2. *Beli susu*" in bubbles[0]
+
+
+def test_split_into_bubbles_empty_and_short() -> None:
+    from src.webhook import split_into_bubbles
+
+    assert split_into_bubbles("") == []
+    assert split_into_bubbles("Sip udah ya.") == ["Sip udah ya."]

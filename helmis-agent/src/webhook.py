@@ -5,6 +5,7 @@ webhook.py — Starlette HTTP webhook receiver for WAHA and Scheduler events.
 import asyncio
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -263,6 +264,60 @@ def describe_intent_action(
     return "sedang menganalisis pesan dan menyiapkan jawabannya"
 
 
+def split_into_bubbles(text: str) -> list[str]:
+    """
+    Split an assistant reply into natural human WhatsApp message bubbles.
+    - If explicit '---' separator is used, split into separate message bubbles.
+    - If message contains long multi-part paragraphs (>180 chars total) with distinct conversational thoughts, split by paragraphs.
+    - Keeps single code blocks, formatted task lists, and compact messages in a single cohesive bubble.
+    """
+    if not text or not text.strip():
+        return []
+
+    clean = text.strip()
+
+    # 1. Explicit bubble separator
+    if "\n---\n" in clean or "\n--- \n" in clean:
+        parts = [p.strip() for p in re.split(r"\n---(?:\s*)\n", clean) if p.strip()]
+        if parts:
+            return parts[:4]
+
+    # 2. Keep single code blocks or short messages in 1 bubble
+    if clean.startswith("```") and clean.endswith("```"):
+        return [clean]
+    if len(clean) < 220:
+        return [clean]
+
+    # 3. Check for natural conversational paragraphs
+    paragraphs = [p.strip() for p in clean.split("\n\n") if p.strip()]
+    if len(paragraphs) <= 1:
+        return [clean]
+
+    bubbles: list[str] = []
+    current_bubble: list[str] = []
+
+    for p in paragraphs:
+        lines = p.splitlines()
+        is_list = any(
+            line.strip().startswith(tuple(f"{i}." for i in range(1, 20)))
+            or line.strip().startswith(("- ", "* ", "• "))
+            for line in lines
+        )
+        if is_list and current_bubble and len(current_bubble[-1]) < 90:
+            # Group short header with the list in 1 bubble
+            current_bubble.append(p)
+        elif not is_list and current_bubble:
+            bubbles.append("\n\n".join(current_bubble))
+            current_bubble = [p]
+        else:
+            current_bubble.append(p)
+
+    if current_bubble:
+        bubbles.append("\n\n".join(current_bubble))
+
+    return bubbles[:4] if bubbles else [clean]
+
+
 def create_webhook_app(client: WahaClient) -> Starlette:
     """Create Starlette app for webhooks and health checks with Per-Chat Debounce Queue."""
 
@@ -509,12 +564,18 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     final_text = clean_reply
 
                 tracer.log_completed(final_text, status="dispatched")
-                await client.send_message(
-                    chat_id=from_user,
-                    text=final_text,
-                    reply_to_message_id=reply_id if (has_media and reply_id) else None,
-                )
-                log.debug("Sent verified reply to [%s] in %s", sender_name, from_user)
+                bubbles = split_into_bubbles(final_text)
+                for idx, bubble in enumerate(bubbles):
+                    if idx > 0:
+                        # Simulate natural human typing pause between bubbles
+                        await client.start_typing(chat_id=from_user)
+                        await asyncio.sleep(0.4)
+                    await client.send_message(
+                        chat_id=from_user,
+                        text=bubble,
+                        reply_to_message_id=reply_id if (idx == 0 and has_media and reply_id) else None,
+                    )
+                log.debug("Sent %d verified bubble(s) to [%s] in %s", len(bubbles), sender_name, from_user)
 
                 from . import semantic_memory
 
