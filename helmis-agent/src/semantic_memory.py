@@ -110,6 +110,8 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
 async def add_memory(fact: str, user_id: str, category: str = "general") -> dict[str, Any] | None:
     """
     Store a new episodic fact or preference in semantic memory with vector embedding.
+    Automatically supersedes/updates existing memories if the fact updates a previously recorded topic
+    (similarity >= 0.88), preventing memory rot across semesters or changing routines.
     """
     clean_fact = fact.strip()
     if not clean_fact:
@@ -124,6 +126,27 @@ async def add_memory(fact: str, user_id: str, category: str = "general") -> dict
 
     embedding = await get_embedding(clean_fact)
     now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M WIB")
+
+    # Semantic supersession check: If a memory on the same topic exists with high similarity >= 0.88
+    if embedding:
+        for m in memories:
+            if m.get("user_id") == user_id and m.get("embedding"):
+                sim = cosine_similarity(embedding, m["embedding"])
+                if sim >= 0.88:
+                    old_fact = m.get("fact")
+                    m["fact"] = clean_fact
+                    m["category"] = category
+                    m["created_at"] = now_str
+                    m["embedding"] = embedding
+                    save_semantic_memories(memories)
+                    log.info(
+                        "Superseded existing memory for [%s] (sim=%.2f): '%s' -> '%s'",
+                        user_id,
+                        sim,
+                        old_fact,
+                        clean_fact,
+                    )
+                    return m
 
     entry: dict[str, Any] = {
         "id": f"mem_{int(datetime.now().timestamp() * 1000)}",
@@ -181,6 +204,7 @@ async def search_memories(
                 "fact": m.get("fact"),
                 "user_id": m.get("user_id"),
                 "category": m.get("category"),
+                "created_at": m.get("created_at"),
                 "score": round(score, 3),
             }
             results.append((score, res_item))

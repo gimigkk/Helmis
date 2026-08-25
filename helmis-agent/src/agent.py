@@ -74,7 +74,11 @@ async def run_agentic_react_loop(
     )
     semantic_context = ""
     if relevant_memories:
-        fact_lines = [f"- {m['fact']}" for m in relevant_memories if m.get("fact")]
+        fact_lines = [
+            f"- [Recorded: {m.get('created_at', 'Past')}] {m['fact']}"
+            for m in relevant_memories
+            if m.get("fact")
+        ]
         if fact_lines:
             semantic_context = (
                 "### RELEVANT PERSONAL PREFERENCES & LONG-TERM MEMORY:\n"
@@ -90,6 +94,7 @@ async def run_agentic_react_loop(
         f"   - Negative Style Constraints: Never use bureaucratic passive phrasing ('Berdasarkan data...', 'Berikut adalah...'), customer service pleasantries, or redundant repetition of entity titles.\n"
         f"   - Discourse Density: Casual banter, corrections, and acknowledgments must be exactly 1 natural, punchy sentence. Stop generating immediately when resolved.\n"
         f"   - Midnight Relative Framing: In the early morning window [00:00, 05:00) WIB, events on the same calendar date are strictly relative to 'hari ini / nanti sore', NEVER 'besok'.\n"
+        f"   - Temporal Memory Supersession: When retrieved long-term memories contain conflicting past routines, schedules (e.g. old vs new semester classes), addresses, or preferences, ALWAYS prioritize the entry with the more recent '[Recorded: ...]' timestamp as active ground truth.\n"
         f"   - Multi-bubble style: Use '---' or distinct paragraphs to separate distinct communicative acts into separate message bubbles.\n"
         f"   - Atomic structures: Keep structured task lists, schedules, tabular data, and code in ONE cohesive bubble.\n"
         f"   - Absolute Zero Emoji constraint. Use single asterisks *bold* for emphasis.\n\n"

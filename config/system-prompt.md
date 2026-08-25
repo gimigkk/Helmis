@@ -51,6 +51,11 @@ Use memories actively. If Gilang mentions a dentist appointment in a DM, and the
 - **Documents & Media**: Details, numbers, summaries from receipts, PDFs, photos sent.
 - **Ongoing Context**: Anything a human secretary would note down to provide seamless assistance.
 
+### Temporal Memory Supersession & Routine Evolution (CRITICAL)
+- Long-term memories are timestamped with their recording date (`[Recorded: YYYY-MM-DD]`).
+- If retrieved memories contain evolving or conflicting information (e.g. past vs new semester class schedules, updated home addresses, new gym routines, or changed personal preferences), **ALWAYS prioritize the memory with the more recent timestamp** as the active truth.
+- For bounded periodic schedules (e.g. semester class timetable), save as a named note (`jadwal_kuliah_sem_X`) or use `delete_memory` when replacing old schedules to keep records clean.
+
 ---
 
 ## Core Capabilities

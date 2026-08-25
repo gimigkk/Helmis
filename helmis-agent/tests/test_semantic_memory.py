@@ -81,3 +81,41 @@ async def test_delete_memory(monkeypatch: pytest.MonkeyPatch) -> None:
     assert res_del["status"] == "success"
     assert res_del["deleted_count"] == 1
 
+
+@pytest.mark.asyncio
+async def test_supersede_memory_prevents_rot(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Schedule vectors have high similarity (0.95)
+    async def mock_embedding(text: str) -> list[float]:
+        if "jadwal kuliah" in text.lower():
+            if "semester 4" in text.lower():
+                return [0.99, 0.1, 0.0]
+            elif "semester 5" in text.lower():
+                return [0.98, 0.12, 0.0]
+            return [0.95, 0.1, 0.0]
+        return [0.0, 0.0, 1.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+
+    # Add old semester schedule
+    m1 = await sem_mem.add_memory("Jadwal kuliah Gilang semester 4: Senin jam 8 Kalkulus", user_id="Gilang")
+    assert m1 is not None
+
+    all_mems = sem_mem.load_semantic_memories()
+    assert len(all_mems) == 1
+    assert "semester 4" in all_mems[0]["fact"]
+
+    # Add new semester schedule (similarity >= 0.88 supersedes old record)
+    m2 = await sem_mem.add_memory("Jadwal kuliah Gilang semester 5: Selasa jam 13 AI", user_id="Gilang")
+    assert m2 is not None
+
+    all_mems_updated = sem_mem.load_semantic_memories()
+    assert len(all_mems_updated) == 1  # Replaced in place, 0 memory rot!
+    assert "semester 5" in all_mems_updated[0]["fact"]
+
+    # Search returns the new schedule with created_at timestamp
+    results = await sem_mem.search_memories("jadwal kuliah", user_id="Gilang")
+    assert len(results) == 1
+    assert "semester 5" in results[0]["fact"]
+    assert "created_at" in results[0]
+
+
