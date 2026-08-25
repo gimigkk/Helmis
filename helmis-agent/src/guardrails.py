@@ -74,12 +74,15 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
             if msg and isinstance(msg, str):
                 return msg
 
-        # If all mutation tools returned 'error', enforce the verified error message
+        # If all mutation tools returned 'error', enforce a clean, verified message
         all_errors = all(t.get("result", {}).get("status") == "error" for t in mutation_tools)
         if all_errors:
             last_res = mutation_tools[-1].get("result", {})
             err = last_res.get("error") or last_res.get("message")
             if err and isinstance(err, str):
+                # If err is a raw HTTP/API error or stacktrace, let the LLM's natural explanation stand!
+                if any(x in err for x in ("WAHA API error", "422", "Traceback", "statusCode", "Unprocessable")):
+                    return text if text and not any(x in text for x in ("WAHA API error", "statusCode", "Unprocessable")) else "Mohon maaf, terjadi kendala teknis saat memproses pengiriman file."
                 return err
 
     return text
