@@ -13,18 +13,18 @@ from .memory import load_memory, log_activity, parse_due_timestamp, save_memory
 log = logging.getLogger("helmis-proactive")
 TZ = ZoneInfo("Asia/Jakarta")
 
-GILANG_PHONE = (
-    os.environ.get("GILANG_PHONE", "")
-    .replace("+", "")
-    .replace(" ", "")
-    .replace("-", "")
-)
-BUNGA_PHONE = (
-    os.environ.get("BUNGA_PHONE", "")
-    .replace("+", "")
-    .replace(" ", "")
-    .replace("-", "")
-)
+
+def normalize_chat_target(raw_id: str, default_suffix: str = "@c.us") -> str:
+    """Safely format phone number or JID into a valid WhatsApp recipient."""
+    if not raw_id:
+        return ""
+    clean = raw_id.strip()
+    if "@" in clean:
+        return clean
+    clean = clean.replace("+", "").replace(" ", "").replace("-", "")
+    if clean.startswith("0"):
+        clean = "62" + clean[1:]
+    return f"{clean}{default_suffix}"
 
 
 async def send_reminder_to_recipient(
@@ -34,9 +34,9 @@ async def send_reminder_to_recipient(
     is_cross_alert: bool = False,
 ) -> None:
     """Route reminder text to the appropriate WhatsApp chat (DM or Trio Group)."""
-    trio_group_jid = os.environ.get("TRIO_GROUP_JID", "")
-    gilang_phone = os.environ.get("GILANG_PHONE", "").replace("+", "").replace(" ", "").replace("-", "")
-    bunga_phone = os.environ.get("BUNGA_PHONE", "").replace("+", "").replace(" ", "").replace("-", "")
+    trio_group_jid = os.environ.get("TRIO_GROUP_JID", "").strip()
+    gilang_raw = os.environ.get("GILANG_PHONE", "").strip()
+    bunga_raw = os.environ.get("BUNGA_PHONE", "").strip()
     assignee_lower = assignee.lower()
 
     is_both = (
@@ -51,9 +51,9 @@ async def send_reminder_to_recipient(
     if (is_both or is_cross_alert) and trio_group_jid:
         target_chat = trio_group_jid
     elif "bunga" in assignee_lower:
-        target_chat = f"{bunga_phone}@c.us" if bunga_phone else "bunga@c.us"
+        target_chat = normalize_chat_target(bunga_raw) or "bunga@c.us"
     else:
-        target_chat = f"{gilang_phone}@c.us" if gilang_phone else "gilang@c.us"
+        target_chat = normalize_chat_target(gilang_raw) or "gilang@c.us"
 
     log.info("Dispatching reminder to %s: %s", target_chat, text)
     await client.send_message(chat_id=target_chat, text=text)
@@ -80,165 +80,191 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
     updated_any = False
 
     for t in tasks:
-        if t.get("status") == "completed":
-            continue
-
-        title = t.get("title", "")
-        due_str = t.get("due", "")
-        assignee = str(t.get("assignee", "Gilang")).strip()
-        priority = str(t.get("priority", "normal")).strip().lower()
-        lead_mins = int(t.get("lead_time_minutes", 0) or 0)
-        due_ts = parse_due_timestamp(due_str)
-
-        if due_ts == float("inf"):
-            # No parseable deadline, skip automated time-based triggers
-            continue
-
-        kickoff_reminded = bool(t.get("kickoff_reminded"))
-        due_reminded = bool(t.get("due_reminded") or t.get("reminded"))
-        nudge_count = int(t.get("nudge_count", 0))
-        last_nudged_at = float(t.get("last_nudged_at") or 0)
-        nudge_stopped = bool(t.get("nudge_stopped"))
-
-        # ---------------------------------------------------------------------
-        # 1. STAGE 1: Kickoff Buffer Preparation Ping
-        # ---------------------------------------------------------------------
-        if lead_mins > 0 and not kickoff_reminded and not due_reminded:
-            lead_sec = lead_mins * 60
-            # Trigger if within lead buffer window and before actual due
-            if now_ts >= (due_ts - lead_sec - 120) and now_ts < (due_ts - 120):
-                lead_text = (
-                    f"{lead_mins // 60} jam"
-                    if (lead_mins >= 60 and lead_mins % 60 == 0)
-                    else f"{lead_mins} menit"
-                )
-                msg_text = (
-                    f"Halo {assignee}, pengingat persiapan: deadline *{title}* pada {due_str} "
-                    f"(sisa {lead_text} lagi). Waktunya mulai persiapan atau pengerjaan ya."
-                )
-                await send_reminder_to_recipient(client, assignee, msg_text)
-                t["kickoff_reminded"] = True
-                t["kickoff_reminded_at"] = now_str
-                log_activity(f"Stage 1 kickoff sent to {assignee} for '{title}' (Lead: {lead_text})")
-                updated_any = True
+        try:
+            if t.get("status") == "completed":
                 continue
 
-        # ---------------------------------------------------------------------
-        # 2. STAGE 2: Final Deadline Alert
-        # ---------------------------------------------------------------------
-        if not due_reminded:
-            # Safeguard: If task is already > 2 hours overdue when first loaded, silently mark reminded
-            if (now_ts - due_ts) > 7200:
-                t["due_reminded"] = True
-                t["reminded"] = True
-                t["reminded_at"] = now_str
-                t["nudge_stopped"] = True
-                log.info("Task '%s' was already >2h overdue. Silently marked reminded to avoid false alarms.", title)
-                updated_any = True
+            title = t.get("title", "")
+            due_str = t.get("due", "")
+            assignee = str(t.get("assignee", "Gilang")).strip()
+            priority = str(t.get("priority", "normal")).strip().lower()
+            lead_mins = int(t.get("lead_time_minutes", 0) or 0)
+            due_ts = parse_due_timestamp(due_str)
+
+            if due_ts == float("inf"):
+                # No parseable deadline, skip automated time-based triggers
                 continue
 
-            # Trigger if within 5 minutes of due or overdue within recent window
-            if now_ts >= (due_ts - 300):
-                msg_text = (
-                    f"Halo {assignee}, pengingat deadline: *{title}* ({due_str}). "
-                    "Jika sudah selesai, kabari Helmis ya."
-                )
-                await send_reminder_to_recipient(client, assignee, msg_text)
-                t["due_reminded"] = True
-                t["reminded"] = True
-                t["reminded_at"] = now_str
-                t["first_reminded_at"] = now_ts
-                t["last_nudged_at"] = now_ts
-                t["nudge_count"] = 1
-                log_activity(f"Stage 2 due reminder sent to {assignee} for '{title}'")
-                updated_any = True
-                continue
+            kickoff_reminded = bool(t.get("kickoff_reminded"))
+            due_reminded = bool(t.get("due_reminded") or t.get("reminded"))
+            nudge_count = int(t.get("nudge_count", 0))
+            last_nudged_at = float(t.get("last_nudged_at") or 0)
+            nudge_stopped = bool(t.get("nudge_stopped"))
 
-        # ---------------------------------------------------------------------
-        # 3. URGENT 10-MINUTE NAG ESCALATION LOOP
-        # ---------------------------------------------------------------------
-        if priority == "urgent" and due_reminded and not nudge_stopped:
-            # Must be past due and at least 9 minutes since last nudge
-            time_since_nudge = (now_ts - last_nudged_at) if last_nudged_at else (now_ts - due_ts)
-            if time_since_nudge >= 540:  # ~9 minutes
-                next_count = nudge_count + 1
+            # ---------------------------------------------------------------------
+            # 1. STAGE 1: Kickoff Buffer Preparation Ping
+            # ---------------------------------------------------------------------
+            if lead_mins > 0 and not kickoff_reminded and not due_reminded:
+                lead_sec = lead_mins * 60
+                # Trigger if within lead buffer window and before actual due
+                if now_ts >= (due_ts - lead_sec - 120) and now_ts < (due_ts - 120):
+                    # Dynamically calculate remaining time from now to deadline
+                    remaining_secs = max(0, int(due_ts - now_ts))
+                    remaining_mins = max(1, round(remaining_secs / 60))
+                    if remaining_mins >= 60:
+                        rem_hrs = remaining_mins // 60
+                        rem_mins = remaining_mins % 60
+                        lead_text = (
+                            f"{rem_hrs} jam {rem_mins} menit"
+                            if rem_mins > 0
+                            else f"{rem_hrs} jam"
+                        )
+                    else:
+                        lead_text = f"{remaining_mins} menit"
 
-                if next_count == 2:
                     msg_text = (
-                        f"{assignee}, tugas penting *{title}* belum ada konfirmasi (10 menit lalu). "
-                        "Apakah sudah beres atau masih berjalan?"
+                        f"Halo {assignee}, pengingat persiapan: deadline *{title}* pada {due_str} "
+                        f"(sisa {lead_text} lagi). Waktunya mulai persiapan atau pengerjaan ya."
                     )
                     await send_reminder_to_recipient(client, assignee, msg_text)
-                    t["nudge_count"] = 2
-                    t["last_nudged_at"] = now_ts
-                    log_activity(f"Urgent Nag #2 sent to {assignee} for '{title}'")
+                    t["kickoff_reminded"] = True
+                    t["kickoff_reminded_at"] = now_str
+                    log_activity(f"Stage 1 kickoff sent to {assignee} for '{title}' (Lead: {lead_text})")
                     updated_any = True
+                    continue
 
-                elif next_count == 3:
-                    msg_text = (
-                        f"{assignee}, pengingat ke-3 untuk *{title}* (20 menit lewat). "
-                        "Mohon konfirmasi statusnya ya."
-                    )
-                    await send_reminder_to_recipient(client, assignee, msg_text)
-                    t["nudge_count"] = 3
-                    t["last_nudged_at"] = now_ts
-                    log_activity(f"Urgent Nag #3 sent to {assignee} for '{title}'")
-                    updated_any = True
-
-                elif next_count == 4:
-                    # 30-Minute Escalation + Partner Alert
-                    msg_text = (
-                        f"PENTING: {assignee}, tugas *{title}* sudah 30 menit lewat dari jadwal "
-                        "dan belum ada konfirmasi."
-                    )
-                    await send_reminder_to_recipient(client, assignee, msg_text)
-
-                    # Cross-partner alert to help wake up or check
-                    other_name = "Bunga" if "gilang" in assignee.lower() else "Gilang"
-                    cross_msg = (
-                        f"PENTING: {other_name}, {assignee} belum ada konfirmasi untuk tugas urgent "
-                        f"*{title}* (30 menit lewat). Tolong bantu cek atau bangunkan {assignee} ya."
-                    )
-                    await send_reminder_to_recipient(client, other_name, cross_msg, is_cross_alert=True)
-
-                    t["nudge_count"] = 4
-                    t["last_nudged_at"] = now_ts
-                    log_activity(f"Urgent Nag #4 (+ Partner Cross-Alert) sent for '{title}'")
-                    updated_any = True
-
-                elif next_count == 5:
-                    msg_text = (
-                        f"PENTING: {assignee}, pengingat ke-5 untuk *{title}* (40 menit lewat). "
-                        "Mohon kabari statusnya ya."
-                    )
-                    await send_reminder_to_recipient(client, assignee, msg_text)
-                    t["nudge_count"] = 5
-                    t["last_nudged_at"] = now_ts
-                    log_activity(f"Urgent Nag #5 sent to {assignee} for '{title}'")
-                    updated_any = True
-
-                elif next_count == 6:
-                    msg_text = (
-                        f"PENTING: {assignee}, pengingat ke-6 untuk *{title}* (50 menit lewat). "
-                        "Mohon konfirmasi ya."
-                    )
-                    await send_reminder_to_recipient(client, assignee, msg_text)
-                    t["nudge_count"] = 6
-                    t["last_nudged_at"] = now_ts
-                    log_activity(f"Urgent Nag #6 sent to {assignee} for '{title}'")
-                    updated_any = True
-
-                elif next_count > 6:
-                    # 60-Minute Stand Down Notice
-                    msg_text = (
-                        f"Helmis menghentikan pengingat otomatis untuk *{title}* (sudah 60 menit tanpa respon). "
-                        "Tugas tetap tercatat 'pending' di daftar tugas."
-                    )
-                    await send_reminder_to_recipient(client, assignee, msg_text)
+            # ---------------------------------------------------------------------
+            # 2. STAGE 2: Final Deadline Alert
+            # ---------------------------------------------------------------------
+            if not due_reminded:
+                # Safeguard: If task is already > 2 hours overdue when first loaded, silently mark reminded
+                if (now_ts - due_ts) > 7200:
+                    t["due_reminded"] = True
+                    t["reminded"] = True
+                    t["reminded_at"] = now_str
                     t["nudge_stopped"] = True
-                    t["last_nudged_at"] = now_ts
-                    log_activity(f"Urgent Nag stand-down reached (60m) for '{title}'")
+                    log.info("Task '%s' was already >2h overdue. Silently marked reminded to avoid false alarms.", title)
                     updated_any = True
+                    continue
+
+                # Trigger if within 5 minutes of due or overdue within recent window
+                if now_ts >= (due_ts - 300):
+                    msg_text = (
+                        f"Halo {assignee}, pengingat deadline: *{title}* ({due_str}). "
+                        "Jika sudah selesai, kabari Helmis ya."
+                    )
+                    await send_reminder_to_recipient(client, assignee, msg_text)
+                    t["due_reminded"] = True
+                    t["reminded"] = True
+                    t["reminded_at"] = now_str
+                    t["first_reminded_at"] = now_ts
+                    t["last_nudged_at"] = now_ts
+                    t["nudge_count"] = 1
+                    log_activity(f"Stage 2 due reminder sent to {assignee} for '{title}'")
+                    updated_any = True
+                    continue
+
+            # ---------------------------------------------------------------------
+            # 3. URGENT 10-MINUTE NAG ESCALATION LOOP
+            # ---------------------------------------------------------------------
+            if priority == "urgent" and due_reminded and not nudge_stopped:
+                # Must be past due and at least 9 minutes since last nudge
+                time_since_nudge = (now_ts - last_nudged_at) if last_nudged_at else (now_ts - due_ts)
+                if time_since_nudge >= 540:  # ~9 minutes
+                    next_count = nudge_count + 1
+
+                    if next_count == 2:
+                        msg_text = (
+                            f"{assignee}, tugas penting *{title}* belum ada konfirmasi (10 menit lalu). "
+                            "Apakah sudah beres atau masih berjalan?"
+                        )
+                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        t["nudge_count"] = 2
+                        t["last_nudged_at"] = now_ts
+                        log_activity(f"Urgent Nag #2 sent to {assignee} for '{title}'")
+                        updated_any = True
+
+                    elif next_count == 3:
+                        msg_text = (
+                            f"{assignee}, pengingat ke-3 untuk *{title}* (20 menit lewat). "
+                            "Mohon konfirmasi statusnya ya."
+                        )
+                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        t["nudge_count"] = 3
+                        t["last_nudged_at"] = now_ts
+                        log_activity(f"Urgent Nag #3 sent to {assignee} for '{title}'")
+                        updated_any = True
+
+                    elif next_count == 4:
+                        # 30-Minute Escalation + Partner Alert
+                        is_both = (
+                            "both" in assignee.lower()
+                            or "semua" in assignee.lower()
+                            or "shared" in assignee.lower()
+                            or "trio" in assignee.lower()
+                        )
+                        if is_both:
+                            msg_text = (
+                                f"PENTING: Tugas bersama *{title}* sudah 30 menit lewat dari jadwal "
+                                "dan belum ada konfirmasi dari Gilang maupun Bunga. Mohon salah satu bantu cek ya."
+                            )
+                            await send_reminder_to_recipient(client, assignee, msg_text)
+                        else:
+                            msg_text = (
+                                f"PENTING: {assignee}, tugas *{title}* sudah 30 menit lewat dari jadwal "
+                                "dan belum ada konfirmasi."
+                            )
+                            await send_reminder_to_recipient(client, assignee, msg_text)
+
+                            # Cross-partner alert to help wake up or check
+                            other_name = "Bunga" if "gilang" in assignee.lower() else "Gilang"
+                            cross_msg = (
+                                f"PENTING: {other_name}, {assignee} belum ada konfirmasi untuk tugas urgent "
+                                f"*{title}* (30 menit lewat). Tolong bantu cek atau bangunkan {assignee} ya."
+                            )
+                            await send_reminder_to_recipient(client, other_name, cross_msg, is_cross_alert=True)
+
+                        t["nudge_count"] = 4
+                        t["last_nudged_at"] = now_ts
+                        log_activity(f"Urgent Nag #4 (+ Partner Cross-Alert) sent for '{title}'")
+                        updated_any = True
+
+                    elif next_count == 5:
+                        msg_text = (
+                            f"PENTING: {assignee}, pengingat ke-5 untuk *{title}* (40 menit lewat). "
+                            "Mohon kabari statusnya ya."
+                        )
+                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        t["nudge_count"] = 5
+                        t["last_nudged_at"] = now_ts
+                        log_activity(f"Urgent Nag #5 sent to {assignee} for '{title}'")
+                        updated_any = True
+
+                    elif next_count == 6:
+                        msg_text = (
+                            f"PENTING: {assignee}, pengingat ke-6 untuk *{title}* (50 menit lewat). "
+                            "Mohon konfirmasi ya."
+                        )
+                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        t["nudge_count"] = 6
+                        t["last_nudged_at"] = now_ts
+                        log_activity(f"Urgent Nag #6 sent to {assignee} for '{title}'")
+                        updated_any = True
+
+                    elif next_count > 6:
+                        # 60-Minute Stand Down Notice
+                        msg_text = (
+                            f"Helmis menghentikan pengingat otomatis untuk *{title}* (sudah 60 menit tanpa respon). "
+                            "Tugas tetap tercatat 'pending' di daftar tugas."
+                        )
+                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        t["nudge_stopped"] = True
+                        t["last_nudged_at"] = now_ts
+                        log_activity(f"Urgent Nag stand-down reached (60m) for '{title}'")
+                        updated_any = True
+
+        except Exception as task_err:
+            log.error("Error evaluating proactive reminder for task '%s': %s", t.get("title"), task_err)
 
     if updated_any:
         save_memory(mem)

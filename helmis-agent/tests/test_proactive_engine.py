@@ -54,7 +54,7 @@ async def test_proactive_stage1_kickoff_reminder() -> None:
     assert mock_client.send_message.called
     call_args = mock_client.send_message.call_args[1]
     assert "pengingat persiapan: deadline *Submit Laporan Praktikum*" in call_args["text"]
-    assert "sisa 2 jam lagi" in call_args["text"]
+    assert "sisa 1 jam 55 menit lagi" in call_args["text"]
 
     mem = load_memory()
     task = mem["tasks"][0]
