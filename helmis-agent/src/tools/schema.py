@@ -363,6 +363,208 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                     "required": ["query"],
                 },
             },
+            {
+                "name": "read_vault_file",
+                "description": "Read and inspect the full text or content of a file from the Document Vault. Supports reading text/markdown/code/json/csv files, extracting text from PDF documents, and viewing image OCR summaries.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "file_id_or_name": {
+                            "type": "STRING",
+                            "description": "File ID (e.g. 'doc_12345_abc') or exact filename (e.g. 'brosur_elera_education.pdf', 'catatan.md') to read.",
+                        },
+                        "max_chars": {
+                            "type": "INTEGER",
+                            "description": "Optional max characters to read. Defaults to 8000.",
+                        },
+                    },
+                    "required": ["file_id_or_name"],
+                },
+            },
+            {
+                "name": "save_vault_file",
+                "description": "Save an incoming document, scan, receipt, image, or text file into the Document Vault with metadata cataloging.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "filename": {
+                            "type": "STRING",
+                            "description": "Clean filename for the saved document (e.g. 'scan_bpjs_kesehatan_gilang.pdf', 'ktp_bunga.jpg')",
+                        },
+                        "category": {
+                            "type": "STRING",
+                            "description": "Category for the file: 'health', 'id_cards', 'travel', 'receipts', 'documents', 'media', 'projects'. Defaults to 'documents'.",
+                        },
+                        "owner": {
+                            "type": "STRING",
+                            "description": "Owner of the document: 'Gilang', 'Bunga', or 'Both'/'Shared'. Defaults to sender.",
+                        },
+                        "subfolder": {
+                            "type": "STRING",
+                            "description": "Optional custom subfolder path inside vault (e.g. 'projects/kriyamic', 'travel/bali_trip').",
+                        },
+                        "description": {
+                            "type": "STRING",
+                            "description": "Human-readable description of what this file contains.",
+                        },
+                        "tags": {
+                            "type": "ARRAY",
+                            "items": {"type": "STRING"},
+                            "description": "Searchable tags (e.g. ['bpjs', 'kesehatan', 'asuransi']).",
+                        },
+                        "ocr_summary": {
+                            "type": "STRING",
+                            "description": "Extracted OCR text or key data points from the file.",
+                        },
+                        "content_text": {
+                            "type": "STRING",
+                            "description": "Optional text/markdown content ONLY when creating a brand new text file from scratch. DO NOT supply this if the user uploaded an attachment or document, because the actual incoming binary file is saved automatically.",
+                        },
+                    },
+                    "required": ["filename"],
+                },
+            },
+            {
+                "name": "search_vault_files",
+                "description": "Search stored documents and files in the Document Vault across filenames, descriptions, tags, and OCR text.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "Search query keywords (e.g. 'scan bpjs', 'tiket garuda bali', 'ktp', 'cv', 'kontrak').",
+                        },
+                        "owner": {
+                            "type": "STRING",
+                            "description": "Filter by owner: 'Gilang', 'Bunga', or 'Both'.",
+                        },
+                        "category": {
+                            "type": "STRING",
+                            "description": "Filter by category: 'health', 'id_cards', 'travel', 'receipts', 'documents', 'media', 'projects'.",
+                        },
+                        "limit": {
+                            "type": "INTEGER",
+                            "description": "Maximum number of search results to return (default 10).",
+                        },
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
+                "name": "list_vault_files",
+                "description": "List stored documents in the Document Vault filtered by owner, category, or subfolder directory.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "owner": {
+                            "type": "STRING",
+                            "description": "Filter by owner: 'Gilang', 'Bunga', or 'Both'.",
+                        },
+                        "category": {
+                            "type": "STRING",
+                            "description": "Filter by category: 'health', 'id_cards', 'travel', 'receipts', 'documents', 'media', 'projects'.",
+                        },
+                        "directory": {
+                            "type": "STRING",
+                            "description": "Filter by specific directory path inside the vault.",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "send_vault_file",
+                "description": "Send a file stored in the Document Vault directly to a WhatsApp chat (DM or Trio Group).",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "file_id_or_name": {
+                            "type": "STRING",
+                            "description": "The file ID (from catalog) or filename (e.g. 'scan_bpjs_kesehatan_gilang.pdf').",
+                        },
+                        "recipient": {
+                            "type": "STRING",
+                            "description": "Recipient of the file: 'Gilang', 'Bunga', 'group' (Trio group), or 'current'.",
+                        },
+                        "caption": {
+                            "type": "STRING",
+                            "description": "Caption message accompanying the sent file.",
+                        },
+                    },
+                    "required": ["file_id_or_name"],
+                },
+            },
+            {
+                "name": "move_vault_files",
+                "description": "Dynamic tool to move single or multiple files in bulk to a new destination folder, category, or owner. Target can be a filename, a file ID, a list of IDs, or a search query string (e.g. 'kriyamic', '2025').",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "target": {
+                            "type": "STRING",
+                            "description": "The file ID, exact filename, list of IDs, or search query keywords to match files to move.",
+                        },
+                        "destination_directory": {
+                            "type": "STRING",
+                            "description": "Destination directory path inside vault (e.g. 'projects/kriyamic', 'receipts/archive_2025').",
+                        },
+                        "new_category": {
+                            "type": "STRING",
+                            "description": "Optional updated category name (e.g. 'receipts', 'health').",
+                        },
+                        "new_owner": {
+                            "type": "STRING",
+                            "description": "Optional updated owner: 'Gilang', 'Bunga', or 'Both'.",
+                        },
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "delete_vault_files",
+                "description": "Dynamic tool to delete single or multiple files in bulk from the Document Vault. Target can be a filename, a file ID, a list of IDs, or a search query string.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "target": {
+                            "type": "STRING",
+                            "description": "The file ID, exact filename, list of IDs, or search query keywords to match files to delete.",
+                        },
+                    },
+                    "required": ["target"],
+                },
+            },
+            {
+                "name": "create_vault_directory",
+                "description": "Create a new custom directory or nested subfolder inside the Document Vault.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "directory_path": {
+                            "type": "STRING",
+                            "description": "Directory path to create inside the vault (e.g. 'projects/kriyamic', 'wedding/vendor_contracts').",
+                        },
+                    },
+                    "required": ["directory_path"],
+                },
+            },
+            {
+                "name": "delete_vault_directory",
+                "description": "Delete a directory from the Document Vault. Supports empty folder removal or recursive deletion with all files inside.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "directory_path": {
+                            "type": "STRING",
+                            "description": "Directory path to delete inside the vault.",
+                        },
+                        "recursive": {
+                            "type": "BOOLEAN",
+                            "description": "Set to true to delete the folder along with all files inside. If false, fails if folder is not empty.",
+                        },
+                    },
+                    "required": ["directory_path"],
+                },
+            },
         ]
     }
 ]

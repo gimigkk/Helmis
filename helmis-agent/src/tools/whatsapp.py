@@ -30,17 +30,23 @@ def _resolve_target_jid(recipient: str, default_sender: str) -> str:
     )
     trio_group = os.environ.get("TRIO_GROUP_JID", "")
 
-    recip_lower = recipient.lower()
-    if "bunga" in recip_lower:
+    recip_lower = recipient.lower().strip()
+    if "group" in recip_lower or "trio" in recip_lower:
+        return trio_group
+    elif "bunga" in recip_lower:
         return f"{bunga_phone}@c.us"
     elif "gilang" in recip_lower:
         return f"{gilang_phone}@c.us"
-    elif "group" in recip_lower or "trio" in recip_lower:
-        return trio_group
     elif recip_lower in ("current", "me", "sender", "self", ""):
+        if "@g.us" in default_sender:
+            return default_sender
         return f"{bunga_phone}@c.us" if "bunga" in default_sender.lower() else f"{gilang_phone}@c.us"
     else:
-        clean = recipient.replace("+", "").replace(" ", "").replace("-", "")
+        if "@" in recipient:
+            return recipient.strip()
+        clean = recipient.replace("+", "").replace(" ", "").replace("-", "").strip()
+        if clean.startswith("08"):
+            clean = "628" + clean[2:]
         return f"{clean}@c.us"
 
 

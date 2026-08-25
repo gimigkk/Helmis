@@ -31,6 +31,7 @@ async def execute_tool_call(
     args: dict[str, Any],
     default_sender: str,
     client: WahaClient | None = None,
+    media_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a registered tool and apply state fidelity / honesty directives."""
     log.debug("Agent executing tool: %s with args: %s", func_name, args)
@@ -47,6 +48,8 @@ async def execute_tool_call(
             kwargs["default_sender"] = default_sender
         if "client" in sig.parameters:
             kwargs["client"] = client
+        if "media_data" in sig.parameters:
+            kwargs["media_data"] = media_data
 
         res_dict: dict[str, Any]
         if inspect.iscoroutinefunction(handler):

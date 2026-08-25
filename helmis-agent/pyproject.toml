@@ -16,6 +16,8 @@ dependencies = [
     "pydantic>=2.7.0",
     # Environment variable loading
     "python-dotenv>=1.0.0",
+    # PDF text extraction and inspection
+    "pypdf>=5.0.0",
 ]
 
 [project.optional-dependencies]

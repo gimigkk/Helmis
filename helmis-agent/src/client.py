@@ -246,15 +246,19 @@ class WahaClient:
         media_url: str,
         caption: str | None = None,
         reply_to_message_id: str | None = None,
+        filename: str | None = None,
+        mimetype: str | None = None,
     ) -> WahaMessageResponse:
         """
         Send a media file (image, document, audio, etc.) to a WhatsApp chat.
 
         Args:
             chat_id: WhatsApp chat ID.
-            media_url: Publicly accessible URL of the media file.
+            media_url: Publicly accessible URL or base64 data URI of the media file.
             caption: Optional text displayed below the media.
             reply_to_message_id: If set, the reply quotes this message.
+            filename: Optional original filename displayed in WhatsApp document cards.
+            mimetype: Optional MIME type of the file.
 
         Returns:
             WahaMessageResponse containing the sent message's ID and timestamp.
@@ -262,10 +266,16 @@ class WahaClient:
         Raises:
             WahaClientError: On API errors (4xx/5xx responses).
         """
+        file_obj: dict[str, Any] = {"url": media_url}
+        if filename:
+            file_obj["filename"] = filename
+        if mimetype:
+            file_obj["mimetype"] = mimetype
+
         body: dict[str, Any] = {
             "session": self._session_name,
             "chatId": chat_id,
-            "file": {"url": media_url},
+            "file": file_obj,
         }
         if caption:
             body["caption"] = caption
@@ -445,12 +455,10 @@ class WahaClient:
     async def is_reachable(self) -> bool:
         """
         Check if the WAHA server is up and responding.
-
-        Returns:
-            True if WAHA's health endpoint returns 2xx, False otherwise.
+        Supports both WAHA Core and Plus by checking /api/sessions.
         """
         try:
-            await self._get("/health")
-            return True
-        except (WahaClientError, httpx.HTTPError):
+            res = await self._get("/api/sessions")
+            return isinstance(res, list)
+        except (WahaClientError, httpx.HTTPError, Exception):
             return False

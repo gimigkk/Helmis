@@ -16,14 +16,15 @@ def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, A
             f"CRITICAL HONESTY: Item for '{func_name}' was NOT found. You MUST explicitly tell the user that the data/memory does not exist or was never stored in the database. DO NOT pretend or claim that you found, deleted, or updated it!"
         )
     elif status == "error":
+        err_detail = result.get("error", "Failed")
         result["_model_directive"] = (
-            f"CRITICAL HONESTY: Tool '{func_name}' failed with an error. State the error honestly to the user and do NOT claim success."
+            f"CRITICAL HONESTY: Tool '{func_name}' reported an error: {err_detail}. State this outcome honestly to the user and do NOT claim success or fabricate imaginary file contents!"
         )
     elif status == "success":
         deleted_count = result.get("deleted_count")
         if deleted_count == 0:
             result["_model_directive"] = (
-                "CRITICAL HONESTY: 0 items were deleted. Inform the user clearly that no matching items were found in the database."
+                "CRITICAL HONESTY: 0 items were deleted or matched. Inform the user clearly that no matching items were found."
             )
         else:
             result["_model_directive"] = "Action confirmed successful. State the verified outcome directly."
@@ -34,12 +35,12 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
     """
     Structural State Fidelity Guardrail:
     Ensures that when tools are executed in a turn, the finalized response is strictly consistent
-    with the actual ground-truth outcome of the database operations without brittle keyword matching.
+    with the actual ground-truth outcome of the database and vault operations without brittle keyword matching.
     """
     if not executed_tools:
         return text
 
-    # Check state mutation tools (deletions, modifications)
+    # Check state mutation and vault retrieval tools
     mutation_tools = [
         t
         for t in executed_tools
@@ -52,6 +53,13 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
             "update_task",
             "send_whatsapp_message",
             "send_whatsapp_media",
+            "save_vault_file",
+            "read_vault_file",
+            "send_vault_file",
+            "move_vault_files",
+            "delete_vault_files",
+            "create_vault_directory",
+            "delete_vault_directory",
         )
     ]
 
