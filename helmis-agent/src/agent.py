@@ -50,6 +50,7 @@ async def run_agentic_react_loop(
     media_data: dict[str, str] | None = None,
     max_steps: int = 5,
     tracer: Any | None = None,
+    turn_state: dict[str, Any] | None = None,
 ) -> str | None:
     """
     Run multi-step ReAct agent loop:
@@ -111,7 +112,13 @@ async def run_agentic_react_loop(
         f"5. CONTEXTUAL THINKING & CROSS-PARTY COORDINATION:\n"
         f"   - When executing actions that resolve conflicts or involve complex breakdowns, naturally include your reasoning context in the final response (e.g. why a specific time was chosen or how costs were split).\n"
         f"   - Cross-Party Delegation: When a user asks you to inform, ask, or message the other partner (e.g. Gilang asks to notify Bunga), invoke 'send_whatsapp_message(recipient=\"Bunga\", ...)' mid-turn, and confirm to the sender in your final response.\n"
-        f"   - Zero Spam on Fast Queries: For simple local lookups (checking tasks, notes, or memories), deliver the answer directly without intermediate status messages.\n"
+        f"   - Zero Spam on Fast Queries: For simple local lookups (checking tasks, notes, or memories), deliver the answer directly without intermediate status messages.\n\n"
+        f"6. DOCUMENT VAULT & ZERO HALLUCINATION MANDATE:\n"
+        f"   - NEVER make up or guess file names, file contents, line items, numbers, or existence of files in the Document Vault.\n"
+        f"   - To answer questions about stored files, ALWAYS execute 'read_vault_file(file_id_or_name=...)' or 'search_vault_files(query=...)' first.\n"
+        f"   - If a file is not found, state honestly: 'File ... tidak ditemukan di brankas dokumen.' NEVER fabricate imaginary file contents.\n"
+        f"   - Categorization: 'health' (BPJS, lab), 'id_cards' (KTP, SIM, Paspor), 'travel' (e-tickets), 'receipts' (invoices, transfer proofs), 'documents' (CV, contracts), 'media' (photos, videos), 'projects' (custom workspaces).\n"
+        f"   - File Moves: Use 'move_vault_files(target=..., destination_directory=...)'. File Deletions: Use 'delete_vault_files(target=...)'.\n"
     )
 
     # Fetch recent chat history from WAHA
@@ -145,9 +152,10 @@ async def run_agentic_react_loop(
 
         # Attempt call with Multi-Model & Multi-Key Cascade
         response_data: dict[str, Any] | None = None
-        active_model = candidate_models[0] if candidate_models else "gemini-flash-latest"
-        for model in candidate_models:
-            for _ in range(len(GEMINI_KEYS) or 1):
+        active_candidates = candidate_models[:4]
+        active_model = active_candidates[0] if active_candidates else "gemini-flash-lite-latest"
+        for model in active_candidates:
+            for _ in range(min(len(GEMINI_KEYS), 2)):
                 api_key = get_next_gemini_key()
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 try:
@@ -158,13 +166,14 @@ async def run_agentic_react_loop(
                             active_model = model
                             break
                         elif resp.status_code == 429:
+                            log.warning("Rate limit (429) on %s with key %s..., rotating", model, api_key[:8])
                             continue
                         elif resp.status_code == 404:
                             break
                         else:
                             continue
-                except Exception:
-                    # Timeout or connection error on this key, rotate immediately
+                except Exception as ex:
+                    log.warning("Timeout or connection error on %s: %s", model, ex)
                     continue
 
             if response_data:
@@ -186,8 +195,15 @@ async def run_agentic_react_loop(
             func_args = dict(fc.get("args", {}))
             log.debug("Agent selected tool call: %s(%s)", func_name, func_args)
 
+            # Update real-time turn state for dynamic watchdog status
+            if turn_state is not None:
+                turn_state["current_tool"] = func_name
+                turn_state["tool_args"] = func_args
+
             # Execute tool locally
-            tool_result = await execute_tool_call(func_name, func_args, sender_name, client=client)
+            tool_result = await execute_tool_call(
+                func_name, func_args, sender_name, client=client, media_data=media_data
+            )
             executed_tools.append({"name": func_name, "args": func_args, "result": tool_result})
 
             if tracer:

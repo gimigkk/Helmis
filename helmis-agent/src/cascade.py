@@ -10,10 +10,16 @@ import httpx
 
 log = logging.getLogger("helmis-cascade")
 
-# Dynamically collect all configured Gemini API keys (GEMINI_KEY_1, GEMINI_KEY_2, etc.)
+# Dynamically collect all configured Gemini API keys (filter to AI Studio keys)
 GEMINI_KEYS: list[str] = [
-    v.strip() for k, v in sorted(os.environ.items()) if k.startswith("GEMINI_KEY") and v.strip()
+    v.strip()
+    for k, v in sorted(os.environ.items())
+    if k.startswith("GEMINI_KEY") and v.strip() and v.strip().startswith("AIza")
 ]
+if not GEMINI_KEYS:
+    GEMINI_KEYS = [
+        v.strip() for k, v in sorted(os.environ.items()) if k.startswith("GEMINI_KEY") and v.strip()
+    ]
 
 
 def fetch_available_gemini_models() -> list[str]:
@@ -51,16 +57,13 @@ def fetch_available_gemini_models() -> list[str]:
     if not discovered:
         # Fallback list if offline or API unreachable
         return [
-            "gemini-3.1-flash-lite",
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite-preview",
             "gemini-flash-lite-latest",
-            "gemini-3.5-flash",
-            "gemini-3.6-flash",
-            "gemini-3.7-flash",
-            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3.1-flash-lite",
             "gemini-flash-latest",
-            "gemini-3.1-pro-preview",
+            "gemini-2.5-flash",
+            "gemini-3.5-flash",
             "gemini-2.5-pro",
             "gemini-pro-latest",
         ]
@@ -68,15 +71,19 @@ def fetch_available_gemini_models() -> list[str]:
     # Sort: Flash-Lite first (sub-second speed), then Flash, then Gemma, then Pro
     def score_model(m: str) -> int:
         m_lower = m.lower()
-        if "flash-lite" in m_lower or "flash_lite" in m_lower:
+        if m_lower == "gemini-flash-lite-latest":
             return 1
-        elif "flash" in m_lower:
+        elif "flash-lite" in m_lower or "flash_lite" in m_lower:
             return 2
-        elif "gemma" in m_lower:
+        elif m_lower == "gemini-flash-latest":
             return 3
-        elif "pro" in m_lower:
+        elif "flash" in m_lower:
             return 4
-        return 5
+        elif "gemma" in m_lower:
+            return 5
+        elif "pro" in m_lower:
+            return 6
+        return 7
 
     discovered.sort(key=score_model)
     return discovered

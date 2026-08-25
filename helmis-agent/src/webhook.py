@@ -10,7 +10,7 @@ from typing import Any
 
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from .agent import run_agentic_react_loop
@@ -18,6 +18,7 @@ from .client import WahaClient
 from .history import is_duplicate_message
 from .proactive import handle_proactive_scheduler_tick
 from .queue import ChatQueueManager, IncomingMessageEvent
+from .vault import get_vault_file_by_id, get_vault_file_by_name
 
 log = logging.getLogger("helmis-webhook")
 
@@ -199,6 +200,69 @@ def extract_quoted_info(
     )
 
 
+def describe_intent_action(
+    text: str,
+    has_media: bool = False,
+    media_data: dict[str, Any] | None = None,
+    is_voice_note: bool = False,
+    current_tool: str | None = None,
+    tool_args: dict[str, Any] | None = None,
+) -> str:
+    """Generate a sharp, non-templated description of what Helmis is actively working on."""
+    if current_tool:
+        if current_tool == "search_vault_files":
+            q = (tool_args or {}).get("query", "")
+            return f"sedang mencari dokumen '{q}' di dalam brankas" if q else "sedang mencari file di dalam brankas"
+        elif current_tool == "save_vault_file":
+            fn = (tool_args or {}).get("filename", "")
+            return f"sedang menyimpan file '{fn}' ke brankas dokumen" if fn else "sedang menyimpan dokumen ke brankas"
+        elif current_tool == "delete_vault_files":
+            t = (tool_args or {}).get("target", "")
+            return f"sedang menghapus file '{t}' dari brankas dokumen" if t else "sedang menghapus file dari brankas"
+        elif current_tool == "move_vault_files":
+            t = (tool_args or {}).get("target", "")
+            dest = (tool_args or {}).get("destination_directory", "")
+            return f"sedang memindahkan file '{t}' ke folder '{dest}'" if (t and dest) else "sedang merapikan dan memindahkan file di brankas"
+        elif current_tool == "send_vault_file":
+            fn = (tool_args or {}).get("file_id_or_name", "")
+            return f"sedang mengambil dan menyiapkan file '{fn}' untuk dikirim" if fn else "sedang menyiapkan pengiriman file"
+        elif current_tool == "search_web":
+            q = (tool_args or {}).get("query", "")
+            return f"sedang mencari informasi di web tentang '{q}'" if q else "sedang mencari informasi di internet"
+        elif current_tool in ("add_task", "update_task", "complete_task", "delete_task"):
+            title = (tool_args or {}).get("title", "")
+            return f"sedang memperbarui catatan tugas '{title}'" if title else "sedang memperbarui daftar tugas"
+        elif current_tool == "send_whatsapp_message":
+            rec = (tool_args or {}).get("recipient", "")
+            return f"sedang meneruskan pesan ke {rec}" if rec else "sedang mengirimkan pesan WhatsApp"
+
+    # Inferred from user input / media context
+    t_lower = text.lower()
+    if is_voice_note:
+        return "sedang mendengarkan dan mentranskripsi pesan suara kamu"
+    if has_media or media_data:
+        mime = (media_data or {}).get("mimeType", "")
+        if "pdf" in mime or "document" in mime or "pdf" in t_lower:
+            return "sedang membaca dan memproses dokumen PDF yang kamu kirim"
+        elif "image" in mime or "foto" in t_lower or "gambar" in t_lower:
+            return "sedang menganalisis gambar yang kamu kirim"
+        elif "video" in mime or "video" in t_lower:
+            return "sedang menganalisis video yang kamu kirim"
+
+    if any(w in t_lower for w in ("hapus", "apus", "delete", "buang")):
+        return "sedang mengecek brankas untuk menghapus file yang dimaksud"
+    elif any(w in t_lower for w in ("simpen", "save", "taruh", "arsip")):
+        return "sedang memproses penyimpanan file ke brankas"
+    elif any(w in t_lower for w in ("kirim", "send", "bagi", "minta")):
+        return "sedang mencari dan menyiapkan file yang kamu minta"
+    elif any(w in t_lower for w in ("cari", "search", "cek harga", "googling", "info")):
+        return "sedang mencari informasi dan data terkait"
+    elif any(w in t_lower for w in ("ingetin", "jadwal", "tugas", "reminder", "deadline")):
+        return "sedang mengecek jadwal dan menyusun pengingat"
+
+    return "sedang menganalisis pesan dan menyiapkan jawabannya"
+
+
 def create_webhook_app(client: WahaClient) -> Starlette:
     """Create Starlette app for webhooks and health checks with Per-Chat Debounce Queue."""
 
@@ -271,6 +335,8 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             has_media=has_media,
         )
         tracer.log_incoming()
+
+        turn_state: dict[str, Any] = {"current_tool": None, "tool_args": None}
 
         try:
             is_voice_note = False
@@ -388,16 +454,42 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     except Exception as ex:
                         log.warning("Could not download media %s: %s", target_url, ex)
 
-            # Phase 2: Run autonomous agent loop on verified text/media
-            reply_text = await run_agentic_react_loop(
-                client=client,
-                sender_name=sender_name,
-                chat_id=from_user,
-                message_text=combined_text,
-                media_data=media_data,
-                max_steps=5,
-                tracer=tracer,
-            )
+            # Watchdog task: if agent is taking > 4.0 seconds, send a specific, contextual reassurance message
+            async def progress_watchdog() -> None:
+                try:
+                    await asyncio.sleep(4.0)
+                    action_desc = describe_intent_action(
+                        text=combined_text,
+                        has_media=has_media,
+                        media_data=media_data,
+                        is_voice_note=is_voice_note,
+                        current_tool=turn_state.get("current_tool"),
+                        tool_args=turn_state.get("tool_args"),
+                    )
+                    log.info("Agent turn taking >4.0s for [%s]: %s", sender_name, action_desc)
+                    await client.start_typing(chat_id=from_user)
+                    reassurance_msg = f"Sebentar ya, {action_desc}..."
+                    await client.send_message(chat_id=from_user, text=reassurance_msg)
+                except asyncio.CancelledError:
+                    pass
+                except Exception as ex:
+                    log.debug("Progress watchdog error: %s", ex)
+
+            watchdog_task = asyncio.create_task(progress_watchdog())
+            try:
+                # Phase 2: Run autonomous agent loop on verified text/media
+                reply_text = await run_agentic_react_loop(
+                    client=client,
+                    sender_name=sender_name,
+                    chat_id=from_user,
+                    message_text=combined_text,
+                    media_data=media_data,
+                    max_steps=5,
+                    tracer=tracer,
+                    turn_state=turn_state,
+                )
+            finally:
+                watchdog_task.cancel()
 
             final_text: str | None = None
             if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
@@ -432,6 +524,13 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 )
             else:
                 tracer.log_completed(None, status="silent_no_reply")
+        except Exception as err:
+            log.exception("Unhandled error processing turn for [%s]: %s", sender_name, err)
+            fallback_err = "Maaf, sempat terjadi kendala teknis saat memproses pesan ini. Boleh tolong ulangi lagi?"
+            try:
+                await client.send_message(chat_id=from_user, text=fallback_err)
+            except Exception:
+                pass
         finally:
             await client.stop_typing(chat_id=from_user)
 
@@ -624,9 +723,29 @@ def create_webhook_app(client: WahaClient) -> Starlette:
 
         return JSONResponse({"status": "ignored_event", "event": event})
 
+    async def handle_vault_file(request: Request) -> Response:
+        file_id = request.path_params.get("file_id", "")
+        res = get_vault_file_by_id(file_id)
+        if not res:
+            res = get_vault_file_by_name(file_id)
+        if not res:
+            return JSONResponse({"status": "not_found", "error": "File not found in vault"}, status_code=404)
+        record, raw_bytes = res
+        mime = record.get("mime_type", "application/octet-stream")
+        filename = record.get("filename", "document")
+        return Response(
+            content=raw_bytes,
+            media_type=mime,
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "Content-Length": str(len(raw_bytes)),
+            },
+        )
+
     routes = [
         Route("/health", handle_health, methods=["GET"]),
         Route("/ping", handle_health, methods=["GET"]),
+        Route("/vault/file/{file_id}", handle_vault_file, methods=["GET"]),
         Route("/webhooks/waha", handle_waha_webhook, methods=["POST"]),
         Route("/webhooks/scheduler", handle_waha_webhook, methods=["POST"]),
     ]
