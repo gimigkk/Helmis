@@ -309,8 +309,13 @@ def update_task(
 def parse_due_timestamp(due_str: str) -> float:
     """
     Parse a task due string into a Unix timestamp for urgency sorting.
-    Supports relative dates (hari ini, besok, lusa), day-of-week (Senin..Minggu),
-    ISO format (YYYY-MM-DD), and Indonesian/English month names.
+    Supports:
+    - Relative delay offsets: '30 menit lagi', '2 jam lagi', 'in 15 mins'
+    - Indonesian time formats: 'jam 3 sore' (15:00), 'jam 8 malam' (20:00), 'setengah 4 sore' (15:30)
+    - Cultural period keywords: 'subuh' (04:30), 'maghrib' (18:30), 'isya' (19:30), 'ashar' (15:30), 'dzuhur' (12:00), 'dini hari' (02:00), 'tengah malam' (23:59)
+    - Relative dates: 'hari ini', 'besok', 'lusa'
+    - Day of week: 'Senin' .. 'Minggu'
+    - ISO (YYYY-MM-DD) & Indonesian/English month names (e.g. '28 Agustus 2026', '28 Agustus')
     """
     if not due_str or not due_str.strip() or "no deadline" in due_str.lower():
         return float("inf")
@@ -318,42 +323,99 @@ def parse_due_timestamp(due_str: str) -> float:
     clean = due_str.strip().lower()
     now = datetime.now(TZ)
 
-    # Extract time HH:MM or HH.MM
+    # 1. Relative delay offsets from current moment
+    rel_min = re.search(r"(\d+)\s*(?:menit|mins|min|m)\s*(?:lagi|later|from now)?", clean)
+    if rel_min and any(k in clean for k in ("lagi", "later", "in ", "after ")):
+        mins = int(rel_min.group(1))
+        return (now + timedelta(minutes=mins)).timestamp()
+
+    rel_hr = re.search(r"(\d+)\s*(?:jam|hours|hour|hr|h)\s*(?:lagi|later|from now)?", clean)
+    if rel_hr and any(k in clean for k in ("lagi", "later", "in ", "after ")):
+        hrs = int(rel_hr.group(1))
+        return (now + timedelta(hours=hrs)).timestamp()
+
+    # 2. Time Extraction (Indonesian & 24h)
     hour = 23
     minute = 59
-    time_match = re.search(r"(\d{1,2})[:.](\d{2})", clean)
-    if time_match:
-        hour = int(time_match.group(1))
-        minute = int(time_match.group(2))
-    elif "pagi" in clean:
-        hour = 8
-        minute = 0
-    elif "siang" in clean:
-        hour = 12
-        minute = 0
-    elif "sore" in clean:
-        hour = 16
-        minute = 0
-    elif "malam" in clean:
-        hour = 20
-        minute = 0
+    has_time = False
 
-    # 1. Relative keywords: "hari ini", "today"
+    # A. 'setengah X' (e.g. setengah 8 -> 07:30 / 19:30, setengah 4 sore -> 15:30)
+    setengah_match = re.search(r"setengah\s+(\d{1,2})", clean)
+    if setengah_match:
+        val = int(setengah_match.group(1))
+        base_hr = (val - 1) % 24
+        minute = 30
+        if any(k in clean for k in ("malam", "isya")) and base_hr < 12:
+            base_hr += 12
+        elif any(k in clean for k in ("sore", "ashar")) and base_hr < 12:
+            base_hr += 12
+        elif any(k in clean for k in ("siang", "dzuhur")) and base_hr < 12 and base_hr != 11:
+            base_hr += 12
+        hour = base_hr
+        has_time = True
+
+    # B. 'HH:MM' or 'HH.MM'
+    if not has_time:
+        time_match = re.search(r"(\d{1,2})[:.](\d{2})", clean)
+        if time_match:
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2))
+            has_time = True
+
+    # C. 'jam X' or 'pukul X' with period modifiers
+    if not has_time:
+        jam_match = re.search(r"(?:jam|pukul)\s+(\d{1,2})\b", clean)
+        if jam_match:
+            h_val = int(jam_match.group(1))
+            minute = 0
+            if any(k in clean for k in ("sore", "ashar")) and h_val <= 6:
+                h_val += 12
+            elif any(k in clean for k in ("malam", "isya")) and h_val <= 11:
+                h_val += 12
+            elif any(k in clean for k in ("siang", "dzuhur")) and h_val in (1, 2, 3, 4):
+                h_val += 12
+            hour = h_val
+            has_time = True
+
+    # D. Cultural Period Keywords Fallback
+    if not has_time:
+        if "tengah malam" in clean:
+            hour, minute = 23, 59
+        elif "dini hari" in clean:
+            hour, minute = 2, 0
+        elif "subuh" in clean:
+            hour, minute = 4, 30
+        elif "maghrib" in clean:
+            hour, minute = 18, 30
+        elif "isya" in clean:
+            hour, minute = 19, 30
+        elif "ashar" in clean:
+            hour, minute = 15, 30
+        elif "dzuhur" in clean:
+            hour, minute = 12, 0
+        elif "pagi" in clean:
+            hour, minute = 8, 0
+        elif "siang" in clean:
+            hour, minute = 12, 0
+        elif "sore" in clean:
+            hour, minute = 16, 0
+        elif "malam" in clean:
+            hour, minute = 20, 0
+
+    # 3. Date Resolution
+    # A. 'hari ini', 'today'
     if "hari ini" in clean or "today" in clean:
-        target_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        return target_dt.timestamp()
+        return now.replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp()
 
-    # 2. "besok", "tomorrow"
+    # B. 'besok', 'tomorrow'
     if "besok" in clean or "tomorrow" in clean:
-        target_dt = (now + timedelta(days=1)).replace(hour=hour, minute=minute, second=0, microsecond=0)
-        return target_dt.timestamp()
+        return (now + timedelta(days=1)).replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp()
 
-    # 3. "lusa"
+    # C. 'lusa'
     if "lusa" in clean:
-        target_dt = (now + timedelta(days=2)).replace(hour=hour, minute=minute, second=0, microsecond=0)
-        return target_dt.timestamp()
+        return (now + timedelta(days=2)).replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp()
 
-    # 4. Day of Week (Senin .. Minggu)
+    # D. Day of Week (Senin .. Minggu)
     id_days = {
         "senin": 0, "monday": 0, "mon": 0,
         "selasa": 1, "tuesday": 1, "tue": 1,
@@ -367,17 +429,17 @@ def parse_due_timestamp(due_str: str) -> float:
         if re.search(rf"\b{day_name}\b", clean):
             days_ahead = (day_idx - now.weekday()) % 7
             if days_ahead == 0:
-                # If day is today but specified hour is already in the past, roll to next week
                 if (hour < now.hour) or (hour == now.hour and minute <= now.minute):
                     days_ahead = 7
-            target_dt = (now + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
-            return target_dt.timestamp()
+            return (now + timedelta(days=days_ahead)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            ).timestamp()
 
-    # 5. ISO YYYY-MM-DD
+    # E. ISO YYYY-MM-DD
     iso_match = re.search(r"(\d{4})-(\d{2})-(\d{2})", clean)
     if iso_match:
         try:
-            target_dt = datetime(
+            return datetime(
                 int(iso_match.group(1)),
                 int(iso_match.group(2)),
                 int(iso_match.group(3)),
@@ -385,12 +447,11 @@ def parse_due_timestamp(due_str: str) -> float:
                 minute,
                 0,
                 tzinfo=TZ,
-            )
-            return target_dt.timestamp()
+            ).timestamp()
         except Exception:
             pass
 
-    # 6. Indonesian & English month names (e.g. 28 Agustus 2026 or 28 Agustus)
+    # F. Indonesian & English Month Names
     id_months = {
         "januari": 1, "jan": 1,
         "februari": 2, "feb": 2,
@@ -412,10 +473,16 @@ def parse_due_timestamp(due_str: str) -> float:
         year = int(date_month_match.group(3)) if date_month_match.group(3) else now.year
         if month_str in id_months:
             try:
-                target_dt = datetime(year, id_months[month_str], day, hour, minute, 0, tzinfo=TZ)
-                return target_dt.timestamp()
+                return datetime(year, id_months[month_str], day, hour, minute, 0, tzinfo=TZ).timestamp()
             except Exception:
                 pass
+
+    # G. Fallback: If time was specified but no date, assume today (or tomorrow if time passed)
+    if has_time:
+        target_today = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if target_today < now:
+            return (now + timedelta(days=1)).replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp()
+        return target_today.timestamp()
 
     return float("inf")
 

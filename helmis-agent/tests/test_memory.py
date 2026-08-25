@@ -5,6 +5,7 @@ test_memory.py — Tests for persistent memory operations and time awareness.
 import os
 import tempfile
 from collections.abc import Generator
+from datetime import datetime
 
 import pytest
 
@@ -123,3 +124,43 @@ def test_delete_task_exact_match_does_not_wipe_substrings() -> None:
     assert "tugas ekonomi syariah" in titles
     assert "tugas statistik" in titles
     assert len(pending) == 2
+
+
+def test_parse_due_timestamp_indonesian_natural_expressions() -> None:
+    now_ts = datetime.now(memory.TZ).timestamp()
+
+    # Relative offsets
+    ts_30m = memory.parse_due_timestamp("30 menit lagi")
+    assert 1700 < (ts_30m - now_ts) < 1900
+
+    ts_2h = memory.parse_due_timestamp("2 jam lagi")
+    assert 7100 < (ts_2h - now_ts) < 7300
+
+    # Indonesian hour + period
+    ts_sore = memory.parse_due_timestamp("besok jam 3 sore")
+    dt_sore = datetime.fromtimestamp(ts_sore, tz=memory.TZ)
+    assert dt_sore.hour == 15
+    assert dt_sore.minute == 0
+
+    ts_malam = memory.parse_due_timestamp("besok jam 8 malam")
+    dt_malam = datetime.fromtimestamp(ts_malam, tz=memory.TZ)
+    assert dt_malam.hour == 20
+    assert dt_malam.minute == 0
+
+    # Setengah X
+    ts_setengah = memory.parse_due_timestamp("besok setengah 4 sore")
+    dt_setengah = datetime.fromtimestamp(ts_setengah, tz=memory.TZ)
+    assert dt_setengah.hour == 15
+    assert dt_setengah.minute == 30
+
+    # Subuh
+    ts_subuh = memory.parse_due_timestamp("besok subuh")
+    dt_subuh = datetime.fromtimestamp(ts_subuh, tz=memory.TZ)
+    assert dt_subuh.hour == 4
+    assert dt_subuh.minute == 30
+
+    # Maghrib
+    ts_maghrib = memory.parse_due_timestamp("besok habis maghrib")
+    dt_maghrib = datetime.fromtimestamp(ts_maghrib, tz=memory.TZ)
+    assert dt_maghrib.hour == 18
+    assert dt_maghrib.minute == 30
