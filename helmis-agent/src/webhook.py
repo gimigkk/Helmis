@@ -481,7 +481,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
         try:
             is_voice_note = False
             vn_transcript: str | None = None
-            media_data: dict[str, str] | None = None
+            media_data: dict[str, Any] | None = None
 
             if has_media and media_url:
                 media_res = await client.download_media_base64(media_url)
@@ -537,7 +537,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                                     (
                                         m
                                         for m in recent_msgs
-                                        if quoted_media_event.quoted_stanza_id in str(m.message_id)
+                                        if quoted_media_event.quoted_stanza_id in m.message_id
                                     ),
                                     None,
                                 )
@@ -837,20 +837,17 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     or (bool(bot_clean) and any(bot_clean in str(m) for m in mentioned))
                 )
 
-                mentions_other = bool(
-                    (
-                        any(
-                            (bool(gilang_clean) and gilang_clean in str(m))
-                            or (bool(bunga_clean) and bunga_clean in str(m))
-                            for m in mentioned
-                        )
-                        or "@bunga" in text_lower
-                        or "@gilang" in text_lower
-                        or (bool(gilang_clean) and f"@{gilang_clean}" in text_lower)
-                        or (bool(bunga_clean) and f"@{bunga_clean}" in text_lower)
+                mentions_other = (
+                    any(
+                        (bool(gilang_clean) and gilang_clean in str(m))
+                        or (bool(bunga_clean) and bunga_clean in str(m))
+                        for m in mentioned
                     )
-                    and not has_bot_mention
-                )
+                    or "@bunga" in text_lower
+                    or "@gilang" in text_lower
+                    or (bool(gilang_clean) and f"@{gilang_clean}" in text_lower)
+                    or (bool(bunga_clean) and f"@{bunga_clean}" in text_lower)
+                ) and not has_bot_mention
 
                 if mentions_other:
                     log.info("Group message addressed to other person (@mention), ignoring: %s", text[:40])
