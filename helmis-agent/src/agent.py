@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from . import cascade
 from .agent_tools import GEMINI_TOOLS, execute_tool_call
 from .cascade import (
     GEMINI_KEYS,
@@ -161,10 +162,10 @@ async def run_agentic_react_loop(
         }
 
         # Attempt call with Multi-Model & Multi-Key Cascade
-        response_data: dict[str, Any] | None = None
         active_candidates = candidate_models[:4]
         for model in active_candidates:
-            for _ in range(min(len(GEMINI_KEYS), 2)):
+            keys_count = len(getattr(cascade, "GEMINI_KEYS", [])) or 1
+            for _ in range(min(keys_count, 2)):
                 api_key = get_next_gemini_key()
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 try:

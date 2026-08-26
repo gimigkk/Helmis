@@ -76,15 +76,27 @@ def _load_catalog() -> dict[str, Any]:
         return {"files": [], "version": 1}
 
 
+def _sanitize_surrogates(obj: Any) -> Any:
+    """Recursively sanitize surrogate characters from strings to guarantee valid UTF-8 JSON serialization."""
+    if isinstance(obj, str):
+        return obj.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+    if isinstance(obj, dict):
+        return {_sanitize_surrogates(k): _sanitize_surrogates(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_surrogates(v) for v in obj]
+    return obj
+
+
 def _save_catalog(data: dict[str, Any]) -> None:
     parent = os.path.dirname(CATALOG_FILE)
     if parent:
         os.makedirs(parent, exist_ok=True)
     tmp_file = f"{CATALOG_FILE}.tmp.{uuid.uuid4().hex[:8]}"
-    with open(tmp_file, "w", encoding="utf-8") as f:
+    clean_data = _sanitize_surrogates(data)
+    with open(tmp_file, "w", encoding="utf-8", errors="replace") as f:
         fcntl.flock(f.fileno(), fcntl.LOCK_EX)
         try:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            json.dump(clean_data, f, indent=2, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
         finally:

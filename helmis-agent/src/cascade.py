@@ -144,6 +144,8 @@ def load_system_prompt() -> str:
     prompt_path = os.environ.get("SYSTEM_PROMPT_PATH", "/hermes-config/system-prompt.md")
     if not os.path.exists(prompt_path):
         prompt_path = "config/system-prompt.md"
+    if not os.path.exists(prompt_path):
+        prompt_path = "../config/system-prompt.md"
     try:
         with open(prompt_path, encoding="utf-8") as f:
             return f.read()
@@ -157,6 +159,8 @@ def load_all_skills() -> str:
     skills_dir = os.environ.get("SKILLS_DIR", "/hermes-config/skills")
     if not os.path.exists(skills_dir):
         skills_dir = "config/skills"
+    if not os.path.exists(skills_dir):
+        skills_dir = "../config/skills"
     if not os.path.exists(skills_dir):
         return ""
 

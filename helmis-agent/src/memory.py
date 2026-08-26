@@ -339,8 +339,8 @@ def parse_due_timestamp(due_str: str) -> float:
     minute = 59
     has_time = False
 
-    # A. 'setengah X' (e.g. setengah 8 -> 07:30 / 19:30, setengah 4 sore -> 15:30)
-    setengah_match = re.search(r"setengah\s+(\d{1,2})", clean)
+    # A. 'setengah X' or 'set X' (e.g. setengah 8 -> 07:30 / 19:30, jam set 5 sore -> 16:30)
+    setengah_match = re.search(r"(?:setengah|set\.?)\s+(\d{1,2})", clean)
     if setengah_match:
         val = int(setengah_match.group(1))
         base_hr = (val - 1) % 24
@@ -381,26 +381,37 @@ def parse_due_timestamp(due_str: str) -> float:
     if not has_time:
         if "tengah malam" in clean:
             hour, minute = 23, 59
+            has_time = True
         elif "dini hari" in clean:
             hour, minute = 2, 0
+            has_time = True
         elif "subuh" in clean:
             hour, minute = 4, 30
+            has_time = True
         elif "maghrib" in clean:
             hour, minute = 18, 30
+            has_time = True
         elif "isya" in clean:
             hour, minute = 19, 30
+            has_time = True
         elif "ashar" in clean:
             hour, minute = 15, 30
+            has_time = True
         elif "dzuhur" in clean:
             hour, minute = 12, 0
+            has_time = True
         elif "pagi" in clean:
             hour, minute = 8, 0
+            has_time = True
         elif "siang" in clean:
             hour, minute = 12, 0
+            has_time = True
         elif "sore" in clean:
             hour, minute = 16, 0
+            has_time = True
         elif "malam" in clean:
             hour, minute = 20, 0
+            has_time = True
 
     # 3. Date Resolution
     # A. 'hari ini', 'today'
