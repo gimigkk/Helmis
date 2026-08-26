@@ -4,7 +4,7 @@ notes.py — Tool Handlers for Shared Notes, Memos, and Living Lists.
 
 from typing import Any
 
-from ..memory import append_to_note, delete_note, get_note, list_notes, save_note
+from ..memory.store import append_to_note, delete_note, get_note, list_notes, save_note
 from .registry import register_tool
 
 

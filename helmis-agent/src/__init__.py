@@ -1,19 +1,26 @@
 """
-mcp-waha — MCP server wrapping the WAHA WhatsApp REST API.
-
-Exposes typed tools that Hermes can call to send WhatsApp messages,
-send media, and query message history.
+src — Helmis Agent System.
+Domain Packages:
+- src.agent: The Brain & LLM Orchestration
+- src.memory: Persistent Memory, Vector Store & Document Vault
+- src.whatsapp: WhatsApp Communications & Webhooks
+- src.tools: Tool Capabilities & Gemini Function Declarations
 """
 
-from . import agent, client, history, memory, models, proactive, semantic_memory, webhook
+from . import agent, memory, tools, whatsapp
+from .agent import run_agentic_react_loop
+from .memory import load_memory, save_memory
+from .whatsapp import IncomingMessageEvent, WahaClient, create_webhook_app
 
 __all__ = [
+    "IncomingMessageEvent",
+    "WahaClient",
     "agent",
-    "client",
-    "history",
+    "create_webhook_app",
+    "load_memory",
     "memory",
-    "models",
-    "proactive",
-    "semantic_memory",
-    "webhook",
+    "run_agentic_react_loop",
+    "save_memory",
+    "tools",
+    "whatsapp",
 ]

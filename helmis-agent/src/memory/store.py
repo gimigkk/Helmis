@@ -23,9 +23,27 @@ TZ = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
 _memory_lock = threading.RLock()
 
 
+def _get_memory_file() -> str:
+    import sys
+    default_f = globals().get("MEMORY_FILE") or os.path.join(DATA_DIR, "helmis_memory.json")
+    if "src.memory" in sys.modules:
+        pkg = sys.modules["src.memory"]
+        pkg_f = getattr(pkg, "MEMORY_FILE", None)
+        if pkg_f and pkg_f != default_f:
+            return pkg_f
+    if "src.memory.store" in sys.modules:
+        mod = sys.modules["src.memory.store"]
+        mod_f = getattr(mod, "MEMORY_FILE", None)
+        if mod_f and mod_f != default_f:
+            return mod_f
+    if "src.memory" in sys.modules and hasattr(sys.modules["src.memory"], "MEMORY_FILE"):
+        return sys.modules["src.memory"].MEMORY_FILE
+    return default_f
+
+
 def _ensure_data_dir() -> None:
     """Ensure data directory exists."""
-    os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(_get_memory_file()), exist_ok=True)
 
 
 def load_memory() -> dict[str, Any]:
@@ -49,14 +67,15 @@ def load_memory() -> dict[str, Any]:
         "notes": [],
     }
 
+    mem_path = _get_memory_file()
     with _memory_lock:
-        if not os.path.exists(MEMORY_FILE):
+        if not os.path.exists(mem_path):
             # Save default memory atomically
             _save_memory_unlocked(default_memory)
             return default_memory
 
         try:
-            with open(MEMORY_FILE, encoding="utf-8") as f:
+            with open(mem_path, encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, dict):
                     for k, v in default_memory.items():
@@ -65,7 +84,7 @@ def load_memory() -> dict[str, Any]:
                     return cast(dict[str, Any], data)
                 return default_memory
         except Exception as e:
-            log.error("Failed to load memory file (%s): %s", MEMORY_FILE, e)
+            log.error("Failed to load memory file (%s): %s", mem_path, e)
             return default_memory
 
 
@@ -78,15 +97,16 @@ def save_memory(data: dict[str, Any]) -> None:
 
 def _save_memory_unlocked(data: dict[str, Any]) -> None:
     """Internal atomic write helper."""
-    tmp_file = f"{MEMORY_FILE}.tmp.{os.getpid()}"
+    mem_path = _get_memory_file()
+    tmp_file = f"{mem_path}.tmp.{os.getpid()}"
     try:
         with open(tmp_file, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_file, MEMORY_FILE)
+        os.replace(tmp_file, mem_path)
     except Exception as e:
-        log.error("Failed to save memory file (%s): %s", MEMORY_FILE, e)
+        log.error("Failed to save memory file (%s): %s", mem_path, e)
         if os.path.exists(tmp_file):
             try:
                 os.remove(tmp_file)

@@ -4,9 +4,8 @@ import mimetypes
 import os
 from typing import Any
 
-from ..client import WahaClient
-from ..memory import log_activity
-from ..vault import (
+from ..memory.store import log_activity
+from ..memory.vault import (
     create_vault_directory,
     delete_vault_directory,
     delete_vault_files,
@@ -18,6 +17,7 @@ from ..vault import (
     save_file_to_vault,
     search_vault,
 )
+from ..whatsapp.client import WahaClient
 from .registry import register_tool
 from .whatsapp import _resolve_target_jid
 

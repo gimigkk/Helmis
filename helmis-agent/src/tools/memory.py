@@ -4,8 +4,8 @@ memory.py — Tool Handlers for Episodic Semantic Vector Memory & Global Search.
 
 from typing import Any
 
-from .. import semantic_memory
-from ..memory import search_memory
+from ..memory import semantic as semantic_memory
+from ..memory.store import search_memory
 from .registry import register_tool
 
 

@@ -4,7 +4,7 @@ web.py — Tool Handlers for Live Web Search.
 
 from typing import Any
 
-from .. import search
+from ..whatsapp import search
 from .registry import register_tool
 
 

@@ -4,7 +4,7 @@ contacts.py — Tool Handlers for Directory & Contacts Management.
 
 from typing import Any
 
-from ..memory import add_person, get_person
+from ..memory.store import add_person, get_person
 from .registry import register_tool
 
 

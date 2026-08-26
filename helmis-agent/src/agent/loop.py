@@ -1,5 +1,5 @@
 """
-agent.py — Autonomous ReAct Agent Loop & Gemini LLM Orchestrator.
+loop.py — Autonomous ReAct Agent Loop & Gemini LLM Orchestrator.
 """
 
 import asyncio
@@ -9,7 +9,6 @@ from typing import Any
 import httpx
 
 from . import cascade
-from .agent_tools import GEMINI_TOOLS, execute_tool_call
 from .cascade import (
     GEMINI_KEYS,
     GEMINI_MODELS,
@@ -19,27 +18,7 @@ from .cascade import (
     load_all_skills,
     load_system_prompt,
 )
-from .client import WahaClient
 from .guardrails import inject_tool_directive, verify_action_fidelity
-from .history import build_multi_turn_contents
-from .memory import get_memory_context_summary
-from .transcribe import transcribe_audio_base64
-
-# Re-export for public API and test suite backwards compatibility
-__all__ = [
-    "GEMINI_KEYS",
-    "GEMINI_MODELS",
-    "GEMINI_TOOLS",
-    "execute_tool_call",
-    "fetch_available_gemini_models",
-    "get_next_gemini_key",
-    "inject_tool_directive",
-    "load_all_skills",
-    "load_system_prompt",
-    "run_agentic_react_loop",
-    "transcribe_audio_base64",
-    "verify_action_fidelity",
-]
 
 log = logging.getLogger("helmis-agent")
 
@@ -47,13 +26,21 @@ log = logging.getLogger("helmis-agent")
 async def drain_and_inject_mid_turn_mailbox(
     contents: list[dict[str, Any]],
     mailbox: asyncio.Queue[Any] | None,
-    client: WahaClient,
+    client: Any,
     sender_name: str,
     turn_state: dict[str, Any] | None = None,
 ) -> bool:
     """Drain all pending user messages from the active turn mailbox and inject as mid-turn steering."""
     if not mailbox or mailbox.empty():
         return False
+
+    import sys
+    transcribe_func = None
+    if "src.agent" in sys.modules and hasattr(sys.modules["src.agent"], "transcribe_audio_base64"):
+        transcribe_func = sys.modules["src.agent"].transcribe_audio_base64
+    if not transcribe_func:
+        from ..whatsapp.transcribe import transcribe_audio_base64
+        transcribe_func = transcribe_audio_base64
 
     injected_texts: list[str] = []
     while not mailbox.empty():
@@ -65,7 +52,7 @@ async def drain_and_inject_mid_turn_mailbox(
                 if m_res:
                     m_mime, m_b64 = m_res
                     if m_mime.startswith("audio/"):
-                        vn_t = await transcribe_audio_base64(m_b64, m_mime)
+                        vn_t = await transcribe_func(m_b64, m_mime)
                         if vn_t:
                             t = f'{t} (Pesan Suara: "{vn_t}")' if t else f'Pesan Suara: "{vn_t}"'
                     else:
@@ -97,7 +84,7 @@ async def drain_and_inject_mid_turn_mailbox(
 
 
 async def run_agentic_react_loop(
-    client: WahaClient,
+    client: Any,
     sender_name: str,
     chat_id: str,
     message_text: str,
@@ -114,14 +101,17 @@ async def run_agentic_react_loop(
     3. Feeds tool responses back into the conversation turn
     4. Synthesizes concise final response with verified outcomes
     """
+    from ..agent_tools import GEMINI_TOOLS, execute_tool_call
+    from ..memory.semantic import search_memories
+    from ..memory.store import get_memory_context_summary
+    from ..whatsapp.history import build_multi_turn_contents
+
     system_prompt = load_system_prompt()
     skills_context = load_all_skills()
     memory_context = get_memory_context_summary()
 
     # Semantically retrieve personal memories/facts related to current conversation
-    from . import semantic_memory
-
-    relevant_memories = await semantic_memory.search_memories(
+    relevant_memories = await search_memories(
         query=message_text,
         user_id=sender_name,
         top_k=5,

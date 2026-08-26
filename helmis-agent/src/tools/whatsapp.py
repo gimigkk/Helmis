@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..client import WahaClient
-from ..memory import log_activity
+from ..memory.store import log_activity
+from ..whatsapp.client import WahaClient
 from .registry import register_tool
 
 log = logging.getLogger("helmis-tools-whatsapp")

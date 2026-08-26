@@ -7,8 +7,8 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .client import WahaClient
-from .memory import load_memory, log_activity, parse_due_timestamp, save_memory
+from .memory.store import load_memory, log_activity, parse_due_timestamp, save_memory
+from .whatsapp.client import WahaClient
 
 log = logging.getLogger("helmis-proactive")
 TZ = ZoneInfo("Asia/Jakarta")

@@ -4,7 +4,7 @@ tasks.py — Tool Handlers for Task & Reminder Lifecycle Management.
 
 from typing import Any
 
-from ..memory import add_task, complete_task, delete_task, list_tasks, update_task
+from ..memory.store import add_task, complete_task, delete_task, list_tasks, update_task
 from .registry import register_tool
 
 

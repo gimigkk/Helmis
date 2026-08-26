@@ -7,8 +7,8 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from ..client import WahaClient
-from ..guardrails import inject_tool_directive
+from ..agent.guardrails import inject_tool_directive
+from ..whatsapp.client import WahaClient
 
 log = logging.getLogger("helmis-tools")
 
