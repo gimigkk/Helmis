@@ -4,7 +4,7 @@ mcp_export.py — FastMCP / MCPServer Tool Registration for External MCP Clients
 
 from typing import Any
 
-from ..client import WahaClient
+from ..whatsapp.client import WahaClient
 from ..models import (
     GetMessagesInput,
     SendMediaInput,

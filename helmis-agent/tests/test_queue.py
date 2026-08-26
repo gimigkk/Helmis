@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from src.queue import ChatQueueManager, ChatQueueWorker, IncomingMessageEvent
+from src.whatsapp.queue import ChatQueueManager, ChatQueueWorker, IncomingMessageEvent
 
 
 @pytest.mark.asyncio
@@ -105,7 +105,7 @@ async def test_queue_processes_different_chats_concurrently() -> None:
 
 
 def test_split_into_bubbles_explicit_separator() -> None:
-    from src.webhook import split_into_bubbles
+    from src.whatsapp.processor import split_into_bubbles
 
     text = "Sip Gilang, udah kusimpan nomor kontaknya ya.\n---\nBtw besok ada meeting jam 10 pagi, mau diingetin?"
     bubbles = split_into_bubbles(text)
@@ -115,7 +115,7 @@ def test_split_into_bubbles_explicit_separator() -> None:
 
 
 def test_split_into_bubbles_preserves_multi_paragraph_schedules_in_one_bubble() -> None:
-    from src.webhook import split_into_bubbles
+    from src.whatsapp.processor import split_into_bubbles
 
     schedule_text = (
         "Jadwal kuliah Gilang semester ini:\n\n"
@@ -140,7 +140,7 @@ def test_split_into_bubbles_preserves_multi_paragraph_schedules_in_one_bubble() 
 
 
 def test_split_into_bubbles_empty_and_short() -> None:
-    from src.webhook import split_into_bubbles
+    from src.whatsapp.processor import split_into_bubbles
 
     assert split_into_bubbles("") == []
     assert split_into_bubbles("Sip udah ya.") == ["Sip udah ya."]
@@ -212,8 +212,8 @@ async def test_active_turn_mailbox_routes_messages_mid_turn() -> None:
 @pytest.mark.asyncio
 async def test_drain_and_inject_mid_turn_mailbox() -> None:
     """Verify drain_and_inject_mid_turn_mailbox injects steering text into conversation contents."""
-    from src.agent import drain_and_inject_mid_turn_mailbox
-    from src.client import WahaClient
+    from src.agent.loop import drain_and_inject_mid_turn_mailbox
+    from src.whatsapp.client import WahaClient
     from unittest.mock import AsyncMock
 
     mock_client = AsyncMock(spec=WahaClient)

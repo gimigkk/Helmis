@@ -15,10 +15,9 @@ from threading import Thread
 import uvicorn
 from mcp.server.mcpserver import MCPServer
 
-from . import logger  # noqa: F401
-from .client import WahaClient
 from .tools import register_all_tools
-from .webhook import create_webhook_app
+from .whatsapp.client import WahaClient
+from .whatsapp.webhook import create_webhook_app
 
 log = logging.getLogger("mcp-waha")
 

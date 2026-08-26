@@ -12,7 +12,7 @@ import httpx
 import pytest
 from pytest_httpx import HTTPXMock
 
-from src.client import WahaClient, WahaClientError
+from src.whatsapp.client import WahaClient, WahaClientError
 
 # ============================================================
 # Helpers

@@ -13,15 +13,15 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.client import WahaClient
-from src.tools.registry import execute_tool_call
-from src.vault import (
+from src.memory.vault import (
     get_vault_file_by_id,
     get_vault_file_by_name,
     init_vault_structure,
     save_file_to_vault,
 )
-from src.webhook import create_webhook_app
+from src.tools.registry import execute_tool_call
+from src.whatsapp.client import WahaClient
+from src.whatsapp.webhook import create_webhook_app
 
 
 @pytest.fixture(autouse=True)
@@ -29,9 +29,9 @@ def clean_vault_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     """Isolate vault directory and catalog for each test."""
     vault_data_dir = tmp_path / "data"
     vault_data_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr("src.vault.DATA_DIR", str(vault_data_dir))
-    monkeypatch.setattr("src.vault.VAULT_DIR", str(vault_data_dir / "vault"))
-    monkeypatch.setattr("src.vault.CATALOG_FILE", str(vault_data_dir / "file_catalog.json"))
+    monkeypatch.setattr("src.memory.vault.DATA_DIR", str(vault_data_dir))
+    monkeypatch.setattr("src.memory.vault.VAULT_DIR", str(vault_data_dir / "vault"))
+    monkeypatch.setattr("src.memory.vault.CATALOG_FILE", str(vault_data_dir / "file_catalog.json"))
     init_vault_structure()
 
 

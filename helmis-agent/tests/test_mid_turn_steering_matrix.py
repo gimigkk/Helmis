@@ -15,12 +15,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import httpx
-
-from src.agent import drain_and_inject_mid_turn_mailbox, run_agentic_react_loop
-from src.client import WahaClient
-from src.queue import ChatQueueManager, ChatQueueWorker, IncomingMessageEvent
-from src import memory, semantic_memory
+from src.agent.loop import drain_and_inject_mid_turn_mailbox, run_agentic_react_loop
+from src.memory import semantic as semantic_memory, store as memory
+from src.whatsapp.client import WahaClient
+from src.whatsapp.queue import ChatQueueManager, ChatQueueWorker, IncomingMessageEvent
 
 
 @pytest.mark.asyncio
@@ -201,8 +199,7 @@ async def test_hard_safety_ceiling_against_infinite_injection_loops(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Edge Case 16: Constant spam injection terminates at ABSOLUTE_MAX_STEPS (18)."""
-    monkeypatch.setattr("src.agent.GEMINI_KEYS", ["test_key_12345"])
-    monkeypatch.setattr("src.cascade.GEMINI_KEYS", ["test_key_12345"])
+    monkeypatch.setattr("src.agent.cascade.GEMINI_KEYS", ["test_key_12345"])
 
     mailbox: asyncio.Queue[IncomingMessageEvent] = asyncio.Queue()
     mock_client = AsyncMock(spec=WahaClient)

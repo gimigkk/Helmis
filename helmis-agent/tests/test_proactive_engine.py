@@ -10,9 +10,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.client import WahaClient
-from src.memory import add_task, complete_task, load_memory, save_memory, update_task
+from src.memory.store import add_task, complete_task, load_memory, save_memory, update_task
 from src.proactive import handle_proactive_scheduler_tick
+from src.whatsapp.client import WahaClient
 
 TZ = ZoneInfo("Asia/Jakarta")
 

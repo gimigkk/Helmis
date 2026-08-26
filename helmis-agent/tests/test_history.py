@@ -4,7 +4,7 @@ test_history.py — Tests for chat history chronological ordering and deduplicat
 
 from unittest.mock import MagicMock
 
-from src import history
+from src.whatsapp import history
 
 
 def test_message_deduplication() -> None:

@@ -11,9 +11,7 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from src.client import WahaClient
-from src.tools import execute_tool_call
-from src.vault import (
+from src.memory.vault import (
     create_vault_directory,
     delete_vault_directory,
     delete_vault_files,
@@ -29,7 +27,9 @@ from src.vault import (
     save_file_to_vault,
     search_vault,
 )
-from src.webhook import create_webhook_app
+from src.tools import execute_tool_call
+from src.whatsapp.client import WahaClient
+from src.whatsapp.webhook import create_webhook_app
 
 
 @pytest.fixture(autouse=True)
@@ -39,9 +39,9 @@ def isolated_vault_environment(monkeypatch: pytest.MonkeyPatch) -> Generator[str
     vault_dir = os.path.join(temp_dir, "vault")
     catalog_file = os.path.join(temp_dir, "file_catalog.json")
 
-    monkeypatch.setattr("src.vault.DATA_DIR", temp_dir)
-    monkeypatch.setattr("src.vault.VAULT_DIR", vault_dir)
-    monkeypatch.setattr("src.vault.CATALOG_FILE", catalog_file)
+    monkeypatch.setattr("src.memory.vault.DATA_DIR", temp_dir)
+    monkeypatch.setattr("src.memory.vault.VAULT_DIR", vault_dir)
+    monkeypatch.setattr("src.memory.vault.CATALOG_FILE", catalog_file)
 
     init_vault_structure()
 
@@ -57,9 +57,9 @@ def test_sanitize_filename_and_path_safety() -> None:
     assert sanitize_filename("../../../etc/passwd") == "passwd"
 
     # Path safety
-    from src.vault import VAULT_DIR
-    safe_path = os.path.join(VAULT_DIR, "health", "gilang", "bpjs.pdf")
-    unsafe_path = os.path.join(VAULT_DIR, "..", "passwords.txt")
+    from src.memory.vault import _get_vault_dir
+    safe_path = os.path.join(_get_vault_dir(), "health", "gilang", "bpjs.pdf")
+    unsafe_path = os.path.join(_get_vault_dir(), "..", "passwords.txt")
     assert is_safe_vault_path(safe_path) is True
     assert is_safe_vault_path(unsafe_path) is False
 
@@ -419,13 +419,13 @@ async def test_react_read_vault_file_tool() -> None:
 
 def test_vault_catalog_corruption_auto_repair() -> None:
     """Verify corrupted JSON catalog automatically self-heals."""
-    import src.vault
+    import src.memory.vault as vault
     # Overwrite catalog file with invalid truncated JSON
-    with open(src.vault.CATALOG_FILE, "w") as f:
+    with open(vault._get_catalog_file(), "w") as f:
         f.write("{ invalid json corrupted ")
 
     # Load should catch error and return fresh structure
-    cat = src.vault._load_catalog()
+    cat = vault._load_catalog()
     assert "files" in cat
     assert isinstance(cat["files"], list)
 

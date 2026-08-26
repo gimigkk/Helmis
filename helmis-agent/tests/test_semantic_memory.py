@@ -8,7 +8,7 @@ from collections.abc import Generator
 
 import pytest
 
-import src.semantic_memory as sem_mem
+import src.memory.semantic as sem_mem
 
 
 @pytest.fixture(autouse=True)

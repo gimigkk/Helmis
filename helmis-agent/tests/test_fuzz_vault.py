@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-import src.vault
-from src.vault import (
+import src.memory.vault as vault
+from src.memory.vault import (
     init_vault_structure,
     is_safe_vault_path,
     list_vault_files,
@@ -34,9 +34,9 @@ def clean_vault_fuzz_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     """Isolate vault environment for fuzzing."""
     vault_data_dir = tmp_path / "data"
     vault_data_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr("src.vault.DATA_DIR", str(vault_data_dir))
-    monkeypatch.setattr("src.vault.VAULT_DIR", str(vault_data_dir / "vault"))
-    monkeypatch.setattr("src.vault.CATALOG_FILE", str(vault_data_dir / "file_catalog.json"))
+    monkeypatch.setattr("src.memory.vault.DATA_DIR", str(vault_data_dir))
+    monkeypatch.setattr("src.memory.vault.VAULT_DIR", str(vault_data_dir / "vault"))
+    monkeypatch.setattr("src.memory.vault.CATALOG_FILE", str(vault_data_dir / "file_catalog.json"))
     init_vault_structure()
 
 
@@ -104,7 +104,7 @@ def test_fuzz_path_traversal_and_directory_escape_attacks() -> None:
             filename=attack,
             subfolder=attack,
         )
-        full_dest = os.path.join(src.vault.VAULT_DIR, rec["relative_path"])
+        full_dest = os.path.join(vault.VAULT_DIR, rec["relative_path"])
         assert is_safe_vault_path(full_dest)
         assert ".." not in rec["relative_path"]
 

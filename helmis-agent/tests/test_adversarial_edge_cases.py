@@ -9,13 +9,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import src.semantic_memory as sem_mem
+import src.memory.semantic as sem_mem
 from src import memory
-from src.agent import run_agentic_react_loop
-from src.client import WahaClient
-from src.guardrails import verify_action_fidelity
+from src.agent.cascade import GEMINI_KEYS
+from src.agent.guardrails import verify_action_fidelity
+from src.agent.loop import run_agentic_react_loop
+from src.memory.vault import save_file_to_vault
 from src.models import WahaHistoryMessage
-from src.vault import save_file_to_vault
+from src.whatsapp.client import WahaClient
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +47,7 @@ def isolated_test_env(monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, N
 async def test_group_chat_couples_banter_must_stay_silent(monkeypatch: pytest.MonkeyPatch) -> None:
     """Couples talking to each other without mentioning bot must return [NO_REPLY] (None)."""
     import src.agent as agent
-    import src.cascade as cascade
+    import src.agent.cascade as cascade
 
     client = MagicMock(spec=WahaClient)
     client.is_reachable = AsyncMock(return_value=True)
@@ -87,7 +88,7 @@ async def test_group_chat_couples_banter_must_stay_silent(monkeypatch: pytest.Mo
 async def test_group_chat_explicit_bot_invocation_must_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     """When directly addressed ('Helmis' or 'mis'), bot MUST respond."""
     import src.agent as agent
-    import src.cascade as cascade
+    import src.agent.cascade as cascade
 
     client = MagicMock(spec=WahaClient)
     client.is_reachable = AsyncMock(return_value=True)

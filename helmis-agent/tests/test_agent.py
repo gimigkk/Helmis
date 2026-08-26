@@ -310,7 +310,7 @@ async def test_execute_tool_call_web_search() -> None:
         "count": 1,
         "results": [{"title": "Restoran Sunda", "snippet": "Buka jam 10", "url": "https://example.com"}],
     }
-    with patch("src.search.search_web", new=AsyncMock(return_value=mock_res)):
+    with patch("src.whatsapp.search.search_web", new=AsyncMock(return_value=mock_res)):
         res = await agent.execute_tool_call(
             func_name="web_search",
             args={"query": "restoran sunda"},
@@ -323,7 +323,7 @@ async def test_execute_tool_call_web_search() -> None:
 async def test_execute_tool_call_delete_memory() -> None:
     from unittest.mock import patch
 
-    with patch("src.semantic_memory.delete_memory", return_value={"status": "success", "deleted_count": 1}):
+    with patch("src.memory.semantic.delete_memory", return_value={"status": "success", "deleted_count": 1}):
         res = await agent.execute_tool_call(
             func_name="delete_memory",
             args={"query": "kopi manis"},
@@ -361,7 +361,7 @@ def test_verify_action_fidelity_passes_successful_turns() -> None:
 
 
 def test_format_tool_chips_deduplicates_and_orders() -> None:
-    from src.guardrails import format_tool_chips
+    from src.agent.guardrails import format_tool_chips
 
     assert format_tool_chips([]) is None
     chips = format_tool_chips([

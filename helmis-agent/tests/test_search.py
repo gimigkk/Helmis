@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.search import search_web
+from src.whatsapp.search import search_web
 
 
 @pytest.mark.asyncio
