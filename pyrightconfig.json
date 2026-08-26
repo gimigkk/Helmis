@@ -3,17 +3,28 @@
     "helmis-agent/src",
     "helmis-agent/tests"
   ],
+  "exclude": [
+    "**/__pyrefly_virtual__/**",
+    "**/inmemory/**",
+    "**/node_modules",
+    "**/__pycache__",
+    "helmis-agent/.venv"
+  ],
+  "venvPath": "helmis-agent",
+  "venv": ".venv",
   "executionEnvironments": [
     {
       "root": "helmis-agent",
       "extraPaths": [
         "helmis-agent",
-        "helmis-agent/src"
+        "helmis-agent/src",
+        "helmis-agent/tests"
       ]
     }
   ],
   "extraPaths": [
     "helmis-agent",
-    "helmis-agent/src"
+    "helmis-agent/src",
+    "helmis-agent/tests"
   ]
 }
