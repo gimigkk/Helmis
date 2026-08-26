@@ -4,6 +4,8 @@ test_queue.py — Tests for Per-Chat FIFO Queue and Burst Debouncing.
 
 import asyncio
 
+from typing import Any
+
 import pytest
 
 from src.queue import ChatQueueManager, ChatQueueWorker, IncomingMessageEvent
