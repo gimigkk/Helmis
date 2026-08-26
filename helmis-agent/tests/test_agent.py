@@ -344,11 +344,12 @@ def test_verify_action_fidelity_enforces_not_found_message() -> None:
         }
     ]
     corrected = agent.verify_action_fidelity("Sip, sudah saya hapus.", tools_failed)
-    assert corrected == "Tidak ditemukan memori yang cocok di database."
+    assert "`delete_memory`" in corrected
+    assert "Tidak ditemukan memori yang cocok di database." in corrected
 
 
 def test_verify_action_fidelity_passes_successful_turns() -> None:
-    # When mutation tool succeeded, the synthesized response passes through unaltered
+    # When mutation tool succeeded, verify tool chips are prepended to the response
     tools_success = [
         {
             "name": "delete_memory",
@@ -356,7 +357,19 @@ def test_verify_action_fidelity_passes_successful_turns() -> None:
         }
     ]
     verified = agent.verify_action_fidelity("Sip, sudah saya hapus ya.", tools_success)
-    assert verified == "Sip, sudah saya hapus ya."
+    assert verified == "`delete_memory`\n\nSip, sudah saya hapus ya."
+
+
+def test_format_tool_chips_deduplicates_and_orders() -> None:
+    from src.guardrails import format_tool_chips
+
+    assert format_tool_chips([]) is None
+    chips = format_tool_chips([
+        {"name": "search_vault_files"},
+        {"name": "read_vault_file"},
+        {"name": "search_vault_files"},  # duplicate
+    ])
+    assert chips == "`search_vault_files` `read_vault_file`"
 
 
 async def test_execute_tool_call_send_status_update() -> None:

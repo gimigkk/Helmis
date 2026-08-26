@@ -569,24 +569,29 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     combined_text = f"{doc_banner}\n\n{combined_text}" if combined_text else doc_banner
                     tracer.message_text = combined_text
 
-            # Dynamic Progress Watchdog: reassure after 7.5s only if complex tools are executing
+            # Dynamic Progress Watchdog: reassure after 3.5s only if complex tools are executing
             async def progress_watchdog() -> None:
                 try:
-                    await asyncio.sleep(7.5)
+                    await asyncio.sleep(3.5)
                     # Don't fire if items were already dispatched to the chat or turn finished
                     if turn_state.get("dispatched_items", 0) > 0:
                         return
-                    action_desc = describe_intent_action(
-                        text=combined_text,
-                        has_media=has_media,
-                        media_data=media_data,
-                        is_voice_note=is_voice_note,
-                        current_tool=turn_state.get("current_tool"),
-                        tool_args=turn_state.get("tool_args"),
-                    )
-                    log.info("Agent turn taking >7.5s for [%s]: %s", sender_name, action_desc)
+                    cur_tool = turn_state.get("current_tool")
+                    if cur_tool:
+                        reassurance_msg = f"_Menjalankan `{cur_tool}`..._"
+                    else:
+                        action_desc = describe_intent_action(
+                            text=combined_text,
+                            has_media=has_media,
+                            media_data=media_data,
+                            is_voice_note=is_voice_note,
+                            current_tool=cur_tool,
+                            tool_args=turn_state.get("tool_args"),
+                        )
+                        reassurance_msg = f"Sebentar ya, {action_desc}..."
+
+                    log.info("Agent turn taking >3.5s for [%s]: %s", sender_name, reassurance_msg)
                     await client.start_typing(chat_id=from_user)
-                    reassurance_msg = f"Sebentar ya, {action_desc}..."
                     await client.send_message(chat_id=from_user, text=reassurance_msg)
                 except asyncio.CancelledError:
                     pass

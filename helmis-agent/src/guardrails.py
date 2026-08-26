@@ -31,13 +31,30 @@ def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, A
     return result
 
 
+def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
+    """
+    Format executed tool names into a clean inline monospace chips header.
+    Example: `search_vault_files` `read_vault_file`
+    """
+    if not executed_tools:
+        return None
+    tool_names = [t.get("name") for t in executed_tools if t.get("name")]
+    if not tool_names:
+        return None
+    # Deduplicate while preserving order of execution
+    unique_tools = list(dict.fromkeys(tool_names))
+    chips = " ".join(f"`{name}`" for name in unique_tools)
+    return chips
+
+
 def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> str:
     """
     Structural State Fidelity Guardrail:
     Ensures that when tools are executed in a turn, the finalized response is strictly consistent
     with the actual ground-truth outcome of the database and vault operations without brittle keyword matching.
+    Also prepends inline tool chips (`tool_name` `tool_2`) for complete execution transparency.
     """
-    if not executed_tools:
+    if not executed_tools or not text or text.strip() in ("[NO_REPLY]", "NO_REPLY", "None"):
         return text
 
     # Check state mutation and vault retrieval tools
@@ -63,6 +80,7 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
         )
     ]
 
+    final_text = text
     if mutation_tools:
         # If all mutation tools returned 'not_found', enforce the verified database message
         all_not_found = all(
@@ -72,7 +90,7 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
             last_res = mutation_tools[-1].get("result", {})
             msg = last_res.get("message")
             if msg and isinstance(msg, str):
-                return msg
+                final_text = msg
 
         # If all mutation tools returned 'error', enforce a clean, verified message
         all_errors = all(t.get("result", {}).get("status") == "error" for t in mutation_tools)
@@ -82,7 +100,13 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
             if err and isinstance(err, str):
                 # If err is a raw HTTP/API error or stacktrace, let the LLM's natural explanation stand!
                 if any(x in err for x in ("WAHA API error", "422", "Traceback", "statusCode", "Unprocessable")):
-                    return text if text and not any(x in text for x in ("WAHA API error", "statusCode", "Unprocessable")) else "Mohon maaf, terjadi kendala teknis saat memproses pengiriman file."
-                return err
+                    final_text = text if text and not any(x in text for x in ("WAHA API error", "statusCode", "Unprocessable")) else "Mohon maaf, terjadi kendala teknis saat memproses pengiriman file."
+                else:
+                    final_text = err
 
-    return text
+    # Prepend inline monospace tool chips for complete transparency
+    chips = format_tool_chips(executed_tools)
+    if chips and not final_text.startswith(chips):
+        final_text = f"{chips}\n\n{final_text}"
+
+    return final_text
