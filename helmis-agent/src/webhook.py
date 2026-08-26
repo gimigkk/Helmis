@@ -346,7 +346,10 @@ def split_into_bubbles(text: str) -> list[str]:
 def create_webhook_app(client: WahaClient) -> Starlette:
     """Create Starlette app for webhooks and health checks with Per-Chat Debounce Queue."""
 
-    async def process_batched_turn(batch: list[IncomingMessageEvent]) -> None:
+    async def process_batched_turn(
+        batch: list[IncomingMessageEvent],
+        mailbox: asyncio.Queue[IncomingMessageEvent] | None = None,
+    ) -> None:
         if not batch:
             return
 
@@ -355,7 +358,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
         from_user = last_event.from_user
         reply_id = last_event.reply_id
 
-        # Combine all debounced texts into a single coherent prompt, preserving quoted context
+        # Combine burst texts and quoted info
         all_texts: list[str] = []
         for e in batch:
             t = e.text.strip() if e.text else ""
@@ -422,6 +425,19 @@ def create_webhook_app(client: WahaClient) -> Starlette:
         tracer.log_incoming()
 
         turn_state: dict[str, Any] = {"current_tool": None, "tool_args": None}
+
+        # Keepalive typing status for long-running / multi-step steered turns
+        async def _keep_typing() -> None:
+            try:
+                while True:
+                    await asyncio.sleep(7.5)
+                    await client.start_typing(chat_id=from_user)
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
+        typing_keepalive_task = asyncio.create_task(_keep_typing())
 
         try:
             is_voice_note = False
@@ -553,7 +569,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     combined_text = f"{doc_banner}\n\n{combined_text}" if combined_text else doc_banner
                     tracer.message_text = combined_text
 
-            # Watchdog task: if agent is taking > 7.5 seconds (genuinely stuck or deep research), send reassurance
+            # Dynamic Progress Watchdog: reassure after 7.5s only if complex tools are executing
             async def progress_watchdog() -> None:
                 try:
                     await asyncio.sleep(7.5)
@@ -579,7 +595,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
 
             watchdog_task = asyncio.create_task(progress_watchdog())
             try:
-                # Phase 2: Run autonomous agent loop on verified text/media
+                # Phase 2: Run autonomous agent loop on verified text/media with mailbox steering
                 reply_text = await run_agentic_react_loop(
                     client=client,
                     sender_name=sender_name,
@@ -589,9 +605,11 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     max_steps=12,
                     tracer=tracer,
                     turn_state=turn_state,
+                    mailbox=mailbox,
                 )
             finally:
                 watchdog_task.cancel()
+                typing_keepalive_task.cancel()
 
             final_text: str | None = None
             if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):

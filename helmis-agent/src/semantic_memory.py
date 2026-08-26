@@ -24,7 +24,7 @@ DATA_DIR = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else
 SEMANTIC_MEMORY_FILE = os.path.join(DATA_DIR, "semantic_memories.json")
 TZ = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
 
-_semantic_lock = threading.Lock()
+_semantic_lock = threading.RLock()
 
 
 def _ensure_dir() -> None:

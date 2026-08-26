@@ -20,7 +20,7 @@ DATA_DIR = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else
 MEMORY_FILE = os.path.join(DATA_DIR, "helmis_memory.json")
 TZ = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
 
-_memory_lock = threading.Lock()
+_memory_lock = threading.RLock()
 
 
 def _ensure_data_dir() -> None:

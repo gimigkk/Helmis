@@ -2,6 +2,7 @@
 agent.py — Autonomous ReAct Agent Loop & Gemini LLM Orchestrator.
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -43,15 +44,68 @@ __all__ = [
 log = logging.getLogger("helmis-agent")
 
 
+async def drain_and_inject_mid_turn_mailbox(
+    contents: list[dict[str, Any]],
+    mailbox: asyncio.Queue[Any] | None,
+    client: WahaClient,
+    sender_name: str,
+    turn_state: dict[str, Any] | None = None,
+) -> bool:
+    """Drain all pending user messages from the active turn mailbox and inject as mid-turn steering."""
+    if not mailbox or mailbox.empty():
+        return False
+
+    injected_texts: list[str] = []
+    while not mailbox.empty():
+        evt = mailbox.get_nowait()
+        t = str(getattr(evt, "text", "") or "").strip()
+        if getattr(evt, "has_media", False) and getattr(evt, "media_url", None):
+            try:
+                m_res = await client.download_media_base64(evt.media_url)
+                if m_res:
+                    m_mime, m_b64 = m_res
+                    if m_mime.startswith("audio/"):
+                        vn_t = await transcribe_audio_base64(m_b64, m_mime)
+                        if vn_t:
+                            t = f'{t} (Pesan Suara: "{vn_t}")' if t else f'Pesan Suara: "{vn_t}"'
+                    else:
+                        fn_label = getattr(evt, "media_filename", None) or m_mime
+                        t = f'{t} [Lampiran Media: {fn_label}]' if t else f'[Lampiran Media: {fn_label}]'
+            except Exception as e:
+                log.warning("Could not download/transcribe mid-turn media: %s", e)
+
+        if t:
+            injected_texts.append(t)
+
+    if not injected_texts:
+        return False
+
+    combined_injection = "\n".join(injected_texts)
+    banner = f'[Pesan Tambahan dari {sender_name} saat kamu sedang memproses]: "{combined_injection}"'
+    log.info("Mid-turn steering injected into active ReAct turn for [%s]: %s", sender_name, combined_injection[:60])
+
+    if turn_state is not None:
+        turn_state["has_mid_turn_update"] = True
+
+    # Inject into contents adhering to Gemini API schema
+    if contents and contents[-1].get("role") == "user":
+        contents[-1]["parts"].append({"text": banner})
+    else:
+        contents.append({"role": "user", "parts": [{"text": banner}]})
+
+    return True
+
+
 async def run_agentic_react_loop(
     client: WahaClient,
     sender_name: str,
     chat_id: str,
     message_text: str,
-    media_data: dict[str, str] | None = None,
+    media_data: dict[str, Any] | None = None,
     max_steps: int = 12,
     tracer: Any | None = None,
     turn_state: dict[str, Any] | None = None,
+    mailbox: asyncio.Queue[Any] | None = None,
 ) -> str | None:
     """
     Run multi-step ReAct agent loop:
@@ -157,8 +211,23 @@ async def run_agentic_react_loop(
     executed_tools: list[dict[str, Any]] = []
     active_model = candidate_models[0] if candidate_models else "gemini-flash-lite-latest"
 
-    for step in range(max_steps):
-        log.debug("Running Agentic ReAct step %d/%d for [%s]...", step + 1, max_steps, sender_name)
+    step = 0
+    total_steps = 0
+    while step < max_steps and total_steps < 18:
+        total_steps += 1
+        log.debug("Running Agentic ReAct step %d (total %d/18) for [%s]...", step + 1, total_steps, sender_name)
+
+        # Check for mid-turn user input before calling the model
+        has_new_input = await drain_and_inject_mid_turn_mailbox(
+            contents=contents,
+            mailbox=mailbox,
+            client=client,
+            sender_name=sender_name,
+            turn_state=turn_state,
+        )
+        if has_new_input:
+            step = max(0, step - 3)
+
         payload = {
             "systemInstruction": {"parts": [{"text": full_system_instruction}]},
             "contents": contents,
@@ -251,6 +320,19 @@ async def run_agentic_react_loop(
                     ],
                 }
             )
+
+            # Check mailbox immediately after tool execution
+            has_tool_input = await drain_and_inject_mid_turn_mailbox(
+                contents=contents,
+                mailbox=mailbox,
+                client=client,
+                sender_name=sender_name,
+                turn_state=turn_state,
+            )
+            if has_tool_input:
+                step = max(0, step - 3)
+
+            step += 1
             continue
 
         # Case B: Model generated final text output

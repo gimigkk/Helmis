@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from src.queue import ChatQueueManager, IncomingMessageEvent
+from src.queue import ChatQueueManager, ChatQueueWorker, IncomingMessageEvent
 
 
 @pytest.mark.asyncio
@@ -143,4 +143,115 @@ def test_split_into_bubbles_empty_and_short() -> None:
     assert split_into_bubbles("") == []
     assert split_into_bubbles("Sip udah ya.") == ["Sip udah ya."]
     assert split_into_bubbles("Halo Gilang\n\nAda apa nih?") == ["Halo Gilang\n\nAda apa nih?"]
+
+
+@pytest.mark.asyncio
+async def test_active_turn_mailbox_routes_messages_mid_turn() -> None:
+    """Verify that messages arriving while a turn is in-flight route directly into active_turn_mailbox."""
+    mailbox_received: list[str] = []
+
+    async def mock_handler(
+        batch: list[IncomingMessageEvent],
+        mailbox: asyncio.Queue[IncomingMessageEvent] | None = None,
+    ) -> None:
+        assert mailbox is not None
+        # Simulate long-running turn
+        await asyncio.sleep(0.15)
+        # Drain mailbox
+        while not mailbox.empty():
+            evt = mailbox.get_nowait()
+            mailbox_received.append(evt.text)
+
+    worker = ChatQueueWorker(
+        chat_id="gilang@c.us",
+        turn_handler=mock_handler,
+        debounce_seconds=0.05,
+    )
+
+    # 1. Enqueue initial message
+    worker.enqueue(
+        IncomingMessageEvent(
+            sender_name="Gilang",
+            from_user="gilang@c.us",
+            reply_id="m1",
+            text="Cari tiket ke Bali tanggal 15",
+            has_media=False,
+            media_url=None,
+            media_type=None,
+            timestamp=1.0,
+        )
+    )
+
+    # Wait for debounce to finish and turn loop to start
+    await asyncio.sleep(0.08)
+    assert worker.active_turn_mailbox is not None
+
+    # 2. Enqueue mid-turn correction while turn is actively running
+    worker.enqueue(
+        IncomingMessageEvent(
+            sender_name="Gilang",
+            from_user="gilang@c.us",
+            reply_id="m2",
+            text="Eh ralat tanggal 16 ya",
+            has_media=False,
+            media_url=None,
+            media_type=None,
+            timestamp=1.05,
+        )
+    )
+
+    # Wait for turn handler to finish
+    await asyncio.sleep(0.15)
+
+    assert len(mailbox_received) == 1
+    assert mailbox_received[0] == "Eh ralat tanggal 16 ya"
+
+
+@pytest.mark.asyncio
+async def test_drain_and_inject_mid_turn_mailbox() -> None:
+    """Verify drain_and_inject_mid_turn_mailbox injects steering text into conversation contents."""
+    from src.agent import drain_and_inject_mid_turn_mailbox
+    from src.client import WahaClient
+    from unittest.mock import AsyncMock
+
+    mock_client = AsyncMock(spec=WahaClient)
+    mailbox: asyncio.Queue[IncomingMessageEvent] = asyncio.Queue()
+
+    contents: list[dict[str, Any]] = [
+        {"role": "user", "parts": [{"text": "Cari tiket ke Bali"}]},
+        {"role": "model", "parts": [{"functionCall": {"name": "search_web", "args": {"query": "tiket bali 15"}}}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "search_web", "response": {"output": "Hasil 15"}}}]},
+    ]
+
+    # Push mid-turn correction
+    mailbox.put_nowait(
+        IncomingMessageEvent(
+            sender_name="Gilang",
+            from_user="gilang@c.us",
+            reply_id="m2",
+            text="Ralat tanggal 16 maksudnya",
+            has_media=False,
+            media_url=None,
+            media_type=None,
+            timestamp=2.0,
+        )
+    )
+
+    turn_state: dict[str, Any] = {}
+    injected = await drain_and_inject_mid_turn_mailbox(
+        contents=contents,
+        mailbox=mailbox,
+        client=mock_client,
+        sender_name="Gilang",
+        turn_state=turn_state,
+    )
+
+    assert injected is True
+    assert turn_state.get("has_mid_turn_update") is True
+    # The last user turn should now contain the injection banner
+    assert len(contents[-1]["parts"]) == 2
+    injected_part = contents[-1]["parts"][1]["text"]
+    assert "[Pesan Tambahan dari Gilang saat kamu sedang memproses]" in injected_part
+    assert "Ralat tanggal 16 maksudnya" in injected_part
+
 

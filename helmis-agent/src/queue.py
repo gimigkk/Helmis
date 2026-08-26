@@ -8,6 +8,7 @@ Provides:
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from collections.abc import Callable, Coroutine
@@ -15,6 +16,8 @@ from dataclasses import dataclass
 from typing import Any
 
 log = logging.getLogger("helmis-queue")
+
+TurnHandler = Callable[..., Coroutine[Any, Any, None]]
 
 
 @dataclass
@@ -38,29 +41,39 @@ class IncomingMessageEvent:
 
 
 class ChatQueueWorker:
-    """Manages sequential execution and burst message combining for a single chat_id."""
+    """Manages sequential execution, burst message combining, and mid-turn steering for a single chat_id."""
 
     def __init__(
         self,
         chat_id: str,
-        turn_handler: Callable[[list[IncomingMessageEvent]], Coroutine[Any, Any, None]],
+        turn_handler: TurnHandler,
         debounce_seconds: float = 1.0,
     ) -> None:
         self.chat_id = chat_id
         self.turn_handler = turn_handler
         self.debounce_seconds = debounce_seconds
         self.queue: asyncio.Queue[IncomingMessageEvent] = asyncio.Queue()
+        self.active_turn_mailbox: asyncio.Queue[IncomingMessageEvent] | None = None
         self.worker_task: asyncio.Task[None] | None = None
         self._running = True
 
     def enqueue(self, event: IncomingMessageEvent) -> None:
-        """Enqueue an incoming message event."""
+        """Enqueue an incoming message event, steering active in-flight turn if running."""
+        if self.active_turn_mailbox is not None:
+            log.debug(
+                "Chat [%s] routing incoming message directly to active turn mailbox: %s",
+                self.chat_id,
+                event.text[:40],
+            )
+            self.active_turn_mailbox.put_nowait(event)
+            return
+
         self.queue.put_nowait(event)
         if not self.worker_task or self.worker_task.done():
             self.worker_task = asyncio.create_task(self._worker_loop())
 
     async def _worker_loop(self) -> None:
-        """Worker loop that debounces and processes turns sequentially."""
+        """Worker loop that debounces and processes turns sequentially with mid-turn steering."""
         while self._running:
             try:
                 # Wait for at least one message
@@ -83,11 +96,30 @@ class ChatQueueWorker:
                     len(batch),
                 )
 
-                # Process turn sequentially
+                # Set up active turn mailbox for mid-thought steering
+                mailbox: asyncio.Queue[IncomingMessageEvent] = asyncio.Queue()
+                self.active_turn_mailbox = mailbox
+
+                # Process turn sequentially with active mailbox steering
                 try:
-                    await self.turn_handler(batch)
+                    sig = inspect.signature(self.turn_handler)
+                    if "mailbox" in sig.parameters:
+                        await self.turn_handler(batch, mailbox=mailbox)
+                    else:
+                        await self.turn_handler(batch)
                 except Exception as e:
                     log.exception("Error processing turn for chat [%s]: %s", self.chat_id, e)
+                finally:
+                    self.active_turn_mailbox = None
+                    # Drain any messages that arrived at the exact millisecond of turn finalization
+                    while not mailbox.empty():
+                        unprocessed_event = mailbox.get_nowait()
+                        log.debug(
+                            "Transferring unconsumed mailbox message back to queue for [%s]: %s",
+                            self.chat_id,
+                            unprocessed_event.text[:40],
+                        )
+                        self.queue.put_nowait(unprocessed_event)
 
             except asyncio.CancelledError:
                 break
@@ -101,7 +133,7 @@ class ChatQueueManager:
 
     def __init__(
         self,
-        turn_handler: Callable[[list[IncomingMessageEvent]], Coroutine[Any, Any, None]],
+        turn_handler: TurnHandler,
         debounce_seconds: float = 1.0,
     ) -> None:
         self.turn_handler = turn_handler
