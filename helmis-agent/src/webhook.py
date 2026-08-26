@@ -569,6 +569,10 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             final_text: str | None = None
             if reply_text and reply_text.strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
                 clean_reply = reply_text.strip()
+                for prefix in ("[Helmis]:", "[Helmis]: ", "[Gilang]:", "[Gilang]: ", "[Bunga]:", "[Bunga]: "):
+                    if clean_reply.startswith(prefix):
+                        clean_reply = clean_reply[len(prefix):].strip()
+
                 if is_voice_note and vn_transcript:
                     if clean_reply.startswith("> "):
                         lines = clean_reply.split("\n", 2)

@@ -319,6 +319,12 @@ class WahaClient:
             return []
 
         messages: list[WahaHistoryMessage] = []
+        bot_phone = (
+            os.environ.get("BOT_PHONE", "")
+            .replace("+", "")
+            .replace(" ", "")
+            .replace("-", "")
+        )
         gilang_phone = (
             os.environ.get("GILANG_PHONE", "")
             .replace("+", "")
@@ -331,6 +337,8 @@ class WahaClient:
             .replace(" ", "")
             .replace("-", "")
         )
+        gilang_lid = os.environ.get("GILANG_LID", "").replace("@lid", "").strip()
+        bunga_lid = os.environ.get("BUNGA_LID", "").replace("@lid", "").strip()
 
         for msg in data:
             if isinstance(msg, dict):
@@ -339,6 +347,56 @@ class WahaClient:
                     or msg.get("caption")
                     or msg.get("_data", {}).get("Message", {}).get("conversation")
                 )
+
+                is_from_me = bool(
+                    msg.get("fromMe") is True
+                    or str(msg.get("id", "")).startswith("true_")
+                )
+
+                author_raw = str(
+                    msg.get("author")
+                    or msg.get("participant")
+                    or msg.get("_data", {}).get("author")
+                    or msg.get("from")
+                    or ""
+                )
+                clean_author = (
+                    author_raw.split("@")[0]
+                    .split(":")[0]
+                    .replace("+", "")
+                    .replace(" ", "")
+                    .replace("-", "")
+                )
+                notify_name = str(
+                    msg.get("_data", {}).get("notifyName") or msg.get("notifyName") or ""
+                )
+
+                msg_sender: str = "Unknown"
+                if is_from_me or (bool(bot_phone) and bot_phone in clean_author):
+                    msg_sender = "Helmis"
+                elif (
+                    (bool(gilang_phone) and gilang_phone in clean_author)
+                    or (bool(gilang_lid) and clean_author.startswith(gilang_lid))
+                    or "gilang" in notify_name.lower()
+                ):
+                    msg_sender = "Gilang"
+                elif (
+                    (bool(bunga_phone) and bunga_phone in clean_author)
+                    or (bool(bunga_lid) and clean_author.startswith(bunga_lid))
+                    or "bunga" in notify_name.lower()
+                ):
+                    msg_sender = "Bunga"
+                else:
+                    if chat_id.endswith("@c.us"):
+                        clean_chat = chat_id.split("@")[0].replace("+", "").replace(" ", "").replace("-", "")
+                        if bool(gilang_phone) and gilang_phone in clean_chat:
+                            msg_sender = "Gilang"
+                        elif bool(bunga_phone) and bunga_phone in clean_chat:
+                            msg_sender = "Bunga"
+                        else:
+                            msg_sender = "User"
+                    else:
+                        msg_sender = notify_name or "Participant"
 
                 # Check for quoted messages in history
                 quoted_text: str | None = None
@@ -350,9 +408,9 @@ class WahaClient:
                     q_from_me = bool(reply_to.get("fromMe", False))
                     if q_from_me:
                         quoted_sender = "Helmis"
-                    elif gilang_phone and gilang_phone in q_part:
+                    elif (bool(gilang_phone) and gilang_phone in q_part) or (bool(gilang_lid) and q_part.startswith(gilang_lid)):
                         quoted_sender = "Gilang"
-                    elif bunga_phone and bunga_phone in q_part:
+                    elif (bool(bunga_phone) and bunga_phone in q_part) or (bool(bunga_lid) and q_part.startswith(bunga_lid)):
                         quoted_sender = "Bunga"
                     else:
                         quoted_sender = "Pesan Sebelumnya"
@@ -363,9 +421,9 @@ class WahaClient:
                     q_from_me = bool(q_msg.get("fromMe", False))
                     if q_from_me:
                         quoted_sender = "Helmis"
-                    elif gilang_phone and gilang_phone in q_part:
+                    elif (bool(gilang_phone) and gilang_phone in q_part) or (bool(gilang_lid) and q_part.startswith(gilang_lid)):
                         quoted_sender = "Gilang"
-                    elif bunga_phone and bunga_phone in q_part:
+                    elif (bool(bunga_phone) and bunga_phone in q_part) or (bool(bunga_lid) and q_part.startswith(bunga_lid)):
                         quoted_sender = "Bunga"
                     else:
                         quoted_sender = "Pesan Sebelumnya"
@@ -383,7 +441,7 @@ class WahaClient:
                 messages.append(
                     WahaHistoryMessage(
                         message_id=str(msg.get("id", "")),
-                        sender_phone=str(msg.get("from", "")),
+                        sender_phone=clean_author or str(msg.get("from", "")),
                         text=formatted_text,
                         media_url=msg.get("media", {}).get("url")
                         if isinstance(msg.get("media"), dict)
@@ -391,6 +449,9 @@ class WahaClient:
                         timestamp=int(msg.get("timestamp", 0)),
                         quoted_text=quoted_text,
                         quoted_sender=quoted_sender,
+                        sender_name=msg_sender,
+                        author=clean_author,
+                        from_me=is_from_me,
                     )
                 )
         return messages

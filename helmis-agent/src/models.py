@@ -130,6 +130,9 @@ class WahaHistoryMessage(BaseModel):
     timestamp: int
     quoted_text: str | None = None
     quoted_sender: str | None = None
+    sender_name: str | None = None
+    author: str | None = None
+    from_me: bool = False
 
 
 # ============================================================

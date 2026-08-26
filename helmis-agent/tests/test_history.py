@@ -57,3 +57,46 @@ def test_build_multi_turn_contents_chronological() -> None:
     # Final turn should be the current incoming turn
     assert contents[-1]["role"] == "user"
     assert "6 sore" in contents[-1]["parts"][0]["text"]
+
+
+def test_build_multi_turn_contents_multi_user_group() -> None:
+    # Simulating Trio Helmis group chat with Bunga, Helmis, and Gilang
+    m_bunga = MagicMock(
+        message_id="msg_bunga_1",
+        text="hari ini jadwal kuliah ak apa aja",
+        sender_phone="628555555555",
+        sender_name="Bunga",
+        timestamp=200,
+        from_me=False,
+    )
+    m_helmis = MagicMock(
+        message_id="true_helmis_1",
+        text="Jadwal kuliah kamu hari ini (Rabu): ...",
+        sender_phone="628333333333",
+        sender_name="Helmis",
+        timestamp=205,
+        from_me=True,
+    )
+
+    history_msgs = [m_bunga, m_helmis]
+
+    # Gilang speaks next:
+    contents = history.build_multi_turn_contents(
+        history_messages=history_msgs,
+        sender_name="Gilang",
+        current_text="Anjay udh dimasukin jadwal km?",
+    )
+
+    # Turn 0 MUST be attributed to Bunga, NOT overwritten as Gilang
+    assert contents[0]["role"] == "user"
+    assert "[Bunga]: hari ini jadwal kuliah ak apa aja" in contents[0]["parts"][0]["text"]
+    assert "[Gilang]: hari ini jadwal kuliah ak apa aja" not in contents[0]["parts"][0]["text"]
+
+    # Turn 1 is Helmis (model)
+    assert contents[1]["role"] == "model"
+    assert "Jadwal kuliah kamu hari ini" in contents[1]["parts"][0]["text"]
+
+    # Turn 2 is Gilang's current turn
+    assert contents[2]["role"] == "user"
+    assert "[Gilang]: Anjay udh dimasukin jadwal km?" in contents[2]["parts"][0]["text"]
+

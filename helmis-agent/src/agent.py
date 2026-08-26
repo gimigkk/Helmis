@@ -98,13 +98,14 @@ async def run_agentic_react_loop(
         f"   - Multi-bubble style: Use '---' or distinct paragraphs to separate distinct communicative acts into separate message bubbles.\n"
         f"   - Atomic structures: Keep structured task lists, schedules, tabular data, and code in ONE cohesive bubble.\n"
         f"   - Absolute Zero Emoji constraint. Use single asterisks *bold* for emphasis.\n\n"
-        f"2. MULTIMODAL, QUOTES & CONVERSATIONAL DYNAMICS:\n"
-        f"   - Quoted / Replied messages are prefixed with '> [Sender]: \"...\"'. When responding to a quote, address the content of that quoted message directly.\n"
-        f"   - If a user asks what they quoted or asks about a quote, look ONLY at the '> [Sender]: ...' block in the current turn. If there is NO '> [Sender]:' block in the prompt, state truthfully: 'Tidak ada pesan atau media yang ter-quote pada pesan ini.' NEVER invent or hallucinate a quoted message!\n"
-        f"   - Media (images, stickers, audio) are native context for conversation.\n"
-        f"   - Never generate unsolicited alt-text or visual descriptions (do not describe stickers, memes, or casual photos).\n"
-        f"   - Treat stickers and reaction images as emotional and conversational cues.\n"
-        f"   - For receipts, invoices, documents, or schedules, extract and act on the actionable data directly.\n"
+        f"2. GROUP DYNAMICS, CONVERSATIONAL CONNOTATIONS & SILENCE ([NO_REPLY]):\n"
+        f"   - Group Context ('Trio Helmis'): Gilang and Bunga are in a relationship and constantly talk, ask questions, and banter directly with EACH OTHER.\n"
+        f"   - Pronoun Awareness: 'km', 'kamu', 'lu', 'beb', 'sayang' from Gilang refers to Bunga; from Bunga it refers to Gilang. Never assume you are being addressed unless called by name ('Helmis', 'mis') or given an explicit secretary command.\n"
+        f"   - Human-to-Human Non-Intervention: When users ask each other questions ('Anjay udh dimasukin jadwal km?'), answer each other ('udahhh'), quote each other (> [Gilang] or > [Bunga]), or exchange casual banter/reactions ('wkwk', 'cie'), DO NOT INTERRUPT. Output '[NO_REPLY]'.\n"
+        f"   - Only reply in groups when: (1) Directly addressed ('Helmis', 'mis'), (2) Given a direct command/inquiry meant for secretary ('jadwal kuliah ak apa aja', 'catet tugas ini'), (3) Directly quoting a Helmis message with feedback/follow-up (> [Helmis]: ...).\n"
+        f"   - Connotations: Colloquial banter ('Anjay...') expresses human reaction, NOT a bug report or complaint about your previous response. Never invent unprompted apologies or unasked advice.\n"
+        f"   - Quoted / Replied messages: Prefix '> [Sender]: \"...\"' indicates who is being replied to. If a user asks what they quoted or asks about a quote, look ONLY at the '> [Sender]: ...' block in the current turn. If there is NO '> [Sender]:' block in the prompt, state truthfully: 'Tidak ada pesan atau media yang ter-quote pada pesan ini.' NEVER invent or hallucinate a quoted message!\n"
+        f"   - Media (images, stickers, audio) are native context for conversation. Never generate unsolicited alt-text or visual descriptions.\n"
         f"   - If no reply is required or conversational intent is silence, output '[NO_REPLY]'.\n\n"
         f"3. ACTION & TOOL FIDELITY:\n"
         f"   - State mutations (tasks, notes, reminders, memories) must always be performed via their respective tools.\n"
@@ -249,6 +250,9 @@ async def run_agentic_react_loop(
         text = candidate_part.get("text", "")
         if isinstance(text, str) and text.strip():
             raw_cleaned = text.strip()
+            for prefix in ("[Helmis]:", "[Helmis]: ", "[Gilang]:", "[Gilang]: ", "[Bunga]:", "[Bunga]: "):
+                if raw_cleaned.startswith(prefix):
+                    raw_cleaned = raw_cleaned[len(prefix):].strip()
             cleaned = verify_action_fidelity(raw_cleaned, executed_tools)
             if tracer:
                 tracer.log_step(

@@ -54,13 +54,16 @@ def build_multi_turn_contents(
         if text.strip() == current_text.strip() and not str(msg.message_id).startswith("true_"):
             continue
 
+        msg_sender = getattr(msg, "sender_name", None)
         is_bot = (
             str(msg.message_id).startswith("true_")
             or getattr(msg, "from_me", False) is True
+            or msg_sender == "Helmis"
             or (bool(BOT_PHONE) and BOT_PHONE in str(getattr(msg, "sender_phone", "")))
         )
         role = "model" if is_bot else "user"
-        content_text = text.strip() if role == "model" else f"[{sender_name}]: {text.strip()}"
+        effective_sender = "Helmis" if is_bot else (msg_sender or sender_name)
+        content_text = text.strip() if role == "model" else f"[{effective_sender}]: {text.strip()}"
 
         if contents and contents[-1]["role"] == role:
             contents[-1]["parts"][0]["text"] += f"\n{content_text}"
