@@ -1,286 +1,62 @@
-# Memory Architecture & Semantic Vector Store
+# Memory Architecture & Persistent Storage
 
-This document provides a technical deep dive into Helmis's dual-layer persistence system: the structured JSON store for deterministic operational state and the vector-backed semantic episodic store for long-term user preferences and biographical context.
-
----
-
-## 1. Unified Brain Design Philosophy
-
-Helmis operates with **one unified brain** serving two principals: **Gilang** and **Bunga**.
-
-```
-                ┌─────────────────────────────────────────┐
-                │          Helmis Unified Memory          │
-                └────────────────────┬────────────────────┘
-                                     │
-                 ┌───────────────────┴───────────────────┐
-                 │                                       │
-        ┌────────┴────────┐                     ┌────────┴────────┐
-        │ Structured JSON │                     │ Semantic Vector │
-        │  Operational    │                     │  Episodic &     │
-        │     Store       │                     │  Preferences    │
-        └────────┬────────┘                     └────────┬────────┘
-                 │                                       │
-     ├── Tasks & Deadlines                   ├── Personal Preferences
-     ├── People Directory                    ├── Dietary & Health Habits
-     ├── Shared Notes & Lists                ├── Historical Facts
-     └── Sent Activity Logs                  └── Relationships Context
-```
-
-### Context Visibility & Discretion Rules
-1. **Shared State by Default**: Tasks, appointments, household lists, and contact directories are fully shared. If Gilang notes a dentist appointment, Helmis can answer Bunga when she asks about the week's schedule.
-2. **Context Discretion in DMs**: In private direct messages, Helmis addresses the user personally and does not volunteer irrelevant private context from the other user unless directly requested.
-3. **Sender Attribution**: All tasks and facts are tagged with the creator/assignee (`user_id: "Gilang" | "Bunga" | "Both"`).
+This document details Helmis's 3-tier local storage architecture: the **Atomic JSON Store** (`helmis_memory.json`), **Semantic Vector Memory** (`semantic_memories.json`), and the **Document Vault** (`data/vault/`).
 
 ---
 
-## 2. Structured Operational Store (`helmis_memory.json`)
+## 1. Multi-Tier Storage Overview
 
-All operational data (tasks, schedule, directory, notes, activity logs) is persisted on disk in `/app/data/helmis_memory.json`.
+All user data is stored locally on the server volume (`./data`) with zero external database dependencies.
 
-### Concurrency & Thread-Safe Atomic Writes
-
-To prevent file corruption during simultaneous read/write operations across webhook threads, `memory.py` implements a reentrant lock and an atomic write pattern:
-
-```python
-_memory_lock = threading.Lock()
-
-def _save_memory_unlocked(data: dict[str, Any]) -> None:
-    tmp_file = f"{MEMORY_FILE}.tmp.{os.getpid()}"
-    try:
-        with open(tmp_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())  # Flush hardware buffers to disk
-        os.replace(tmp_file, MEMORY_FILE)  # Atomic POSIX rename
-    except Exception as e:
-        log.error("Failed to save memory file (%s): %s", MEMORY_FILE, e)
-        if os.path.exists(tmp_file):
-            try:
-                os.remove(tmp_file)
-            except Exception:
-                pass
 ```
-
-### Schema Definitions
-
-```json
-{
-  "tasks": [
-    {
-      "title": "Perpanjang STNK motor",
-      "due": "2026-08-28 10:00 WIB",
-      "assignee": "Gilang",
-      "status": "pending",
-      "reminded": false,
-      "created_at": "Tuesday, 25 August 2026 - 14:00 WIB",
-      "updated_at": "Tuesday, 25 August 2026 - 14:30 WIB"
-    }
-  ],
-  "people": {
-    "Dr. Andi": {
-      "phone": "62811223344",
-      "role": "Dokter Gigi Keluarga",
-      "notes": "Praktek di RS Pondok Indah, Senin & Kamis",
-      "updated_at": "Monday, 24 August 2026 - 09:15 WIB"
-    }
-  },
-  "notes": [
-    {
-      "title": "Belanja Mingguan",
-      "content": "1. Telur omega\n2. Susu oat\n3. Kopi arabika",
-      "created_at": "Sunday, 23 August 2026 - 19:20 WIB"
-    }
-  ],
-  "activity_log": [
-    {
-      "time": "Tuesday, 25 August 2026 - 07:30 WIB",
-      "summary": "Proactive reminder sent to Gilang for 'Check in Asah': \"Halo Gilang, pengingat...\""
-    }
-  ]
-}
+data/
+├── helmis_memory.json        # Atomic JSON Store: tasks, contacts, shared notes, schedules
+├── file_catalog.json         # Document Vault metadata catalog
+├── semantic_memories.json    # Vector Memory: episodic facts with Gemini 3072-dim embeddings
+├── vault/                    # Binary storage for PDFs, scans, receipts, and project files
+│   ├── health/               # Medical records, prescriptions, lab results
+│   ├── id_cards/             # Identity cards, passports, SIM, family cards
+│   ├── travel/               # Flight tickets, boarding passes, hotel bookings
+│   ├── receipts/             # Invoices, transfer receipts, bills, warranties
+│   ├── documents/            # CV, contracts, academic diplomas, modules
+│   ├── media/                # Saved photos, videos, audio clips
+│   └── projects/             # Custom project workspace folders
+└── agent_traces.jsonl        # Structured execution traces
 ```
 
 ---
 
-## 3. Task Lifecycle State Machine
+## 2. Atomic JSON Store (`src/memory/store.py`)
 
-Tasks progress through a deterministic lifecycle managed by CRUD tools:
+Handles structured records (tasks, people directory, notes, schedules) using atomic writes with file locking (`fcntl`) to guarantee zero corruption under concurrent read/writes.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Pending : add_task()
-    Pending --> Pending : update_task()
-    Pending --> Reminded : Proactive Scheduler Tick
-    Reminded --> Completed : complete_task()
-    Pending --> Completed : complete_task()
-    Pending --> [*] : delete_task()
-    Reminded --> [*] : delete_task()
-    Completed --> [*] : delete_task()
-```
-
-### Transition Invariants
-- **`pending`**: Task is active. Evaluated by scheduler on every proactive tick.
-- **`reminded: true`**: Proactive reminder has been delivered to the assignee's WhatsApp. Prevents duplicate spam on subsequent cron ticks.
-- **`completed`**: User confirmed completion. Filtered out of proactive checks and active prompt summaries.
-- **`deleted`**: Item purged completely from JSON store.
+### Data Schemas
+- **Tasks**: `id`, `title`, `assignee` (`"Gilang" | "Bunga" | "Both"`), `due_date`, `due_time`, `priority` (`"low" | "normal" | "urgent"`), `lead_time_minutes`, `status` (`"todo" | "in-progress" | "completed"`), `reminded_stages`.
+- **People**: `id`, `name`, `relationship`, `phone`, `email`, `notes`, `updated_at`.
+- **Notes**: `id`, `title`, `category`, `content`, `updated_at`.
 
 ---
 
-## 4. Semantic Vector Store (`semantic_memories.json`)
+## 3. Semantic Vector Memory (`src/memory/semantic.py`)
 
-Personal preferences, habits, health facts, and biographical background are stored in `/app/data/semantic_memories.json` as dense vector embeddings.
+Maintains long-term episodic memory using Google Gemini's `text-embedding-004` (or `gemini-embedding-001`) with cosine similarity search.
 
-### Vector Embeddings Pipeline
-1. **Model**: Google `gemini-embedding-001`.
-2. **Dimensionality**: 3072 floating-point dimensions.
-3. **Key Pool Rotation**: Embedding requests use the same round-robin key pool as generative calls (`get_next_gemini_key()`), automatically recovering from 429 quota exhaustion.
-
-### Cosine Similarity Computation
-
-```python
-def cosine_similarity(v1: list[float], v2: list[float]) -> float:
-    if len(v1) != len(v2) or not v1 or not v2:
-        return 0.0
-    dot = sum(a * b for a, b in zip(v1, v2, strict=True))
-    norm1 = math.sqrt(sum(a * a for a in v1))
-    norm2 = math.sqrt(sum(b * b for b in v2))
-    if norm1 == 0 or norm2 == 0:
-        return 0.0
-    return dot / (norm1 * norm2)
-```
-
-### Semantic Search & Retrieval (`search_memories`)
-When a conversation turn starts, Helmis queries semantic memory:
-- Filter by `user_id` (matches sender, `"Both"`, or `"all"`).
-- Compute cosine similarity against all stored memory vectors.
-- Return top $k=5$ memories satisfying minimum similarity threshold (default `min_score = 0.62` for prompt injection, `min_score = 0.65` for explicit recall).
-- Inject matching facts into the system instruction under `### RELEVANT PERSONAL PREFERENCES & LONG-TERM MEMORY:`.
+### Key Capabilities
+- **Background Extraction**: Automatically extracts facts, preferences, and personal routines after each conversation turn.
+- **Timestamp Tagging**: Every memory is tagged with `[Recorded: YYYY-MM-DD]`.
+- **Temporal Memory Supersession**: When past and present routines conflict (e.g. old semester class schedule vs new semester schedule), the agent dynamically prioritizes the more recent timestamp as active ground truth.
 
 ---
 
-## 5. Automatic Background Episodic Fact Extractor
+## 4. Document Vault (`src/memory/vault.py`)
 
-Inspired by Mem0, Helmis passively extracts durable personal facts from conversational turns without blocking the user response.
+A secure, structured document management system for PDFs, documents, images, and project files.
 
-```mermaid
-sequenceDiagram
-    participant Webhook as Webhook Worker
-    participant Agent as ReAct Agent
-    participant BgWorker as Background Extractor (asyncio.create_task)
-    participant Gemini as Google Gemini
-    participant VectorDB as semantic_memories.json
+### Ingestion & Filename Preservation Invariant
+- **Named Documents**: Always preserves the original uploaded filename (e.g. `P2_Gilang_M0403241117_02.pdf`). Synthetic slugs are never generated for named files.
+- **Generic Media**: Unnamed camera captures (`IMG-...`, `image.jpeg`) receive clean descriptive slugs based on visual content (e.g. `scan_bpjs_kesehatan_gilang.jpg`).
 
-    Webhook->>Agent: Process Turn
-    Agent-->>Webhook: Send Final WhatsApp Reply to User
-    
-    Note over Webhook,BgWorker: Fire-and-forget background task
-    Webhook-)BgWorker: extract_facts_from_turn_background(user_msg, assistant_reply, sender)
-    
-    BgWorker->>Gemini: POST generateContent (JSON Extraction Prompt)
-    Gemini-->>BgWorker: ["Gilang tidak suka kopi manis"]
-    
-    loop For Each Extracted Fact
-        BgWorker->>Gemini: POST embedContent (gemini-embedding-001)
-        Gemini-->>BgWorker: 3072-dim float vector
-        BgWorker->>VectorDB: Save memory entry atomically
-    end
-```
-
-### Extraction Guidelines
-The extraction prompt strictly filters out temporary chatter and retains only durable knowledge:
-- **Included**: Dietary restrictions, personal preferences, family member names, recurring habits, vehicle specs, ongoing long-term goals.
-- **Excluded**: One-off greetings, transient task requests (handled by task engine), ephemeral logistics ("I am at the lobby").
-
----
-
-## 6. Two-Pass Memory Deletion Algorithm (`delete_memory`)
-
-Deleting memories requires handling both explicit keyword matches and conceptual semantic matches:
-
-1. **Pass 1 (Token & Substring Match)**:
-   - Evaluates whether query tokens match the stored text verbatim.
-2. **Pass 2 (Semantic Similarity Fallback)**:
-   - If Pass 1 finds 0 matches, computes vector embedding of the deletion query.
-   - Identifies any stored memories with cosine similarity $\ge 0.78$.
-   - Purges matched memories from storage and returns the count of deleted items.
-
----
-
-## 7. Document Vault Storage Architecture (`./data/vault/`)
-
-Helmis features a dedicated, production-grade Document Vault and metadata cataloging engine designed to store, index, inspect, and dispatch binary documents, PDFs, photos, scans, and receipts.
-
-```
-data/vault/
-├── health/         # BPJS, medical records, doctor prescriptions, MCU lab results
-│   ├── gilang/
-│   ├── bunga/
-│   └── shared/
-├── id_cards/       # KTP, SIM, NPWP, Paspor, Kartu Keluarga, Akta
-│   ├── gilang/
-│   ├── bunga/
-│   └── shared/
-├── travel/         # Flight e-tickets, hotel vouchers, train tickets, visas
-│   ├── gilang/
-│   ├── bunga/
-│   └── shared/
-├── receipts/       # Proof of payment, invoices, bills, warranty cards, tax BPE
-│   ├── gilang/
-│   ├── bunga/
-│   └── shared/
-├── documents/      # CV, work contracts, NDA, degree diplomas, tutoring modules
-│   ├── gilang/
-│   ├── bunga/
-│   └── shared/
-├── media/          # Saved media photos, videos, audio clips
-│   ├── gilang/
-│   ├── bunga/
-│   └── shared/
-└── projects/       # Custom project workspaces (e.g. freelance_webdev, kriyamic)
-```
-
-### Metadata Catalog Schema (`file_catalog.json`)
-
-All file entries are indexed in `data/file_catalog.json` with thread-safe and multi-process file locking via `fcntl.flock`:
-
-```json
-{
-  "files": [
-    {
-      "id": "doc_1787680000000_abc12345",
-      "filename": "brosur_elera_education.pdf",
-      "category": "projects",
-      "owner": "Gilang",
-      "relative_path": "projects/freelance_webdev/brosur_elera_education.pdf",
-      "size_bytes": 276480,
-      "mime_type": "application/pdf",
-      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "description": "Brosur Bimbingan Belajar Elera Education",
-      "tags": ["les", "kursus", "elera", "pendidikan"],
-      "ocr_summary": "Bimbel Elera Education: Biaya pendaftaran TK-SD Rp 125.000...",
-      "created_at": "Tuesday, 25 August 2026 - 19:30 WIB",
-      "updated_at": "Tuesday, 25 August 2026 - 19:30 WIB"
-    }
-  ]
-}
-```
-
-### 100% Binary Data Integrity & Preservation
-- **Direct Base64 Byte Decoding**: When a user sends an attachment (PDF, image, ZIP), the raw binary bytes are decoded directly into `./data/vault/` rather than saving text summaries, ensuring 100% SHA-256 byte-for-byte fidelity.
-- **Fast WhatsApp Dispatching**: Files $\le 10\text{MB}$ are encoded as `data:<mime>;base64,...` payloads with explicit `filename` and `mimetype` headers in `/api/sendFile`, ensuring WhatsApp renders document cards natively without "Untitled" labels.
-
-### Document Vault Tool Suite
-
-| Tool Name | Operation & Behavior |
-|---|---|
-| `save_vault_file` | Saves and catalogs incoming attachments or created text files with clean slug naming. |
-| `read_vault_file` | Reads file content directly: extracts multi-page text via `pypdf`, decodes UTF-8 text/markdown/code, or returns OCR metadata for images. |
-| `search_vault_files` | Searches across filenames, descriptions, tags, OCR summaries, and owner filters. |
-| `list_vault_files` | Lists cataloged files filtered by category, owner, or custom directory path. |
-| `send_vault_file` | Dispatches stored files directly to WhatsApp chats via Data URIs or HTTP streaming. |
-| `move_vault_files` | Polymorphic single/bulk file mover with collision auto-versioning (`_v2.pdf`). |
-| `delete_vault_files` | Polymorphic exact ID/name file deletion. |
-| `create_vault_directory` | Creates custom directory structures under `./data/vault/`. |
-| `delete_vault_directory` | Safely deletes directories (default root categories are strictly protected). |
-
+### Inspection & Extraction
+- **PDF Text Layer Extraction**: Utilizes `pypdf` to extract text from digital PDF pages without needing expensive vision tokens.
+- **Image OCR**: Inspects scanned receipts, tickets, and photos.
+- **Search & Dispatch**: Supports keyword search (`search_vault_files`), text inspection (`read_vault_file`), and direct dispatch over WhatsApp (`send_vault_file`).

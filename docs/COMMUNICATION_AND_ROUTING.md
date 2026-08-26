@@ -1,190 +1,76 @@
-# Communication, Webhooks & Per-Chat Queues
+# Communication & Message Routing
 
-This document provides a technical deep dive into Helmis's communication infrastructure: the WAHA REST API client, the Starlette webhook server, multi-filter security authorization, group chat discretion, and the asynchronous per-chat burst debouncing queue.
-
----
-
-## 1. WAHA REST API Client (`WahaClient`)
-
-The `WahaClient` class (`helmis-agent/src/client.py`) is the sole HTTP abstraction layer interfacing with the WhatsApp HTTP API bridge (**WAHA**). No other component in the codebase makes raw HTTP calls to WAHA.
-
-```
-                    ┌─────────────────────────┐
-                    │       WahaClient        │
-                    │  (Async HTTPX Client)   │
-                    └────────────┬────────────┘
-                                 │
-     ┌───────────────────────────┼───────────────────────────┐
-     │                           │                           │
-     ▼                           ▼                           ▼
-POST /api/sendText          POST /api/sendFile          GET /api/messages
-(Text Messages & Quotes)    (Images, PDFs & Voice)      (Recent Chat History)
-     │                           │                           │
-     ▼                           ▼                           ▼
-POST /api/startTyping       POST /api/stopTyping        GET /health
-(Typing Indicator On)       (Typing Indicator Off)      (Bridge Reachability)
-```
-
-### Construction Patterns
-
-1. **Synchronous Factory (`from_env_sync`)**:
-   - Used at application boot (`server.py`) to create a shared client instance.
-   - Reads `WAHA_BASE_URL`, `WAHA_API_KEY`, and `WAHA_SESSION_NAME` (defaults to `"helmis"`).
-2. **Async Context Manager (`from_env`)**:
-   - Used in unit/integration tests and CLI scripts to guarantee clean teardown of the underlying `httpx.AsyncClient`.
-
-### Key Methods
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `send_message(chat_id, text, reply_to_message_id)` | `POST /api/sendText` | Sends plain text to a DM (`<phone>@c.us`) or group (`<id>@g.us`). Supports quoting via `reply_to`. |
-| `send_media(chat_id, media_url, caption, reply_to_message_id)` | `POST /api/sendFile` | Sends media files by public or container-internal URL. |
-| `get_messages(chat_id, limit)` | `GET /api/{session}/chats/{id}/messages` | Retrieves recent chronological message history. |
-| `start_typing(chat_id)` | `POST /api/startTyping` | Triggers the WhatsApp `"typing..."` presence indicator in chat. |
-| `stop_typing(chat_id)` | `POST /api/stopTyping` | Clears the typing presence indicator. |
-| `download_media_base64(media_url)` | `GET {media_url}` | Downloads binary audio/image attachments and returns `(mime_type, base64_data)`. |
-| `is_reachable()` | `GET /health` | Validates WAHA connectivity during container healthchecks. |
+This document details how Helmis connects to WhatsApp via WAHA (WhatsApp HTTP API), normalizes payloads, handles per-chat debounce queues, resolves group chat dynamics, and processes multimodal inputs.
 
 ---
 
-## 2. Starlette Webhook Server Architecture
+## 1. WAHA Integration Architecture (`src/whatsapp/client.py`)
 
-The webhook receiver (`helmis-agent/src/webhook.py`) runs as a lightweight Starlette ASGI application hosted by Uvicorn inside a dedicated background thread on port `8644`.
+Helmis uses **WAHA (WhatsApp HTTP API)** with the **GOWS (Go-based WebSocket)** engine for lightweight, low-latency, self-hosted connectivity.
 
-### Endpoint Routing Table
-
-```
-Port 8644
-├── GET  /health              --> Health status (returns 200 OK if WAHA is reachable, 503 if unreachable)
-├── GET  /ping                --> Alias for /health (used by Docker Compose healthchecks)
-├── POST /webhooks/waha       --> Inbound message events from WAHA bridge
-└── POST /webhooks/scheduler  --> Periodic proactive cron trigger ticks from scheduler container
-```
+- **Inbound**: WAHA receives WebSocket events from WhatsApp servers and forwards them as HTTP POST requests to `http://agent:8644/webhooks/waha`.
+- **Outbound**: The agent interacts with WAHA via REST API endpoints (`/api/sendText`, `/api/sendFile`, `/api/startTyping`, `/api/getMessages`).
+- **Retry & Rate Limiting**: The client features exponential backoff retry for transient network glitches and typing keep-alives.
 
 ---
 
-## 3. Security & Multi-Filter Authorization Engine
+## 2. Inbound Payload Normalization (`src/whatsapp/parser.py`)
 
-To protect private data, Helmis implements strict multi-stage authorization filters on all inbound webhook payloads.
+Incoming WhatsApp payloads vary across WAHA engines (GOWS, NOWEB, WEBJS). `parser.py` normalizes all payloads into a consistent `IncomingMessageEvent`:
 
-```mermaid
-graph TD
-    InboundMsg[Inbound Webhook Payload] --> DupCheck{Seen in last 60s?}
-    DupCheck -->|Yes| DropDup[Drop: duplicate_event]
-    DupCheck -->|No| SelfCheck{fromMe == true?}
-    SelfCheck -->|Yes| DropSelf[Drop: ignored_self]
-    SelfCheck -->|No| SenderCheck{Sender matches Whitelist?<br/>GILANG_PHONE / BUNGA_PHONE / LIDs / notifyName}
-    SenderCheck -->|No| DropUnauth[Drop: silently drop unauthorized sender]
-    SenderCheck -->|Yes| GroupCheck{Is Group Chat?}
-    GroupCheck -->|No / Private DM| PassToQueue[Pass to Per-Chat Debounce Queue]
-    GroupCheck -->|Yes| WhitelistGroup{Is Trio Group JID?}
-    WhitelistGroup -->|No| DropGroup[Drop: non_whitelisted_group]
-    WhitelistGroup -->|Yes| MentionCheck{Explicitly addressed to Helmis?<br/>@helmis, 'mis ', or bot mention}
-    MentionCheck -->|Yes| PassToQueue
-    MentionCheck -->|No / Human Banter| DropBanter[Drop: directed_to_other / human banter]
+```python
+class IncomingMessageEvent(BaseModel):
+    message_id: str
+    chat_id: str
+    sender_phone: str
+    sender_name: str
+    text: str
+    has_media: bool = False
+    media_url: str | None = None
+    media_filename: str | None = None
+    quoted_stanza_id: str | None = None
+    quoted_participant: str | None = None
+    quoted_text: str | None = None
+    quoted_type: str | None = None
 ```
 
-### Filter Rules
-
-1. **Deduplication Filter (`is_duplicate_message`)**:
-   - In-memory cache stores message IDs with timestamps. Re-delivered webhook payloads within 60 seconds are dropped immediately.
-2. **Strict Whitelist Resolution**:
-   - Compares sender phone numbers, author participants, notify names, and WhatsApp Linked Device Identifiers (`LIDs`) against `GILANG_PHONE` and `BUNGA_PHONE`.
-   - Any message from an unauthorized contact is dropped with HTTP 200 `{"status": "ignored_unauthorized_sender"}` without invoking LLM or storage.
-3. **Non-Whitelisted Group Filtration**:
-   - Group messages originating from groups other than `TRIO_GROUP_JID` are silently ignored.
-4. **Group Chat Banter Filter**:
-   - In the Trio group chat, Helmis will only trigger if:
-     - The message text contains `"helmis"` (case-insensitive), or
-     - The message text starts with `"mis "`, `"mis,"`, or `"mis?"`, or
-     - Helmis's WhatsApp number is explicitly tagged in `mentionedIds`.
-   - If Gilang and Bunga are conversing with each other or mention each other (`@gilang`, `@bunga`), Helmis remains silent.
+### Quoted / Replied Message Handling
+- Automatically extracts quoted text, quoted sender name, and quoted media URLs across all engine payload variants.
+- Formats quoted context cleanly into the prompt turn (`> [Sender]: "Quoted text"`).
 
 ---
 
-## 4. Per-Chat Asynchronous Queue & Burst Debouncer
+## 3. FIFO Debounce Queue (`src/whatsapp/queue.py`)
 
-In human WhatsApp messaging, users frequently send thoughts across multiple short, rapid messages (e.g., line 1: *"Mis tolong"*, line 2: *"Besok jam 9 pagi"*, line 3: *"Jemput mama di stasiun"*).
+Humans often send thoughts across multiple consecutive messages in rapid succession (e.g. *"Btw"*, *"Besok ada meeting jam 3"*, *"Tolong catet ya"*).
 
-Processing each message as an independent LLM turn leads to race conditions, partial responses, and excessive API usage. Helmis solves this with the `ChatQueueManager` and `ChatQueueWorker` (`helmis-agent/src/queue.py`).
-
-```mermaid
-sequenceDiagram
-    actor User as Gilang
-    participant Queue as ChatQueueWorker (chat_id: Gilang)
-    participant Worker as Turn Handler (ReAct Loop)
-
-    User->>Queue: Message 1: "Mis tolong..." (t=0.0s)
-    Note over Queue: Start 1.0s Debounce Timer
-    
-    User->>Queue: Message 2: "Besok jam 9 pagi" (t=0.4s)
-    Note over Queue: Reset 1.0s Timer (extend window)
-    
-    User->>Queue: Message 3: "Jemput mama di stasiun" (t=0.8s)
-    Note over Queue: Reset 1.0s Timer (extend window)
-    
-    Note over Queue: Timer Expires at t=1.8s (No more messages)
-    Queue->>Worker: Dispatch Combined Batch:\n"Mis tolong...\nBesok jam 9 pagi\nJemput mama di stasiun"
-    Worker->>Worker: Run Single Coherent ReAct Turn
-```
-
-### Queue Architecture Details
-
-- **Independent Worker Tasks**: Every `chat_id` has its own `asyncio.Queue` and dedicated background worker loop.
-- **Concurrent Chat Isolation**: Gilang's DM, Bunga's DM, and the Trio Group Chat execute in parallel. A long-running turn in one chat does not block processing in another.
-- **Sequential FIFO within Chat**: Consecutive messages within the same chat are guaranteed to execute sequentially without race conditions.
-- **Burst Debounce Algorithm**: When a message arrives, the worker enters a debounce loop, sleeping in small intervals (20–50ms) and checking for new messages. As long as messages arrive within 1.0 second of each other, they are coalesced into a single array of `IncomingMessageEvent` objects and processed as a unified turn.
+### Debounce Mechanism
+1. When a message arrives, it is placed in the chat's FIFO queue.
+2. A **1.0-second debounce timer** is started.
+3. If additional messages arrive for the same chat within 1.0s, the timer resets and messages are coalesced into a single batch.
+4. Once the burst ceases, the combined messages are dispatched to the processor as a single, coherent turn.
 
 ---
 
-## 5. Quoted Message & Reply Payload Architecture
+## 4. Turn Processing & Multi-Bubble Splitting (`src/whatsapp/processor.py`)
 
-WhatsApp users frequently quote or swipe-reply to prior messages, voice notes, photos, and system responses. WAHA represents quotes differently depending on whether it runs the GOWS (Go WebSocket) engine or WebJS/Noweb engine. Helmis implements engine-agnostic quote extraction (`extract_quoted_info` in `helmis-agent/src/webhook.py`).
+The turn processor orchestrates the execution lifecycle and dispatches final responses to WhatsApp.
 
-### Supported Payload Structures
+### Conscious Multi-Bubble Splitting (`---`)
+- The agent has conscious agency over WhatsApp message bubbles.
+- Responses containing `---` on its own line are split into distinct bubbles sent sequentially with realistic human typing delays (0.8s to 1.5s).
+- **Rule**: Single cohesive structures (class schedules, task lists, code, tables) are never split with `---`.
 
-```
-WAHA Webhook Payload
-├── 1. Top-Level 'replyTo' (WAHA Generic)
-│   ├── body / caption: Quoted plain text
-│   ├── type: 'chat', 'ptt', 'audio', 'image', 'document'
-│   └── participant / from: Sender JID
-│
-├── 2. Raw WebJS '_data.quotedMsg' (WhatsApp Web Engine)
-│   ├── body / caption: Quoted text
-│   ├── type: Message type
-│   └── _data.quotedParticipant: Sender JID
-│
-└── 3. GOWS Protobuf '_data.Message.extendedTextMessage.contextInfo' (Go WebSocket Engine)
-    ├── participant: Sender JID
-    └── quotedMessage:
-        ├── audioMessage: { seconds: 8, ptt: true, mimetype: "audio/ogg" }  ──► "Pesan Suara / Voice Note (8 detik)"
-        ├── imageMessage: { caption: "...", mimetype: "image/jpeg" }       ──► "Foto / Gambar: Caption"
-        ├── conversation / extendedTextMessage: { text: "..." }            ──► Plain text quote
-        ├── documentMessage: { title: "...", fileName: "..." }             ──► "Dokumen: filename.pdf"
-        └── stickerMessage: { ... }                                        ──► "Stiker"
-```
+---
 
-### Multimodal Quoting & Prompt Formatting
+## 5. Group Chat Dynamics & Non-Intervention
 
-When a message with a quote is debounced, Helmis prefixes the user's turn with standard WhatsApp markdown blockquote formatting:
+In the shared couple group chat (*Trio Helmis* with Gilang and Bunga):
 
-```text
-> [Bunga]: "Pesan Suara / Voice Note (8 detik)"
+### Pronoun Resolution
+- Second-person pronouns (*"km"*, *"kamu"*, *"lu"*, *"sayang"*, *"beb"*) from Gilang refer to **Bunga**; from Bunga they refer to **Gilang**.
+- Never assume the assistant is being addressed unless called by name (*"Helmis"*, *"mis"*) or given an explicit secretary command.
 
-coba apa yang gw quote
-```
-
-If a quoted voice note has a direct download URL, Phase 1 automatically downloads and transcribes the audio into the quote header:
-```text
-> [Bunga]: "Pesan Suara (Voice Note): \"Jangan lupa bayar tagihan ya\""
-
-maksudnya gimana?
-```
-
-### Group Chat Quoting Trigger
-If a user quotes any message previously sent by Helmis in the Trio Group Chat (`quoted_sender == "Helmis"`), the message is treated as explicitly directed to Helmis, triggering an immediate response even if `@Helmis` was not typed.
-
-### Strict Anti-Hallucination Guardrail
-System instructions enforce that Gemini must look *only* at the `> [Sender]: ...` block in the current turn. If the user asks what was quoted and no quote block exists in the prompt, Helmis must state truthfully: *"Tidak ada pesan atau media yang ter-quote pada pesan ini"* rather than inventing a fictional quote from chat history.
-
+### Non-Intervention Mandate (`[NO_REPLY]`)
+- When users talk to each other, answer each other's questions, quote each other, or exchange casual banter, the agent remains completely silent by outputting `[NO_REPLY]`.
+- The webhook receiver detects `[NO_REPLY]` and aborts message dispatching without sending any message to WhatsApp.
