@@ -37,11 +37,12 @@ htmlcov/
 .dmypy.json
 
 # ============================================================
-# Editor / OS
+# Editor / OS / Local Agent Customizations
 # ============================================================
 .DS_Store
 .idea/
 .vscode/
+.agents/
 *.swp
 *.swo
 *~
