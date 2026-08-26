@@ -27,11 +27,13 @@ class IncomingMessageEvent:
     media_url: str | None
     media_type: str | None
     timestamp: float
+    media_filename: str | None = None
     quoted_text: str | None = None
     quoted_sender: str | None = None
     quoted_type: str | None = None
     quoted_media_url: str | None = None
     quoted_media_type: str | None = None
+    quoted_media_filename: str | None = None
     quoted_stanza_id: str | None = None
 
 

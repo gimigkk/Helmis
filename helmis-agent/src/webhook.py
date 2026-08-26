@@ -63,12 +63,56 @@ ALLOWED_CHATS = set(
 )
 
 
+def extract_media_filename(payload: dict[str, Any]) -> str | None:
+    """
+    Extract original media / document filename from WAHA payloads across all engines (GOWS, NOWEB, WEBJS).
+    Checks media.filename, top-level filename/fileName, _data.filename/_data.title, and Protobuf documentMessage.fileName/title.
+    """
+    # 1. media object
+    media_obj = payload.get("media") if isinstance(payload.get("media"), dict) else {}
+    if media_obj:
+        fn = media_obj.get("filename") or media_obj.get("fileName")
+        if fn and str(fn).strip():
+            return str(fn).strip()
+
+    # 2. top-level payload attributes
+    for key in ("filename", "fileName", "title"):
+        val = payload.get(key)
+        if val and isinstance(val, str) and val.strip():
+            return val.strip()
+
+    # 3. _data container
+    _data_raw = payload.get("_data")
+    _data: dict[str, Any] = _data_raw if isinstance(_data_raw, dict) else {}
+    for key in ("filename", "fileName", "title"):
+        val = _data.get(key)
+        if val and isinstance(val, str) and val.strip():
+            return val.strip()
+
+    # 4. GOWS Protobuf message structure (_data.Message.documentMessage)
+    msg_raw = _data.get("Message")
+    msg_obj: dict[str, Any] = msg_raw if isinstance(msg_raw, dict) else {}
+    doc_raw = msg_obj.get("documentMessage")
+    if isinstance(doc_raw, dict):
+        fn = doc_raw.get("fileName") or doc_raw.get("title")
+        if fn and str(fn).strip():
+            return str(fn).strip()
+
+    # 5. Check if body or caption is a clean single-line filename with standard document extension
+    body = str(payload.get("body") or "").strip()
+    if body and re.search(r"\.(pdf|docx?|xlsx?|pptx?|zip|csv|txt|jpe?g|png|webp|bin)$", body, re.IGNORECASE):
+        if "\n" not in body and len(body) <= 120 and "/" not in body:
+            return body
+
+    return None
+
+
 def extract_quoted_info(
     payload: dict[str, Any],
-) -> tuple[str | None, str | None, str | None, str | None, str | None, str | None]:
+) -> tuple[str | None, str | None, str | None, str | None, str | None, str | None, str | None]:
     """
     Extract quoted / replied message metadata from WAHA payloads across all engines (GOWS, NOWEB, WEBJS).
-    Returns (quoted_text, quoted_sender, quoted_type, quoted_media_url, quoted_media_type, quoted_stanza_id).
+    Returns (quoted_text, quoted_sender, quoted_type, quoted_media_url, quoted_media_type, quoted_stanza_id, quoted_media_filename).
     """
     quoted_text: str | None = None
     quoted_sender: str | None = None
@@ -76,6 +120,7 @@ def extract_quoted_info(
     quoted_media_url: str | None = None
     quoted_media_type: str | None = None
     quoted_stanza_id: str | None = None
+    quoted_media_filename: str | None = None
 
     def resolve_sender(participant: str, from_me: bool) -> str:
         if from_me:
@@ -97,6 +142,14 @@ def extract_quoted_info(
         if media_obj:
             quoted_media_url = str(media_obj.get("url", "")) or None
             quoted_media_type = str(media_obj.get("mimetype", "")) or None
+            fn = media_obj.get("filename") or media_obj.get("fileName")
+            if fn:
+                quoted_media_filename = str(fn).strip()
+        if not quoted_media_filename:
+            for k in ("filename", "fileName", "title"):
+                if reply_to.get(k):
+                    quoted_media_filename = str(reply_to[k]).strip()
+                    break
         part = str(reply_to.get("participant") or reply_to.get("from") or "")
         quoted_sender = resolve_sender(part, bool(reply_to.get("fromMe", False)))
 
@@ -113,6 +166,11 @@ def extract_quoted_info(
             quoted_text = str(data_quoted.get("body") or data_quoted.get("caption") or "").strip() or None
             if not quoted_stanza_id:
                 quoted_stanza_id = str(data_quoted.get("id", "")).strip() or None
+            if not quoted_media_filename:
+                for k in ("filename", "fileName", "title"):
+                    if data_quoted.get(k):
+                        quoted_media_filename = str(data_quoted[k]).strip()
+                        break
             part = str(_data.get("quotedParticipant") or payload.get("quotedParticipant") or "")
             quoted_sender = resolve_sender(part, bool(data_quoted.get("fromMe", False)))
 
@@ -168,9 +226,13 @@ def extract_quoted_info(
                 quoted_text = str(q_msg["extendedTextMessage"].get("text", "")).strip()
             elif "documentMessage" in q_msg:
                 doc = q_msg["documentMessage"]
-                doc_title = doc.get("title") or doc.get("fileName")
+                doc_title = doc.get("fileName") or doc.get("title")
                 quoted_type = "document"
-                quoted_text = f'Dokumen{": " + str(doc_title) if doc_title else ""}'
+                if doc_title:
+                    quoted_media_filename = str(doc_title).strip()
+                    quoted_text = f'Dokumen: "{quoted_media_filename}"'
+                else:
+                    quoted_text = "Dokumen"
                 if doc.get("url"):
                     quoted_media_url = str(doc["url"])
                 quoted_media_type = str(doc.get("mimetype") or "application/pdf")
@@ -187,7 +249,7 @@ def extract_quoted_info(
         elif quoted_type == "image":
             quoted_text = "Foto / Gambar"
         elif quoted_type == "document":
-            quoted_text = "Dokumen"
+            quoted_text = f'Dokumen: "{quoted_media_filename}"' if quoted_media_filename else "Dokumen"
         elif quoted_type == "sticker":
             quoted_text = "Stiker"
 
@@ -198,6 +260,7 @@ def extract_quoted_info(
         quoted_media_url,
         quoted_media_type,
         quoted_stanza_id,
+        quoted_media_filename,
     )
 
 
@@ -396,6 +459,11 @@ def create_webhook_app(client: WahaClient) -> Starlette:
         has_media = any(e.has_media for e in batch)
         media_event = next((e for e in reversed(batch) if e.has_media and e.media_url), None)
         media_url = media_event.media_url if media_event else None
+        media_filename = media_event.media_filename if media_event else None
+        if not media_filename:
+            media_fn_event = next((e for e in reversed(batch) if e.media_filename), None)
+            if media_fn_event:
+                media_filename = media_fn_event.media_filename
 
         await client.start_typing(chat_id=from_user)
         from .logger import AgentTurnTracer
@@ -439,7 +507,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                         tracer.message_text = vn_transcript
                         log.info("Phase 1 Success: Transcribed VN as: %s", combined_text)
                     else:
-                        media_data = {"mimeType": mime_type, "data": b64_data}
+                        media_data = {"mimeType": mime_type, "data": b64_data, "filename": media_filename}
 
             # If no direct media was attached, check if a quoted or recent media message was referenced
             if not media_data:
@@ -455,9 +523,11 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 )
                 target_url: str | None = None
                 media_type_label: str = "media"
+                quoted_doc_filename: str | None = None
                 if quoted_media_event:
                     media_type_label = quoted_media_event.quoted_type or "media"
                     target_url = quoted_media_event.quoted_media_url
+                    quoted_doc_filename = quoted_media_event.quoted_media_filename
                     if not target_url:
                         try:
                             recent_msgs = await client.get_messages(chat_id=from_user, limit=12)
@@ -517,7 +587,11 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                         if q_media_res:
                             q_mime, q_b64 = q_media_res
                             if not q_mime.startswith("audio/"):
-                                media_data = {"mimeType": q_mime, "data": q_b64}
+                                media_data = {
+                                    "mimeType": q_mime,
+                                    "data": q_b64,
+                                    "filename": quoted_doc_filename,
+                                }
                                 log.info(
                                     "Attached %s (%s) to turn context",
                                     media_type_label,
@@ -525,6 +599,14 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                                 )
                     except Exception as ex:
                         log.warning("Could not download media %s: %s", target_url, ex)
+
+            # Prepend document label to prompt text if a named document was attached
+            if media_data and media_data.get("filename") and not is_voice_note:
+                attached_fn = media_data["filename"]
+                doc_banner = f"[Dokumen Terlampir: {attached_fn}]"
+                if doc_banner not in combined_text:
+                    combined_text = f"{doc_banner}\n\n{combined_text}" if combined_text else doc_banner
+                    tracer.message_text = combined_text
 
             # Watchdog task: if agent is taking > 7.5 seconds (genuinely stuck or deep research), send reassurance
             async def progress_watchdog() -> None:
@@ -645,6 +727,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             media_info = payload.get("media") if isinstance(payload.get("media"), dict) else {}
             media_url = str(media_info.get("url", "")) if media_info else ""
             media_type = str(media_info.get("mimetype", "")) if media_info else None
+            media_filename = extract_media_filename(payload)
 
             # Ignore self-messages or completely empty messages without media
             if from_me or (not text and not has_media):
@@ -690,7 +773,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             ):
                 sender_name = "Bunga"
 
-            log.info("Webhook message from=%s (clean_from=%s) author=%s (clean_author=%s) resolved_sender=%s text=%r", from_user, clean_from, author, clean_author, sender_name, text[:40])
+            log.info("Webhook message from=%s (clean_from=%s) author=%s (clean_author=%s) resolved_sender=%s text=%r media_filename=%s", from_user, clean_from, author, clean_author, sender_name, text[:40], media_filename)
 
             # Silently drop messages from anyone else
             if not sender_name:
@@ -714,13 +797,15 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 quoted_media_url,
                 quoted_media_type,
                 quoted_stanza_id,
+                quoted_media_filename,
             ) = extract_quoted_info(payload)
             if quoted_text or quoted_type:
                 log.info(
-                    "Detected quoted message in [%s] from [%s] (type: %s): %s",
+                    "Detected quoted message in [%s] from [%s] (type: %s fn: %s): %s",
                     from_user,
                     quoted_sender,
                     quoted_type,
+                    quoted_media_filename,
                     quoted_text[:50] if quoted_text else "(media)",
                 )
 
@@ -772,10 +857,11 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     return JSONResponse({"status": "ignored_directed_to_other"})
 
             log.debug(
-                "Incoming WhatsApp message from [%s] in (%s) (media: %s): %s",
+                "Incoming WhatsApp message from [%s] in (%s) (media: %s fn: %s): %s",
                 sender_name,
                 from_user,
                 has_media,
+                media_filename,
                 text[:50],
             )
 
@@ -789,12 +875,14 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     has_media=has_media,
                     media_url=media_url,
                     media_type=media_type,
+                    media_filename=media_filename,
                     timestamp=time.time(),
                     quoted_text=quoted_text,
                     quoted_sender=quoted_sender,
                     quoted_type=quoted_type,
                     quoted_media_url=quoted_media_url,
                     quoted_media_type=quoted_media_type,
+                    quoted_media_filename=quoted_media_filename,
                     quoted_stanza_id=quoted_stanza_id,
                 )
             )

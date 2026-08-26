@@ -468,3 +468,78 @@ def test_vault_search_and_list_filter_matrix() -> None:
     # List with directory filter
     res_dir = list_vault_files(directory="receipts/gilang")
     assert len(res_dir) >= 1
+
+
+def test_vault_preserves_original_filename_and_searches_by_original_name() -> None:
+    """Verify that original filenames with spaces and special characters are preserved and searchable."""
+    orig_name = "P2_Gilang Muhamad Widiagung_M0403241117_02.pdf"
+    rec = save_file_to_vault(
+        data=b"%PDF-1.4 analgor assignment content",
+        filename="P2_Gilang Muhamad Widiagung_M0403241117_02.pdf",
+        category="documents",
+        owner="Gilang",
+        original_filename=orig_name,
+    )
+
+    assert rec["original_filename"] == orig_name
+    assert rec["filename"] == "P2_Gilang_Muhamad_Widiagung_M0403241117_02.pdf"
+
+    # Search by student ID / NIM
+    res_nim = search_vault("M0403241117")
+    assert len(res_nim) >= 1
+    assert res_nim[0]["original_filename"] == orig_name
+
+    # Search by student full name with space
+    res_name = search_vault("Gilang Muhamad Widiagung")
+    assert len(res_name) >= 1
+    assert res_name[0]["original_filename"] == orig_name
+
+    # Search by assignment prefix
+    res_p2 = search_vault("P2 Gilang")
+    assert len(res_p2) >= 1
+
+
+@pytest.mark.asyncio
+async def test_save_and_send_vault_file_tools_use_original_filename() -> None:
+    """Verify handle_save_vault_file tool and handle_send_vault_file tool use original_filename."""
+    import base64
+    from unittest.mock import AsyncMock
+    from src.tools.files import handle_save_vault_file, handle_send_vault_file
+
+    pdf_bytes = b"%PDF-1.5 test raw bytes"
+    b64_pdf = base64.b64encode(pdf_bytes).decode("ascii")
+    orig_doc_name = "Tugas 1 (Analisis Algoritma) [FINAL].pdf"
+
+    save_res = await handle_save_vault_file(
+        args={
+            "category": "documents",
+            "owner": "Gilang",
+            "description": "Tugas kuliah analgor",
+        },
+        default_sender="Gilang",
+        media_data={
+            "mimeType": "application/pdf",
+            "data": b64_pdf,
+            "filename": orig_doc_name,
+        },
+    )
+
+    assert save_res["status"] == "success"
+    file_rec = save_res["file"]
+    assert file_rec["original_filename"] == orig_doc_name
+    assert orig_doc_name in save_res["message"]
+
+    # Test send_vault_file preserves original_filename when sending to WhatsApp client
+    mock_client = AsyncMock()
+    send_res = await handle_send_vault_file(
+        args={"file_id_or_name": file_rec["id"], "recipient": "current"},
+        default_sender="Gilang",
+        client=mock_client,
+    )
+
+    assert send_res["status"] == "success"
+    assert send_res["filename"] == orig_doc_name
+    mock_client.send_media.assert_called_once()
+    _, kwargs = mock_client.send_media.call_args
+    assert kwargs["filename"] == orig_doc_name
+

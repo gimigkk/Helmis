@@ -114,10 +114,14 @@ def save_file_to_vault(
     tags: list[str] | None = None,
     ocr_summary: str = "",
     allow_versioning: bool = True,
+    original_filename: str | None = None,
 ) -> dict[str, Any]:
     """Save raw file bytes into the Document Vault with automatic catalog indexing."""
     init_vault_structure()
     clean_name = sanitize_filename(filename)
+    orig_name = (original_filename or filename).strip()
+    # Strip any directory path traversal from orig_name for display safety
+    orig_name = os.path.basename(orig_name) or filename
     owner_clean = owner.strip().lower()
     if owner_clean not in ("gilang", "bunga", "both", "shared"):
         owner_clean = "gilang"
@@ -132,6 +136,9 @@ def save_file_to_vault(
     for existing in files:
         if existing.get("content_hash") == content_hash:
             log.info("Identical file already exists in vault: %s", existing.get("filename"))
+            if orig_name and existing.get("original_filename") != orig_name:
+                existing["original_filename"] = orig_name
+                _save_catalog(catalog)
             return cast(dict[str, Any], existing)
 
     if subfolder:
@@ -173,7 +180,7 @@ def save_file_to_vault(
     file_record: dict[str, Any] = {
         "id": f"doc_{int(time.time())}_{uuid.uuid4().hex[:6]}",
         "filename": final_name,
-        "original_filename": filename,
+        "original_filename": orig_name,
         "relative_path": rel_path,
         "category": category_clean,
         "owner": "Both" if owner_folder == "shared" else owner.capitalize(),
@@ -181,7 +188,7 @@ def save_file_to_vault(
         "size_bytes": len(data),
         "content_hash": content_hash,
         "tags": tags or [],
-        "description": description.strip() or final_name,
+        "description": description.strip() or orig_name,
         "ocr_summary": ocr_summary.strip(),
         "created_at": now_str,
         "updated_at": now_str,
@@ -200,7 +207,7 @@ def search_vault(
     category: str | None = None,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    """Search files in vault by keyword across filename, description, tags, and OCR summary."""
+    """Search files in vault by keyword across filename, original_filename, description, tags, and OCR summary."""
     catalog = _load_catalog()
     files = catalog.get("files", [])
     q = query.lower().strip()
@@ -219,13 +226,15 @@ def search_vault(
                 continue
 
         fn = str(f.get("filename", "")).lower()
+        orig_fn = str(f.get("original_filename", "")).lower()
         desc = str(f.get("description", "")).lower()
         tags = [str(t).lower() for t in f.get("tags", [])]
         ocr = str(f.get("ocr_summary", "")).lower()
 
-        if q in fn or q in desc or any(q in t for t in tags) or q in ocr:
+        searchable_text = f"{fn} {orig_fn} {desc} {' '.join(tags)} {ocr}"
+        if q in fn or q in orig_fn or q in desc or any(q in t for t in tags) or q in ocr:
             matches.append(f)
-        elif all(word in f"{fn} {desc} {' '.join(tags)} {ocr}" for word in q.split()):
+        elif all(word in searchable_text for word in q.split()):
             matches.append(f)
 
     return matches[:limit]

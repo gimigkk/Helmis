@@ -50,9 +50,11 @@ class IncomingMessage(BaseModel):
     text: str | None = Field(default=None, description="Plain text body (if any)")
     media_url: str | None = Field(default=None, description="URL to attached media (if any)")
     media_mime: str | None = Field(default=None, description="MIME type of attached media")
+    media_filename: str | None = Field(default=None, description="Original filename of attached media (if any)")
     timestamp: int = Field(description="Unix timestamp of the message")
     quoted_text: str | None = Field(default=None, description="Quoted message text if this is a reply")
     quoted_sender: str | None = Field(default=None, description="Sender name of the quoted message")
+    quoted_media_filename: str | None = Field(default=None, description="Original filename of quoted media (if any)")
 
 
 # ============================================================

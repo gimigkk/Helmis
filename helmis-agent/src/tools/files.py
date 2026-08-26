@@ -49,9 +49,19 @@ async def handle_save_vault_file(
     client: WahaClient | None = None,
     media_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    original_filename = str(args.get("original_filename") or "").strip()
+    if not original_filename and media_data and media_data.get("filename"):
+        original_filename = str(media_data["filename"]).strip()
+
     filename = str(args.get("filename", "")).strip()
     if not filename:
-        return {"status": "error", "error": "Nama file tidak boleh kosong."}
+        if original_filename:
+            filename = original_filename
+        else:
+            return {"status": "error", "error": "Nama file tidak boleh kosong."}
+
+    if not original_filename:
+        original_filename = filename
 
     category = str(args.get("category", "documents")).strip()
     owner = str(args.get("owner", default_sender)).strip()
@@ -70,6 +80,8 @@ async def handle_save_vault_file(
             if not os.path.splitext(filename)[1] and media_data.get("mimeType"):
                 ext = mimetypes.guess_extension(str(media_data["mimeType"])) or ".bin"
                 filename = f"{filename}{ext}"
+                if not os.path.splitext(original_filename)[1]:
+                    original_filename = f"{original_filename}{ext}"
         except Exception as ex:
             log.warning("Failed to decode media_data: %s", ex)
             raw_bytes = f"# {filename}\n\nOwner: {owner}\nDescription: {description}".encode()
@@ -87,12 +99,13 @@ async def handle_save_vault_file(
         description=description,
         tags=tags,
         ocr_summary=ocr_summary,
+        original_filename=original_filename,
     )
     log_activity(f"File saved to vault: {record['relative_path']} (Owner: {record['owner']})")
     return {
         "status": "success",
         "file": record,
-        "message": f"File *{record['filename']}* berhasil disimpan di brankas kategori *{record['category']}* ({record['relative_path']}).",
+        "message": f"File *{record.get('original_filename') or record['filename']}* berhasil disimpan di brankas kategori *{record['category']}* ({record['relative_path']}).",
     }
 
 
@@ -158,6 +171,7 @@ async def handle_send_vault_file(
     record, raw_bytes = res
     file_id = record["id"]
     filename = record["filename"]
+    orig_filename = record.get("original_filename") or filename
     mime = record.get("mime_type", "application/octet-stream")
 
     # For files under 10MB, use self-contained base64 data URI to avoid any bridge networking hiccups
@@ -173,17 +187,17 @@ async def handle_send_vault_file(
     await client.send_media(
         chat_id=target_jid,
         media_url=media_url,
-        caption=caption or f"Dokumen: {filename}",
-        filename=filename,
+        caption=caption or f"Dokumen: {orig_filename}",
+        filename=orig_filename,
         mimetype=mime,
     )
-    log_activity(f"Sent vault file '{filename}' to {recipient} ({target_jid})")
+    log_activity(f"Sent vault file '{orig_filename}' to {recipient} ({target_jid})")
 
     return {
         "status": "success",
-        "filename": filename,
+        "filename": orig_filename,
         "recipient": recipient,
-        "message": f"File *{filename}* berhasil dikirimkan ke WhatsApp {recipient}.",
+        "message": f"File *{orig_filename}* berhasil dikirimkan ke WhatsApp {recipient}.",
     }
 
 

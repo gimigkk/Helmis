@@ -259,4 +259,90 @@ async def test_webhook_extracts_quoted_video_payload(
         assert "lagi naik vespa" in str(event.quoted_text)
 
 
+@pytest.mark.asyncio
+async def test_webhook_extracts_document_filename_and_quoted_document(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dispatched_events: list[IncomingMessageEvent] = []
+
+    monkeypatch.setattr(webhook_mod, "GILANG_PHONE", "628111111111")
+    monkeypatch.setattr(webhook_mod, "BUNGA_PHONE", "628222222222")
+    monkeypatch.setattr(webhook_mod, "BOT_PHONE", "628999999999")
+
+    client = WahaClient(base_url="http://test", api_key="test", session_name="default")
+    app = webhook_mod.create_webhook_app(client)
+
+    monkeypatch.setattr(
+        queue_mod.ChatQueueManager,
+        "dispatch",
+        lambda self, event: dispatched_events.append(event),
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Direct document upload
+        payload_doc = {
+            "event": "message",
+            "payload": {
+                "id": "msg_doc_1",
+                "from": "628111111111@c.us",
+                "fromMe": False,
+                "body": "Simpen ini",
+                "hasMedia": True,
+                "media": {
+                    "url": "http://waha:3000/api/files/doc1.pdf",
+                    "mimetype": "application/pdf",
+                    "filename": "P2_Gilang Muhamad Widiagung_M0403241117_02.pdf",
+                },
+            },
+        }
+
+        resp = await ac.post("/webhooks/waha", json=payload_doc)
+        assert resp.status_code == 200
+        assert len(dispatched_events) == 1
+        event = dispatched_events[0]
+        assert event.sender_name == "Gilang"
+        assert event.text == "Simpen ini"
+        assert event.has_media is True
+        assert event.media_filename == "P2_Gilang Muhamad Widiagung_M0403241117_02.pdf"
+
+        # 2. Quoted document message
+        payload_quote_doc = {
+            "event": "message",
+            "payload": {
+                "id": "msg_reply_doc",
+                "from": "628111111111@c.us",
+                "fromMe": False,
+                "body": "Simpenin ke folder kuliah ya",
+                "hasMedia": False,
+                "_data": {
+                    "Message": {
+                        "extendedTextMessage": {
+                            "text": "Simpenin ke folder kuliah ya",
+                            "contextInfo": {
+                                "participant": "628111111111@c.us",
+                                "quotedMessage": {
+                                    "documentMessage": {
+                                        "fileName": "P2_Gilang Muhamad Widiagung_M0403241117_02.pdf",
+                                        "mimetype": "application/pdf",
+                                        "url": "http://waha:3000/api/files/doc1.pdf",
+                                    }
+                                },
+                            },
+                        }
+                    }
+                },
+            },
+        }
+
+        resp2 = await ac.post("/webhooks/waha", json=payload_quote_doc)
+        assert resp2.status_code == 200
+        assert len(dispatched_events) == 2
+        event2 = dispatched_events[1]
+        assert event2.quoted_type == "document"
+        assert event2.quoted_media_filename == "P2_Gilang Muhamad Widiagung_M0403241117_02.pdf"
+        assert "P2_Gilang Muhamad Widiagung" in str(event2.quoted_text)
+
+
+
 

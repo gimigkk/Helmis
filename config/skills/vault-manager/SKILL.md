@@ -46,21 +46,25 @@ data/vault/
 
 ## 2. Ingestion Playbook (Saving Files)
 
-When a user sends a media document/photo with an archiving intent (*"Mis, simpenin scan BPJS gw"*, *"Ini bukti transfer 350rb"*):
+When a user sends a media document/photo with an archiving intent (*"Mis, simpenin scan BPJS gw"*, *"Ini bukti transfer 350rb"*, *"Simpen ini"*):
 1. Determine appropriate **category**: `health`, `id_cards`, `travel`, `receipts`, `documents`, `media`, or custom `subfolder`.
 2. Determine **owner**: `"Gilang"`, `"Bunga"`, or `"Both"`/`"Shared"`.
-3. Format clean, descriptive slug filename (e.g., `scan_bpjs_kesehatan_gilang.pdf`, `e-ticket_garuda_bali.pdf`).
+3. **Filename Preservation vs Slug Rules (CRITICAL)**:
+   - **Named Documents & Files** (e.g. `P2_Gilang Muhamad Widiagung_M0403241117_02.pdf`, `Polis_Prudential.pdf`, `CV_Gilang.docx`, or any document with a meaningful uploaded filename): **ALWAYS PRESERVE the original uploaded filename**. Call `save_vault_file(filename=original_filename)`. NEVER invent a synthetic slug name for named documents.
+   - **Generic / Unnamed Media** (e.g. raw camera captures `IMG-20260826-WA0001.jpg`, `image.jpeg`, `document.pdf`, `blob`, `attachment`): Format a clean, descriptive slug filename based on content/OCR (e.g. `scan_bpjs_kesehatan_gilang.jpg`, `bukti_transfer_bca_350rb.jpg`).
+   - **Explicit User Rename** (e.g. *"Simpen file ini dengan nama tugas_p2.pdf"*): Honor the requested name for `filename`.
 4. Call `save_vault_file(filename=..., category=..., owner=..., tags=[...], description=...)`. The actual raw binary media is automatically preserved.
-5. Confirm politely in zero-emoji executive secretary tone.
+5. Confirm politely in zero-emoji executive secretary tone, referencing the preserved file name.
 
 ---
 
 ## 3. Reading & Content Inspection Playbook
 
-When a user asks about the contents or details inside a stored file (*"Isi file brief_project.txt apa?"*, *"Di brosur Elera biaya les kelas 6 berapa?"*, *"Bacain ringkasan polis di asuransi.pdf"*):
-1. Call `read_vault_file(file_id_or_name=...)`.
-2. For PDFs, `pypdf` extracts all digital text layers across pages. For text/code/markdown, full text is decoded. For images, OCR summaries are returned.
-3. Answer the user's question directly from the extracted content.
+When a user asks about the contents or details inside a stored file (*"Isi file brief_project.txt apa?"*, *"Di brosur Elera biaya les kelas 6 berapa?"*, *"Tadi tugas analgor nama filenya apa"*):
+1. Call `search_vault_files(query=...)` or `read_vault_file(file_id_or_name=...)`.
+2. If asked about the original filename sent by the user, report `original_filename` accurately.
+3. For PDFs, `pypdf` extracts all digital text layers across pages. For text/code/markdown, full text is decoded. For images, OCR summaries are returned.
+4. Answer the user's question directly from the extracted content.
 
 ---
 
