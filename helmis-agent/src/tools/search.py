@@ -1,5 +1,5 @@
 """
-search.py — Live web search provider for Helmis agent.
+search.py — Live web search provider for Helmis agent tools.
 
 Supports DuckDuckGo (zero-dependency default) and Tavily (if TAVILY_API_KEY is configured).
 Designed with strict timeouts, structured output, and zero external binary dependencies.
@@ -81,9 +81,6 @@ async def search_web(query: str, max_results: int = 5) -> dict[str, Any]:
                 results = []
 
                 # Extract result blocks from DDG HTML
-                # Pattern: <a class="result__snippet" ...>snippet</a>
-                # Pattern: <a class="result__url" ...>url</a>
-                # Pattern: <a class="result__a" ...>title</a>
                 snippets = re.findall(
                     r'<a[^>]*class="result__snippet"[^>]*>(.*?)</a>',
                     html_text,

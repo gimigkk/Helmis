@@ -213,7 +213,7 @@ async def test_execute_tool_call_send_whatsapp_message_cross_party() -> None:
 async def test_execute_tool_call_get_whatsapp_messages() -> None:
     from unittest.mock import AsyncMock, MagicMock
 
-    from src.models import WahaHistoryMessage
+    from src.whatsapp.models import WahaHistoryMessage
 
     mock_client = MagicMock()
     mock_client.get_messages = AsyncMock(
@@ -310,7 +310,7 @@ async def test_execute_tool_call_web_search() -> None:
         "count": 1,
         "results": [{"title": "Restoran Sunda", "snippet": "Buka jam 10", "url": "https://example.com"}],
     }
-    with patch("src.whatsapp.search.search_web", new=AsyncMock(return_value=mock_res)):
+    with patch("src.tools.search.search_web", new=AsyncMock(return_value=mock_res)):
         res = await agent.execute_tool_call(
             func_name="web_search",
             args={"query": "restoran sunda"},
@@ -476,7 +476,7 @@ async def test_multistep_react_loop_with_status_update() -> None:
     mock_post.side_effect = [mock_resp1, mock_resp2, mock_resp3]
 
     with patch("httpx.AsyncClient.post", mock_post):
-        with patch.object(agent, "GEMINI_KEYS", ["test_key"]):
+        with patch("src.agent.cascade.GEMINI_KEYS", ["test_key"]):
             with patch.dict(
                 os.environ,
                 {

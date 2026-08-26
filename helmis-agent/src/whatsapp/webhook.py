@@ -207,7 +207,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
         # Scheduler tick
         elif event == "scheduler.tick":
             log.info("Received scheduler proactive tick, evaluating due tasks...")
-            from ..proactive import handle_proactive_scheduler_tick
+            from ..agent.proactive import handle_proactive_scheduler_tick
 
             asyncio.create_task(handle_proactive_scheduler_tick(client))
             return JSONResponse({"status": "tick_processed"})

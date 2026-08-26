@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from src.memory.store import add_task, complete_task, load_memory, save_memory, update_task
-from src.proactive import handle_proactive_scheduler_tick
+from src.agent.proactive import handle_proactive_scheduler_tick
 from src.whatsapp.client import WahaClient
 
 TZ = ZoneInfo("Asia/Jakarta")
@@ -47,7 +47,7 @@ async def test_proactive_stage1_kickoff_reminder() -> None:
 
     # Mock time to 13:05 WIB (inside lead buffer window)
     mock_dt = datetime(2026, 8, 26, 13, 5, 0, tzinfo=TZ)
-    with patch("src.proactive.datetime") as mock_datetime:
+    with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt
         await handle_proactive_scheduler_tick(mock_client)
 
@@ -77,7 +77,7 @@ async def test_proactive_stage2_due_reminder() -> None:
 
     # Mock time to 15:00 WIB (due time)
     mock_dt = datetime(2026, 8, 26, 15, 0, 0, tzinfo=TZ)
-    with patch("src.proactive.datetime") as mock_datetime:
+    with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt
         await handle_proactive_scheduler_tick(mock_client)
 
@@ -106,7 +106,7 @@ async def test_proactive_urgent_nag_loop_and_partner_escalation() -> None:
 
     # 1. Initial due at 15:00
     mock_dt_1500 = datetime(2026, 8, 26, 15, 0, 0, tzinfo=TZ)
-    with patch("src.proactive.datetime") as mock_datetime:
+    with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt_1500
         await handle_proactive_scheduler_tick(mock_client)
 
@@ -116,7 +116,7 @@ async def test_proactive_urgent_nag_loop_and_partner_escalation() -> None:
 
     # 2. 10 minutes later (15:10) -> Nudge #2
     mock_dt_1510 = datetime(2026, 8, 26, 15, 10, 0, tzinfo=TZ)
-    with patch("src.proactive.datetime") as mock_datetime:
+    with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt_1510
         await handle_proactive_scheduler_tick(mock_client)
 
@@ -133,7 +133,7 @@ async def test_proactive_urgent_nag_loop_and_partner_escalation() -> None:
     save_memory(mem)
 
     mock_dt_1530 = datetime(2026, 8, 26, 15, 30, 0, tzinfo=TZ)
-    with patch("src.proactive.datetime") as mock_datetime:
+    with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt_1530
         await handle_proactive_scheduler_tick(mock_client)
 
@@ -149,7 +149,7 @@ async def test_proactive_urgent_nag_loop_and_partner_escalation() -> None:
     save_memory(mem)
 
     mock_dt_1600 = datetime(2026, 8, 26, 16, 0, 0, tzinfo=TZ)
-    with patch("src.proactive.datetime") as mock_datetime:
+    with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt_1600
         await handle_proactive_scheduler_tick(mock_client)
 
@@ -203,7 +203,7 @@ async def test_completed_task_skips_all_reminders() -> None:
     complete_task("Beli Susu Oat")
 
     mock_dt = datetime(2026, 8, 26, 15, 0, 0, tzinfo=TZ)
-    with patch("src.proactive.datetime") as mock_datetime:
+    with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt
         await handle_proactive_scheduler_tick(mock_client)
 
@@ -223,7 +223,7 @@ async def test_proactive_ancient_overdue_task_silently_marked() -> None:
     )
 
     mock_dt = datetime(2026, 8, 26, 12, 0, 0, tzinfo=TZ)
-    with patch("src.proactive.datetime") as mock_datetime:
+    with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt
         await handle_proactive_scheduler_tick(mock_client)
 

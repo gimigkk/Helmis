@@ -7,8 +7,8 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .memory.store import load_memory, log_activity, parse_due_timestamp, save_memory
-from .whatsapp.client import WahaClient
+from ..memory.store import load_memory, log_activity, parse_due_timestamp, save_memory
+from ..whatsapp.client import WahaClient
 
 log = logging.getLogger("helmis-proactive")
 TZ = ZoneInfo("Asia/Jakarta")
@@ -255,7 +255,7 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                         # 60-Minute Stand Down Notice
                         msg_text = (
                             f"Helmis menghentikan pengingat otomatis untuk *{title}* (sudah 60 menit tanpa respon). "
-                            "Tugas tetap tercatat 'pending' di daftar tugas."
+                            "Tugas tetap tercatat 'pending' di daftar target."
                         )
                         await send_reminder_to_recipient(client, assignee, msg_text)
                         t["nudge_stopped"] = True
@@ -271,4 +271,3 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
         log.info("Proactive evaluation completed and state saved to disk.")
     else:
         log.debug("No new reminders or nag pings triggered in this tick.")
-

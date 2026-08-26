@@ -15,8 +15,8 @@ from src.agent.cascade import GEMINI_KEYS
 from src.agent.guardrails import verify_action_fidelity
 from src.agent.loop import run_agentic_react_loop
 from src.memory.vault import save_file_to_vault
-from src.models import WahaHistoryMessage
 from src.whatsapp.client import WahaClient
+from src.whatsapp.models import WahaHistoryMessage
 
 
 @pytest.fixture(autouse=True)

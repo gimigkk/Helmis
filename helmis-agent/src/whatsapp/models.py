@@ -1,5 +1,5 @@
 """
-models.py — All data shapes for the WAHA MCP server.
+models.py — All data shapes for the WAHA MCP server and WhatsApp domain.
 
 Single source of truth for every request/response structure.
 All models are Pydantic v2 — validated on construction, typed throughout.

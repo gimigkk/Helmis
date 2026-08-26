@@ -25,7 +25,6 @@ from .processor import (
     split_into_bubbles,
 )
 from .queue import ChatQueueManager, ChatQueueWorker, IncomingMessageEvent
-from .search import search_web
 from .transcribe import transcribe_audio_base64
 from .webhook import create_webhook_app
 
@@ -49,7 +48,6 @@ __all__ = [
     "is_duplicate_message",
     "process_batched_turn",
     "resolve_sender_identity",
-    "search_web",
     "split_into_bubbles",
     "transcribe_audio_base64",
 ]

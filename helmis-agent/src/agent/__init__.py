@@ -2,7 +2,7 @@
 src.agent — The Brain & LLM Orchestration Package.
 """
 
-from ..agent_tools import GEMINI_TOOLS, execute_tool_call
+from ..tools import GEMINI_TOOLS, execute_tool_call
 from ..whatsapp.transcribe import transcribe_audio_base64
 from .cascade import (
     GEMINI_KEYS,
@@ -15,6 +15,7 @@ from .cascade import (
 )
 from .guardrails import format_tool_chips, inject_tool_directive, verify_action_fidelity
 from .loop import drain_and_inject_mid_turn_mailbox, run_agentic_react_loop
+from .proactive import handle_proactive_scheduler_tick
 from .tracer import AgentTurnTracer
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "format_tool_chips",
     "get_cascade_models",
     "get_next_gemini_key",
+    "handle_proactive_scheduler_tick",
     "inject_tool_directive",
     "load_all_skills",
     "load_system_prompt",

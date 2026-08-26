@@ -25,7 +25,7 @@ from typing import Any
 
 import httpx
 
-from ..models import WahaHistoryMessage, WahaMessageResponse
+from .models import WahaHistoryMessage, WahaMessageResponse
 
 log = logging.getLogger("helmis-client")
 

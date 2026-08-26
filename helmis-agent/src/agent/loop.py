@@ -101,7 +101,7 @@ async def run_agentic_react_loop(
     3. Feeds tool responses back into the conversation turn
     4. Synthesizes concise final response with verified outcomes
     """
-    from ..agent_tools import GEMINI_TOOLS, execute_tool_call
+    from ..tools import GEMINI_TOOLS, execute_tool_call
     from ..memory.semantic import search_memories
     from ..memory.store import get_memory_context_summary
     from ..whatsapp.history import build_multi_turn_contents
