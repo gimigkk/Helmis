@@ -112,27 +112,29 @@ def test_split_into_bubbles_explicit_separator() -> None:
     assert bubbles[1] == "Btw besok ada meeting jam 10 pagi, mau diingetin?"
 
 
-def test_split_into_bubbles_conversational_paragraphs() -> None:
+def test_split_into_bubbles_preserves_multi_paragraph_schedules_in_one_bubble() -> None:
     from src.webhook import split_into_bubbles
 
-    text = (
-        "Ah iya bener, hari ini maksudnya. Sorry Gilang, *ILT Personal Productivity Asah* jam 15:00 WIB nanti sore ya.\n\n"
-        "Istirahat sana biar fresh pas mulai nanti."
+    schedule_text = (
+        "Jadwal kuliah Gilang semester ini:\n\n"
+        "Selasa:\n"
+        "1. 08:00-09:40 - Komunikasi Data dan Jaringan Komputer (Kuliah) | Ruangan: RK. CCR 2.15\n"
+        "2. 10:00-12:00 - Komunikasi Data dan Jaringan Komputer (Praktikum) | Ruangan: Disesuaikan\n"
+        "3. 13:00-14:40 - Sistem Informasi (Kuliah) | Ruangan: RK. CCR 1.02\n\n"
+        "Rabu:\n"
+        "1. 08:00-09:40 - Analisis Algoritme (Kuliah) | Ruangan: IPBW8 501\n"
+        "2. 10:00-11:40 - Analisis Algoritme (Responsi) | Ruangan: IPBW8 501\n"
+        "3. 13:00-14:40 - Sistem Operasi (Kuliah) | Ruangan: IPBW6 504\n\n"
+        "Kamis:\n"
+        "1. 10:00-12:00 - Sistem Operasi (Praktikum) | Ruangan: Labkom 3\n"
+        "2. 13:00-15:00 - Kecerdasan Buatan (Praktikum) | Ruangan: Computer Hall B\n\n"
+        "Jumat:\n"
+        "1. 09:00-10:40 - Kecerdasan Buatan (Kuliah) | Ruangan: RK. OFAC 3 B2 / R. Pinus 1"
     )
-    bubbles = split_into_bubbles(text)
-    assert len(bubbles) == 2
-    assert "Ah iya bener" in bubbles[0]
-    assert "Istirahat sana" in bubbles[1]
-
-
-def test_split_into_bubbles_keeps_structured_list_together() -> None:
-    from src.webhook import split_into_bubbles
-
-    text = "Daftar tugas Gilang:\n\n1. *Check in Asah* (18:00 WIB)\n2. *Beli susu* (20:00 WIB)"
-    bubbles = split_into_bubbles(text)
+    bubbles = split_into_bubbles(schedule_text)
     assert len(bubbles) == 1
-    assert "1. *Check in Asah*" in bubbles[0]
-    assert "2. *Beli susu*" in bubbles[0]
+    assert "Jadwal kuliah Gilang" in bubbles[0]
+    assert "Jumat:" in bubbles[0]
 
 
 def test_split_into_bubbles_empty_and_short() -> None:
@@ -140,3 +142,5 @@ def test_split_into_bubbles_empty_and_short() -> None:
 
     assert split_into_bubbles("") == []
     assert split_into_bubbles("Sip udah ya.") == ["Sip udah ya."]
+    assert split_into_bubbles("Halo Gilang\n\nAda apa nih?") == ["Halo Gilang\n\nAda apa nih?"]
+

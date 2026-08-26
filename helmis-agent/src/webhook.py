@@ -329,73 +329,18 @@ def describe_intent_action(
 
 def split_into_bubbles(text: str) -> list[str]:
     """
-    Split an assistant reply into natural human WhatsApp message bubbles.
-    - If explicit '---' separator is used, split into separate message bubbles.
-    - If text contains multiple conversational paragraphs ('\n\n'), split each conversational paragraph into its own bubble.
-    - Preserves structured lists (e.g. header + numbered bullets), code blocks, and single cohesive notes in a single bubble.
+    Split an assistant reply into separate WhatsApp message bubbles based strictly on the '---' delimiter.
+    - If the agent explicitly outputs '---' on its own line, split into separate message bubbles.
+    - Preserves all multi-paragraph structures, multi-day schedules, lists, and markdown intact in a single bubble unless '---' is used.
     """
     if not text or not text.strip():
         return []
 
     clean = text.strip()
 
-    # 1. Explicit bubble separator
-    if "\n---\n" in clean or "\n--- \n" in clean:
-        parts = [p.strip() for p in re.split(r"\n---(?:\s*)\n", clean) if p.strip()]
-        if parts:
-            return parts[:5]
-
-    # 2. Keep single code blocks in 1 bubble
-    if clean.startswith("```") and clean.endswith("```"):
-        return [clean]
-
-    # 3. Split by paragraphs (\n\n)
-    paragraphs = [p.strip() for p in clean.split("\n\n") if p.strip()]
-    if len(paragraphs) <= 1:
-        return [clean]
-
-    bubbles: list[str] = []
-    current_bubble: list[str] = []
-
-    for p in paragraphs:
-        lines = p.splitlines()
-        # Check if p is a structured list (numbered 1., 2. or bullets -, *, •)
-        is_list = any(
-            line.strip().startswith(tuple(f"{i}." for i in range(1, 20)))
-            or line.strip().startswith(("- ", "* ", "• "))
-            for line in lines
-        )
-
-        if is_list:
-            # If there's a short intro header before this list (e.g. "Daftar tugas:"), group them into 1 bubble
-            if (
-                current_bubble
-                and len(current_bubble) == 1
-                and len(current_bubble[0]) < 120
-                and not any(
-                    current_bubble[0].strip().startswith(tuple(f"{i}." for i in range(1, 20)))
-                    for line in current_bubble[0].splitlines()
-                )
-            ):
-                current_bubble.append(p)
-                bubbles.append("\n\n".join(current_bubble))
-                current_bubble = []
-            else:
-                if current_bubble:
-                    bubbles.append("\n\n".join(current_bubble))
-                    current_bubble = []
-                bubbles.append(p)
-        else:
-            # Conversational paragraph
-            if current_bubble:
-                bubbles.append("\n\n".join(current_bubble))
-                current_bubble = []
-            current_bubble.append(p)
-
-    if current_bubble:
-        bubbles.append("\n\n".join(current_bubble))
-
-    return bubbles[:5] if bubbles else [clean]
+    # Split strictly on '---' delimiter on its own line (with optional surrounding whitespace)
+    parts = [p.strip() for p in re.split(r"(?:\r?\n|^)\s*---\s*(?:\r?\n|$)", clean) if p.strip()]
+    return parts[:5] if parts else [clean]
 
 
 def create_webhook_app(client: WahaClient) -> Starlette:
