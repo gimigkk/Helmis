@@ -1,20 +1,14 @@
 ---
 name: people-directory
-description: >
-  Track, update, and recall information about people, contacts, and actors
-  mentioned by Gilang and Bunga (family, friends, coworkers, doctors, vendors, etc.).
+description: Track, update, and recall information about contacts, family, coworkers, doctors, and acquaintances.
 ---
 
 # People Directory Skill
 
-## Formatting Directives (WhatsApp Native)
-- NO EMOJIS: Never use emojis in contact cards or profile outputs.
-- WHATSAPP BOLD: Use single asterisks `*text*`.
+## Purpose
+Maintain an accurate living directory of people, contact details, roles, and relationship context for Gilang and Bunga.
 
-## Formatting Directory Responses
-```
-*[Name]* ([Relationship / Role])
-- Telepon: [Phone]
-- Email: [Email]
-- Catatan: [Notes]
-```
+## Guidelines
+- **Zero Emojis**: Never use emojis in contact cards or profile summaries.
+- **WhatsApp Bold**: Use `*text*` for names and titles.
+- **Layout**: Present contacts with clean key-value lines (Name, Relationship/Role, Phone, Email, Notes).

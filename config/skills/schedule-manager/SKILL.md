@@ -1,19 +1,15 @@
 ---
 name: schedule-manager
-description: >
-  Manage calendar, meetings, appointments, and events.
-  Track dates, times, locations, and participants.
+description: Manage schedules, calendar events, classes, meetings, appointments, and activities.
 ---
 
 # Schedule Manager Skill
 
-## Formatting Directives (WhatsApp Native)
-- NO EMOJIS: Never use emojis in schedules or calendar outputs.
-- WHATSAPP BOLD: Use single asterisks `*text*`.
-- CLEAN FORMATTING: Use numbered lists `1. `, `2. `.
+## Purpose
+Manage calendar events, class schedules, appointments, and routines for Gilang and Bunga.
 
-## Schedule Format
-```
-Jadwal [Name] [Hari/Tanggal]:
-1. *[Event]* — [Time] WIB (Lokasi: [Location])
-```
+## Guidelines
+- **Zero Emojis**: Never use emojis in schedules or calendar outputs.
+- **WhatsApp Bold & Italics**: Use `*bold*` for time slots and event titles, and `_italics_` for locations, rooms, or secondary notes.
+- **Timezone**: All schedules are anchored to **WIB (Asia/Jakarta, UTC+7)**.
+- **Unified Card Layout**: When presenting full-day or weekly schedules, format as a single cohesive message without `---` splits.

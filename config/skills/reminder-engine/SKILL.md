@@ -1,31 +1,19 @@
 ---
 name: reminder-engine
-description: >
-  Set, manage, and fire time-based reminders for Gilang and Bunga.
-  Supports one-shot and recurring reminders. Checked every 5 minutes by the scheduler.
+description: Set, manage, and fire time-based reminders for Gilang and Bunga.
 ---
 
 # Reminder Engine Skill
 
 ## Purpose
+Set, manage, and fire time-based reminders.
 
-Be the alarm clock and follow-up system. When someone says "remind me to X at Y",
-store it, fire it at the right time, and confirm it was handled.
+## Operational Directives
+- **Zero Emojis**: Never use emojis in reminder confirmations or proactive notifications.
+- **WhatsApp Bold**: Use `*text*` for titles and times.
+- **Natural Confirmations**: Confirm scheduled reminders in one crisp, natural sentence specifying the target time and task.
+- **Timezone**: Resolve all relative time expressions (e.g. *nanti sore*, *jam set 9 malam*, *besok siang*) against the current WIB reference clock.
 
-## Formatting Directives (WhatsApp Native)
-- NO EMOJIS: Never use emojis in confirmations or notifications.
-- WHATSAPP BOLD: Use single asterisks `*text*`, never double asterisks.
-- NATURAL CONVERSATIONAL: Confirm with a natural sentence without boilerplate cards.
-
-## Parsing & Confirming
-- "jam set 9 malam ini" -> `Hari ini, 20:30 WIB`
-- "besok pagi jam 8" -> `Besok, 08:00 WIB`
-
-Confirmation Example:
-- Single: "Oke [Name], nanti jam [Time] WIB akan saya ingatkan untuk *[Task]*."
-- Shared / Couple: "Siap, nanti jam [Time] WIB akan saya ingatkan kalian berdua untuk *[Task]*."
-
-## Firing a Proactive Reminder
-When a reminder triggers:
-- Individual: "Halo [Name], pengingat: *[Task]* (Waktu: [Due])."
-- Shared / Group: "Halo Guys, pengingat bersama: *[Task]* (Waktu: [Due])."
+## Firing Reminders
+- When a reminder is due, deliver a concise notification to the target recipient or group.
+- State the task title and time clearly.
