@@ -33,8 +33,8 @@ def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, A
 
 def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
     """
-    Format executed tool names into a clean inline monospace chips header.
-    Example: `search_vault_files` `read_vault_file`
+    Format executed tool names into a sleek, minimalist bottom footnote signature.
+    Example: _↳ search_vault_files · read_vault_file_
     """
     if not executed_tools:
         return None
@@ -43,8 +43,8 @@ def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
         return None
     # Deduplicate while preserving order of execution
     unique_tools = list(dict.fromkeys(tool_names))
-    chips = " ".join(f"`{name}`" for name in unique_tools)
-    return chips
+    chips = " · ".join(unique_tools)
+    return f"_↳ {chips}_"
 
 
 def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> str:
@@ -52,7 +52,7 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
     Structural State Fidelity Guardrail:
     Ensures that when tools are executed in a turn, the finalized response is strictly consistent
     with the actual ground-truth outcome of the database and vault operations without brittle keyword matching.
-    Also prepends inline tool chips (`tool_name` `tool_2`) for complete execution transparency.
+    Also appends a sleek footnote signature (_↳ tool_name_) for complete execution transparency.
     """
     if not executed_tools or not text or text.strip() in ("[NO_REPLY]", "NO_REPLY", "None"):
         return text
@@ -104,9 +104,9 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
                 else:
                     final_text = err
 
-    # Prepend inline monospace tool chips for complete transparency
+    # Append sleek bottom footnote for clean transparency
     chips = format_tool_chips(executed_tools)
-    if chips and not final_text.startswith(chips):
-        final_text = f"{chips}\n\n{final_text}"
+    if chips and chips not in final_text:
+        final_text = f"{final_text}\n\n{chips}"
 
     return final_text

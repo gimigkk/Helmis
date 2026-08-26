@@ -344,12 +344,12 @@ def test_verify_action_fidelity_enforces_not_found_message() -> None:
         }
     ]
     corrected = agent.verify_action_fidelity("Sip, sudah saya hapus.", tools_failed)
-    assert "`delete_memory`" in corrected
+    assert "_↳ delete_memory_" in corrected
     assert "Tidak ditemukan memori yang cocok di database." in corrected
 
 
 def test_verify_action_fidelity_passes_successful_turns() -> None:
-    # When mutation tool succeeded, verify tool chips are prepended to the response
+    # When mutation tool succeeded, verify footnote is appended to the bottom
     tools_success = [
         {
             "name": "delete_memory",
@@ -357,7 +357,7 @@ def test_verify_action_fidelity_passes_successful_turns() -> None:
         }
     ]
     verified = agent.verify_action_fidelity("Sip, sudah saya hapus ya.", tools_success)
-    assert verified == "`delete_memory`\n\nSip, sudah saya hapus ya."
+    assert verified == "Sip, sudah saya hapus ya.\n\n_↳ delete_memory_"
 
 
 def test_format_tool_chips_deduplicates_and_orders() -> None:
@@ -369,7 +369,7 @@ def test_format_tool_chips_deduplicates_and_orders() -> None:
         {"name": "read_vault_file"},
         {"name": "search_vault_files"},  # duplicate
     ])
-    assert chips == "`search_vault_files` `read_vault_file`"
+    assert chips == "_↳ search_vault_files · read_vault_file_"
 
 
 async def test_execute_tool_call_send_status_update() -> None:

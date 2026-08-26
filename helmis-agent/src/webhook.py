@@ -569,10 +569,10 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                     combined_text = f"{doc_banner}\n\n{combined_text}" if combined_text else doc_banner
                     tracer.message_text = combined_text
 
-            # Dynamic Progress Watchdog: reassure after 3.5s only if complex tools are executing
+            # Dynamic Progress Watchdog: reassure after 12.0s only if agent is genuinely stalled
             async def progress_watchdog() -> None:
                 try:
-                    await asyncio.sleep(3.5)
+                    await asyncio.sleep(12.0)
                     # Don't fire if items were already dispatched to the chat or turn finished
                     if turn_state.get("dispatched_items", 0) > 0:
                         return
