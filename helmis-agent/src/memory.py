@@ -223,7 +223,7 @@ def add_task(
     clean_priority = priority.strip().lower() if priority else "normal"
     if clean_priority not in ("urgent", "normal", "low"):
         clean_priority = "normal"
-    clean_lead = int(lead_time_minutes or 0)
+    clean_lead = lead_time_minutes or 0
 
     mem = load_memory()
     tasks = mem.setdefault("tasks", [])
@@ -299,7 +299,7 @@ def update_task(
             if p in ("urgent", "normal", "low"):
                 target_task["priority"] = p
         if new_lead_time_minutes is not None:
-            target_task["lead_time_minutes"] = int(new_lead_time_minutes)
+            target_task["lead_time_minutes"] = new_lead_time_minutes
         target_task["updated_at"] = get_current_time_str()
         save_memory(mem)
         return cast(dict[str, Any], target_task)

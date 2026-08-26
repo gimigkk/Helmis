@@ -146,7 +146,7 @@ async def run_agentic_react_loop(
         media_data=media_data,
     )
 
-    is_video = bool(media_data and str(media_data.get("mimeType", "")).startswith("video/"))
+    is_video = bool(media_data and media_data.get("mimeType", "").startswith("video/"))
     candidate_models = get_cascade_models(is_video=is_video)
     timeout_secs = 25.0 if is_video else 6.0
     executed_tools: list[dict[str, Any]] = []
@@ -162,6 +162,7 @@ async def run_agentic_react_loop(
         }
 
         # Attempt call with Multi-Model & Multi-Key Cascade
+        response_data: dict[str, Any] | None = None
         active_candidates = candidate_models[:4]
         for model in active_candidates:
             keys_count = len(getattr(cascade, "GEMINI_KEYS", [])) or 1

@@ -233,7 +233,7 @@ class WahaClient:
             "text": text,
         }
         if reply_to_message_id:
-            body["reply_to"] = str(reply_to_message_id)
+            body["reply_to"] = reply_to_message_id
 
         data = await self._post("/api/sendText", body)
         msg_id = str(data.get("id", "") if isinstance(data, dict) else data)
@@ -280,7 +280,7 @@ class WahaClient:
         if caption:
             body["caption"] = caption
         if reply_to_message_id:
-            body["reply_to"] = str(reply_to_message_id)
+            body["reply_to"] = reply_to_message_id
 
         data = await self._post("/api/sendFile", body)
         msg_id = str(data.get("id", "") if isinstance(data, dict) else data)
