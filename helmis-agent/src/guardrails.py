@@ -33,8 +33,8 @@ def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, A
 
 def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
     """
-    Format executed tool names into a sleek, minimalist bottom footnote signature.
-    Example: _↳ search_vault_files · read_vault_file_
+    Format executed tool names into a sleek, inline monospace chips footnote.
+    Example: ↳ `search_vault_files`, `read_vault_file`
     """
     if not executed_tools:
         return None
@@ -43,8 +43,8 @@ def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
         return None
     # Deduplicate while preserving order of execution
     unique_tools = list(dict.fromkeys(tool_names))
-    chips = " · ".join(unique_tools)
-    return f"_↳ {chips}_"
+    chips = ", ".join(f"`{name}`" for name in unique_tools)
+    return f"↳ {chips}"
 
 
 def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> str:
