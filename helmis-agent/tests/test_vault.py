@@ -504,13 +504,13 @@ async def test_save_and_send_vault_file_tools_use_original_filename() -> None:
     """Verify handle_save_vault_file tool and handle_send_vault_file tool use original_filename."""
     import base64
     from unittest.mock import AsyncMock
-    from src.tools.files import handle_save_vault_file, handle_send_vault_file
 
     pdf_bytes = b"%PDF-1.5 test raw bytes"
     b64_pdf = base64.b64encode(pdf_bytes).decode("ascii")
     orig_doc_name = "Tugas 1 (Analisis Algoritma) [FINAL].pdf"
 
-    save_res = await handle_save_vault_file(
+    save_res = await execute_tool_call(
+        func_name="save_vault_file",
         args={
             "category": "documents",
             "owner": "Gilang",
@@ -531,7 +531,8 @@ async def test_save_and_send_vault_file_tools_use_original_filename() -> None:
 
     # Test send_vault_file preserves original_filename when sending to WhatsApp client
     mock_client = AsyncMock()
-    send_res = await handle_send_vault_file(
+    send_res = await execute_tool_call(
+        func_name="send_vault_file",
         args={"file_id_or_name": file_rec["id"], "recipient": "current"},
         default_sender="Gilang",
         client=mock_client,

@@ -5,7 +5,7 @@ registry.py — Clean Tool Registration and Dispatch Engine.
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, TypeVar
 
 from ..client import WahaClient
 from ..guardrails import inject_tool_directive
@@ -14,12 +14,13 @@ log = logging.getLogger("helmis-tools")
 
 ToolHandler = Callable[..., Awaitable[dict[str, Any]] | dict[str, Any]]
 TOOL_REGISTRY: dict[str, ToolHandler] = {}
+F = TypeVar("F", bound=Callable[..., Any])
 
 
-def register_tool(name: str) -> Callable[[ToolHandler], ToolHandler]:
+def register_tool(name: str) -> Callable[[F], F]:
     """Decorator to register a function as a named tool handler."""
 
-    def decorator(func: ToolHandler) -> ToolHandler:
+    def decorator(func: F) -> F:
         TOOL_REGISTRY[name] = func
         return func
 
