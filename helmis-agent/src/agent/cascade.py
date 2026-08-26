@@ -142,27 +142,40 @@ def get_next_gemini_key() -> str:
 
 def load_system_prompt() -> str:
     """Load system prompt from config."""
-    prompt_path = os.environ.get("SYSTEM_PROMPT_PATH", "/hermes-config/system-prompt.md")
-    if not os.path.exists(prompt_path):
-        prompt_path = "config/system-prompt.md"
-    if not os.path.exists(prompt_path):
-        prompt_path = "../config/system-prompt.md"
-    try:
-        with open(prompt_path, encoding="utf-8") as f:
-            return f.read()
-    except Exception as e:
-        log.warning("Could not read system prompt file (%s), using default: %s", prompt_path, e)
-        return "You are Helmis, personal AI secretary for Gilang and Bunga. Address them by name and be proactive and concise."
+    prompt_path = os.environ.get("SYSTEM_PROMPT_PATH", "")
+    candidates = [
+        prompt_path,
+        "/app/config/system-prompt.md",
+        "/hermes-config/system-prompt.md",
+        "config/system-prompt.md",
+        "../config/system-prompt.md",
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    return f.read()
+            except Exception as e:
+                log.warning("Could not read system prompt file (%s): %s", p, e)
+    return "You are Helmis, personal AI secretary for Gilang and Bunga. Address them by name and be proactive and concise."
 
 
 def load_all_skills() -> str:
-    """Load all markdown skills defined under /hermes-config/skills or config/skills."""
-    skills_dir = os.environ.get("SKILLS_DIR", "/hermes-config/skills")
-    if not os.path.exists(skills_dir):
-        skills_dir = "config/skills"
-    if not os.path.exists(skills_dir):
-        skills_dir = "../config/skills"
-    if not os.path.exists(skills_dir):
+    """Load all markdown skills defined under config/skills."""
+    skills_dir = os.environ.get("SKILLS_DIR", "")
+    candidates = [
+        skills_dir,
+        "/app/config/skills",
+        "/hermes-config/skills",
+        "config/skills",
+        "../config/skills",
+    ]
+    target_dir = ""
+    for d in candidates:
+        if d and os.path.exists(d):
+            target_dir = d
+            break
+    if not target_dir:
         return ""
 
     skill_texts = []

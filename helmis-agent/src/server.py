@@ -61,7 +61,7 @@ def _run_webhook_server(client: WahaClient, webhook_port: int) -> None:
 def main() -> None:
     """Start the MCP server and webhook listener."""
     mcp_port = int(os.environ.get("MCP_WAHA_PORT", "8765"))
-    webhook_port = int(os.environ.get("HERMES_WEBHOOK_PORT", "8644"))
+    webhook_port = int(os.environ.get("AGENT_WEBHOOK_PORT") or os.environ.get("HERMES_WEBHOOK_PORT") or "8644")
 
     mcp, client = create_server()
 
