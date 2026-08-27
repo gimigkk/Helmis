@@ -258,22 +258,26 @@ async def process_batched_turn(
                     except Exception as ex:
                         log.warning("Could not resolve quoted media from chat history: %s", ex)
             else:
-                # Contextual follow-up fallback: if user text refers to recent media ("di video ini?", "itu motor apa?")
+                # Contextual follow-up fallback: if user text explicitly refers to recent media (e.g. "di foto ini", "video tadi")
                 text_lower = combined_text.lower()
                 if any(
-                    kw in text_lower
-                    for kw in (
-                        "video",
-                        "foto",
-                        "gambar",
-                        "dokumen",
-                        "ini",
-                        "itu",
-                        "motor",
-                        "mobil",
-                        "plat",
-                        "orang",
-                        "suara",
+                    phrase in text_lower
+                    for phrase in (
+                        "foto ini",
+                        "di foto",
+                        "foto tadi",
+                        "gambar ini",
+                        "di gambar",
+                        "gambar tadi",
+                        "video ini",
+                        "di video",
+                        "video tadi",
+                        "dokumen ini",
+                        "file ini",
+                        "dokumen tadi",
+                        "file tadi",
+                        "voice note tadi",
+                        "audio tadi",
                     )
                 ):
                     try:

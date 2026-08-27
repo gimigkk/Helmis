@@ -199,8 +199,10 @@ async def run_agentic_react_loop(
                             log.warning("Rate limit (429) on %s with key %s..., rotating", model, api_key[:8])
                             continue
                         elif resp.status_code == 404:
+                            log.warning("Model not found (404) on %s, skipping", model)
                             break
                         else:
+                            log.error("Gemini API error (%d) on %s: %s", resp.status_code, model, resp.text[:400])
                             continue
                 except Exception as ex:
                     log.warning("Timeout or connection error on %s: %s", model, ex)

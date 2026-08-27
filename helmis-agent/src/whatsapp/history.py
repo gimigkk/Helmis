@@ -72,8 +72,15 @@ def build_multi_turn_contents(
 
     # Prepare current turn parts natively
     current_parts: list[dict[str, Any]] = []
-    if media_data:
-        current_parts.append({"inlineData": media_data})
+    if media_data and "mimeType" in media_data and "data" in media_data:
+        current_parts.append(
+            {
+                "inlineData": {
+                    "mimeType": media_data["mimeType"],
+                    "data": media_data["data"],
+                }
+            }
+        )
 
     if current_text and current_text.strip():
         current_parts.append({"text": f"[{sender_name}]: {current_text.strip()}"})
