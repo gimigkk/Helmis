@@ -62,8 +62,10 @@ def fetch_available_gemini_models() -> list[str]:
             "gemini-3.1-flash-lite-preview",
             "gemini-3.1-flash-lite",
             "gemini-flash-latest",
+            "gemini-3.7-flash",
             "gemini-2.5-flash",
             "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
             "gemini-2.5-pro",
             "gemini-pro-latest",
         ]
@@ -179,7 +181,7 @@ def load_all_skills() -> str:
         return ""
 
     skill_texts = []
-    for root, _, files in os.walk(skills_dir):
+    for root, _, files in os.walk(target_dir):
         for file in files:
             if file.endswith(".md"):
                 full_path = os.path.join(root, file)
