@@ -228,3 +228,18 @@ def test_verify_action_fidelity_sanitizes_raw_exceptions() -> None:
     assert "422" not in sanitized
     assert "error" not in sanitized.lower()
     assert "kendala teknis" in sanitized or "gagal" in sanitized or "maaf" in sanitized.lower()
+
+
+def test_verify_action_fidelity_strips_fake_tool_chips() -> None:
+    """If the LLM mimicked/hallucinated a tool footnote without actually running the tool, strip it."""
+    fake_response = "Sip Gilang, silakan istirahat. Nanti 11:20 WIB kukun ya.\n\n_↳ add_task_"
+    sanitized = verify_action_fidelity(fake_response, executed_tools=[])
+    assert "↳" not in sanitized
+    assert "add_task" not in sanitized
+
+    # If another tool actually ran, only the authentic tool is appended
+    real_tools = [{"name": "list_tasks", "args": {}, "result": {"status": "success"}}]
+    sanitized_real = verify_action_fidelity(fake_response, executed_tools=real_tools)
+    assert "↳ `list_tasks`" in sanitized_real
+    assert "add_task" not in sanitized_real
+

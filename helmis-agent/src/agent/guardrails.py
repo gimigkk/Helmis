@@ -47,15 +47,35 @@ def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
     return f"↳ {chips}"
 
 
+import re
+
+
+def strip_hallucinated_tool_chips(text: str) -> str:
+    """Strip any hallucinated or LLM-mimicked tool chips footnote lines."""
+    if not text:
+        return ""
+    # Matches lines starting with ↳, _↳, *↳, `↳, etc. and tool lists
+    cleaned = re.sub(r"\n*\s*[_*~`]*↳\s*[`\w\s,_]+[_*~`]*\s*$", "", text.strip())
+    return cleaned.strip()
+
+
 def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> str:
     """
     Structural State Fidelity Guardrail:
     Ensures that when tools are executed in a turn, the finalized response is strictly consistent
     with the actual ground-truth outcome of the database and vault operations without brittle keyword matching.
-    Also appends a sleek footnote signature (↳ `tool_name`) for complete execution transparency.
+    Also appends a sleek footnote signature (↳ `tool_name`) for complete execution transparency, while stripping
+    any fake or hallucinated tool footnotes emitted by the LLM itself.
     """
-    if not executed_tools or not text or text.strip() in ("[NO_REPLY]", "NO_REPLY", "None"):
+    if not text or text.strip() in ("[NO_REPLY]", "NO_REPLY", "None"):
         return text
+
+    # Strip any synthetic/hallucinated tool chips emitted by the model
+    cleaned_text = strip_hallucinated_tool_chips(text)
+
+    # If no tools were executed, return cleaned text (guaranteed no fake tool chips)
+    if not executed_tools:
+        return cleaned_text
 
     # Check state mutation and vault retrieval tools
     mutation_tools = [
@@ -80,7 +100,7 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
         )
     ]
 
-    final_text = text
+    final_text = cleaned_text
     if mutation_tools:
         # If all mutation tools returned 'not_found', enforce the verified database message
         all_not_found = all(
@@ -100,11 +120,11 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
             if err and isinstance(err, str):
                 # If err is a raw HTTP/API error or stacktrace, let the LLM's natural explanation stand!
                 if any(x in err for x in ("WAHA API error", "422", "Traceback", "statusCode", "Unprocessable")):
-                    final_text = text if text and not any(x in text for x in ("WAHA API error", "statusCode", "Unprocessable")) else "Mohon maaf, terjadi kendala teknis saat memproses pengiriman file."
+                    final_text = cleaned_text if cleaned_text and not any(x in cleaned_text for x in ("WAHA API error", "statusCode", "Unprocessable")) else "Mohon maaf, terjadi kendala teknis saat memproses pengiriman file."
                 else:
                     final_text = err
 
-    # Append sleek bottom footnote for clean transparency
+    # Append sleek bottom footnote for clean transparency based solely on executed tools
     chips = format_tool_chips(executed_tools)
     if chips and chips not in final_text:
         final_text = f"{final_text}\n\n{chips}"
