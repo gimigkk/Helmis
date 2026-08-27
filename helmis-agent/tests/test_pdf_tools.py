@@ -175,12 +175,20 @@ def test_images_to_pdf_fit_image_and_a4() -> None:
 
 
 def test_pdf_to_docx_conversion() -> None:
-    """Verify converting a sample PDF to Word .docx format."""
+    """Verify converting a sample PDF to Word .docx format with preserved spaces."""
+    import docx
+
     pdf = _create_sample_pdf(["Helmis Project Roadmap", "Item 1: Deploy Bot", "Item 2: Run Tests"])
     docx_bytes = pdf_to_docx_bytes(pdf)
 
     # Word .docx files are PK zip archives
     assert docx_bytes.startswith(b"PK\x03\x04")
+
+    # Verify extracted paragraphs preserve distinct words and spaces
+    doc = docx.Document(io.BytesIO(docx_bytes))
+    full_text = " ".join(p.text for p in doc.paragraphs)
+    assert "Helmis Project Roadmap" in full_text
+    assert "Deploy Bot" in full_text
 
 
 def test_compress_pdf() -> None:

@@ -317,12 +317,37 @@ def images_to_pdf_bytes(
 
 def pdf_to_docx_bytes(pdf_bytes: bytes) -> bytes:
     """
-    Convert PDF bytes to editable Microsoft Word .docx bytes using pdf2docx.
+    Convert PDF bytes to editable Microsoft Word .docx bytes with preserved whitespace and formatting.
     """
     if not pdf_bytes:
         raise ValueError("File PDF kosong.")
 
+    import pdf2docx.text.Spans as spans_mod
     from pdf2docx import Converter
+    from pdf2docx.image.ImageSpan import ImageSpan
+    from pdf2docx.text.TextSpan import TextSpan
+
+    # Monkey-patch pdf2docx's Spans.restore to prevent it from discarding whitespace spans (' ')
+    # and strip disruptive zero-width characters (e.g. \u200b, \ufeff).
+    def _safe_spans_restore(self: Any, raws: list[dict[str, Any]]) -> Any:
+        for raw_span in raws:
+            if "image" in raw_span:
+                span = ImageSpan(raw_span)
+            else:
+                if "text" in raw_span and isinstance(raw_span["text"], str):
+                    raw_span["text"] = raw_span["text"].replace("\u200b", "").replace("\ufeff", "")
+                if "chars" in raw_span and isinstance(raw_span["chars"], list):
+                    for ch in raw_span["chars"]:
+                        if ch.get("c") in ("\u200b", "\ufeff"):
+                            ch["c"] = ""
+                span = TextSpan(raw_span)
+                # Keep spans that contain text (even spaces) or characters or styles
+                if not span.text and not span.chars and not span.style:
+                    span = None
+            self.append(span)
+        return self
+
+    spans_mod.Spans.restore = _safe_spans_restore
 
     with tempfile.TemporaryDirectory(prefix="helmis_pdf2docx_") as tmp_dir:
         pdf_path = os.path.join(tmp_dir, "input.pdf")
