@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+from typing import Any
 
 import pymupdf as fitz
 from PIL import Image, ImageOps
