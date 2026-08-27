@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import tempfile
 
-import fitz  # PyMuPDF
+import pymupdf as fitz
 from PIL import Image, ImageOps
 
 log = logging.getLogger("helmis-pdf-engine")

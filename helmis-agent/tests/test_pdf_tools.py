@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from collections.abc import Generator
 
-import fitz  # PyMuPDF
+import pymupdf as fitz
 import pytest
 from PIL import Image
 
