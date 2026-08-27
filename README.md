@@ -4,7 +4,7 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
 [![Docker Compose](https://img.shields.io/badge/docker--compose-v2-2496ED.svg)](docker-compose.yml)
-[![Tests](https://img.shields.io/badge/tests-107%20passed-brightgreen.svg)](helmis-agent/tests/)
+[![Tests](https://img.shields.io/badge/tests-116%20passed-brightgreen.svg)](helmis-agent/tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---

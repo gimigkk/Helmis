@@ -1,6 +1,6 @@
 # Development & Testing Guide
 
-This guide covers local environment setup, architecture principles, writing tests, and running the 14 pytest test suites (107 tests).
+This guide covers local environment setup, architecture principles, writing tests, and running the 15 pytest test suites (116 tests).
 
 ---
 
@@ -45,19 +45,20 @@ pytest --cov=src tests/
 
 ---
 
-## 3. Test Suite Breakdown (107 Tests)
+## 3. Test Suite Breakdown (116 Tests)
 
-The test suite consists of 14 comprehensive test modules:
+The test suite consists of 15 comprehensive test modules:
 
 | Test File | Cases | Focus Area |
 |---|---|---|
-| `test_adversarial_edge_cases.py` | 6 | Malformed payloads, SQL/JSON injection attempts, boundary errors |
+| `test_adversarial_edge_cases.py` | 7 | Malformed payloads, fake tool chip stripping, injection attempts, boundary errors |
 | `test_agent.py` | 18 | ReAct agent loop, tool execution, model cascade fallbacks |
+| `test_cascade.py` | 7 | Dynamic Gemini model discovery, Flash-Lite prioritization, key rotation, skill loaders |
 | `test_client.py` | 12 | WAHA HTTP client, retries, rate limiting, error responses |
 | `test_data_integrity.py` | 5 | Concurrent file writes, JSON corruption resilience, atomic locking |
 | `test_fuzz_vault.py` | 5 | Random fuzzing of filenames, paths, and document uploads |
 | `test_history.py` | 3 | Message deduplication, multi-turn history formatting |
-| `test_memory.py` | 8 | Task creation, updating, completion, note storage |
+| `test_memory.py` | 9 | Task creation, updating, completion, note storage, temporal context isolation |
 | `test_mid_turn_steering_matrix.py` | 8 | Dynamic mid-turn user steering during active tool execution |
 | `test_proactive_engine.py` | 6 | Scheduler evaluations, 2-stage lead-time buffers, nag loops |
 | `test_queue.py` | 7 | FIFO per-chat debounce queue, 1.0s window burst batching |

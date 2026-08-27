@@ -41,17 +41,18 @@ flowchart TD
 
 ## 2. Gemini Multi-Key Cascade (`src/agent/cascade.py`)
 
-To ensure 24/7 high availability, zero quota downtime, and rapid recovery from rate limits (`429`), Helmis implements an automatic credential pool rotation and model cascade.
+To ensure 24/7 high availability, zero quota downtime, and rapid recovery from rate limits (`429`), Helmis implements dynamic API model discovery, multi-key rotation, and latency-optimized cascade sorting.
 
-### Model Tiers
-1. **Primary**: `gemini-2.5-pro` (Complex multi-step reasoning, PDF analysis, document extraction).
-2. **Fallback 1**: `gemini-2.5-flash` (Fast, high-throughput fallback).
-3. **Fallback 2**: `gemini-2.0-flash` (Always-on high-quota safety net).
+### Model Discovery & Tier Prioritization
+1. **Flash-Lite Tier (Sub-Second Latency)**: `gemini-flash-lite-latest`, `gemini-2.5-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite-preview`. (Prioritized first for instant WhatsApp replies).
+2. **Flash Tier (Standard Multimodal & Reasoning)**: `gemini-flash-latest`, `gemini-3.7-flash`, `gemini-2.5-flash`, `gemini-3.5-flash`.
+3. **Pro Tier (Complex Multimodal & Deep Extraction)**: `gemini-2.5-pro`, `gemini-pro-latest`.
+4. **Modality Filtering**: For video processing turns, `flash-lite` models are automatically bypassed in favor of full Flash/Pro models to guarantee multimodal video compliance.
 
 ### Multi-Key Round-Robin Rotation
 - Configured via `GEMINI_KEY_1`, `GEMINI_KEY_2`, `GEMINI_KEY_3`, etc.
 - Each key is assigned to independent Google Cloud quotas.
-- When an API key encounters a `ResourceExhausted` (`429`) or server error (`503`), the cascade immediately rotates to the next available key without failing the user request.
+- When an API key encounters a `ResourceExhausted` (`429`) or server error (`503`), the cascade immediately rotates to the next available key and model tier without failing the user request.
 
 ---
 
