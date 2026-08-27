@@ -156,6 +156,7 @@ async def handle_send_vault_file(
     file_id_or_name = str(args.get("file_id_or_name", "")).strip()
     recipient = str(args.get("recipient", "current")).strip()
     caption = args.get("caption")
+    as_document = bool(args.get("as_document", False))
 
     if not file_id_or_name:
         return {"status": "error", "error": "file_id_or_name tidak boleh kosong."}
@@ -187,9 +188,10 @@ async def handle_send_vault_file(
     await client.send_media(
         chat_id=target_jid,
         media_url=media_url,
-        caption=caption or f"Dokumen: {orig_filename}",
+        caption=caption,
         filename=orig_filename,
         mimetype=mime,
+        as_document=as_document,
     )
     log_activity(f"Sent vault file '{orig_filename}' to {recipient} ({target_jid})")
 

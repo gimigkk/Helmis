@@ -116,15 +116,16 @@ async def handle_send_whatsapp_media(
     recipient = str(args.get("recipient", "")).strip()
     media_url = str(args.get("media_url", "")).strip()
     caption = args.get("caption")
+    as_document = bool(args.get("as_document", False))
     if not media_url:
         return {"status": "error", "error": "URL media tidak boleh kosong."}
     if not client:
         return {"status": "error", "error": "WAHA client tidak tersedia."}
 
     target_jid = _resolve_target_jid(recipient, default_sender)
-    await client.send_media(chat_id=target_jid, media_url=media_url, caption=caption)
-    log_activity(f'Media sent to {recipient} ({target_jid}): url={media_url} caption="{caption or ""}"')
-    log.info("Agent sent media to %s: %s (caption: %s)", target_jid, media_url, caption)
+    await client.send_media(chat_id=target_jid, media_url=media_url, caption=caption, as_document=as_document)
+    log_activity(f'Media sent to {recipient} ({target_jid}): url={media_url} caption="{caption or ""}" as_document={as_document}')
+    log.info("Agent sent media to %s: %s (caption: %s, as_document: %s)", target_jid, media_url, caption, as_document)
     return {
         "status": "success",
         "recipient": recipient,

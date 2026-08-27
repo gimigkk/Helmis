@@ -7,7 +7,7 @@
 [![WhatsApp](https://img.shields.io/badge/WhatsApp-WAHA%20GOWS-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://waha.devlike.pro/)
 [![FastMCP](https://img.shields.io/badge/MCP-FastMCP%20SSE-00D26A?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Docker](https://img.shields.io/badge/Docker%20Compose-v2-2496ED?style=for-the-badge&logo=docker&logoColor=white)](docker-compose.yml)
-[![Tests](https://img.shields.io/badge/Tests-116%20Passed-4c1?style=for-the-badge&logo=pytest&logoColor=white)](helmis-agent/tests/)
+[![Tests](https://img.shields.io/badge/Tests-122%20Passed-4c1?style=for-the-badge&logo=pytest&logoColor=white)](helmis-agent/tests/)
 [![Architecture](https://img.shields.io/badge/Engine-Autonomous%20ReAct-FF6B6B?style=for-the-badge&logo=diagram-next&logoColor=white)](docs/AGENT_CORE.md)
 [![Timezone](https://img.shields.io/badge/Timezone-WIB%20(UTC%2B7)-F39C12?style=for-the-badge&logo=clockify&logoColor=white)](config/system-prompt.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-111111?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
@@ -16,7 +16,7 @@
 
 ## What is Helmis?
 
-Helmis is a private, zero-latency AI executive secretary built for real-world personal coordination over WhatsApp. Operating across private direct messages and a shared couple group chat (*Trio Helmis*), it manages schedules, tasks, contacts, shared notes, a categorized Document Vault, PDF text extraction, live web search, and proactive deadline reminders with strict state fidelity and zero AI slop.
+Helmis is a private, zero-latency AI executive secretary built for real-world personal coordination over WhatsApp. Operating across private direct messages and a shared couple group chat (*Trio Helmis*), it manages schedules, tasks, contacts, shared notes, a categorized Document Vault, PDF text extraction, live web search, dynamic media dispatching, and proactive deadline reminders with strict state fidelity and zero AI slop.
 
 ```
                     ┌──────────────────────────────┐
@@ -38,9 +38,11 @@ Helmis is a private, zero-latency AI executive secretary built for real-world pe
 │            ▼                     ▼                     ▼             │
 │   Atomic JSON Store     Document Vault        Vector Store           │
 │   (Tasks, Notes)        (PDFs, Files, Docs)   (Semantic Memories)    │
+│                                                                      │
+│   [Near-Horizon Exact-Second Timers (asyncio.sleep <= 10m)]          │
 └──────────────────────────────────┬───────────────────────────────────┘
                                    ▲
-                                   │ 5-min Cron Trigger
+                                   │ 1-min Cron Trigger (* * * * *)
                     ┌──────────────┴───────────────┐
                     │  Supercronic (Scheduler)     │
                     └──────────────────────────────┘
@@ -53,9 +55,9 @@ Helmis is a private, zero-latency AI executive secretary built for real-world pe
 - **Domain-Driven Architecture**: Cleanly separated into `src/agent/` (brain & ReAct loop), `src/memory/` (storage & vector memory), `src/whatsapp/` (WAHA bridge & parser), and `src/tools/` (function dispatch & live search).
 - **Gemini Multi-Key Cascade**: Seamless round-robin failover across multiple API keys and model tiers (`gemini-2.5-pro` → `gemini-2.5-flash` → `gemini-2.0-flash`).
 - **Mid-Turn Mailbox Steering**: If a user sends a follow-up or correction while the agent is executing tools, the turn immediately steers to incorporate the new guidance without restarting.
-- **Multimodal Intelligence**: Handles voice notes (via dedicated audio transcription), scanned images/receipts (OCR), digital PDFs (`pypdf` layer extraction), and quoted WhatsApp messages across GOWS, NOWEB, and WEBJS engines.
-- **Categorized Document Vault**: Local persistent storage (`health`, `id_cards`, `travel`, `receipts`, `documents`, `media`, `projects`) with original filename preservation and atomic catalog locking.
-- **Proactive Cron Engine**: Autonomous 5-minute evaluation loop with 2-stage lead-time buffering, deadline alerts, and 10-minute nag loops for critical tasks.
+- **Multimodal Intelligence & Dynamic Media Routing**: Handles voice notes, OCR, PDF extraction, and intelligent outbound media dispatch (inline photo bubbles via `/api/sendImage` or uncompressed raw files via `/api/sendFile` on request).
+- **Categorized Document Vault**: Local persistent storage (`health`, `id_cards`, `travel`, `receipts`, `documents`, `media`, `projects`) with original filename preservation, atomic catalog locking, and clean caption delivery.
+- **Proactive Cron & Exact-Second Timers**: Autonomous 1-minute crontab ticks (`* * * * *`) combined with near-horizon in-process asyncio countdown timers, polymorphic job executors (`ToolJobExecutor` & `AgentLoopJobExecutor`), 2-stage lead-time buffering, and 10-minute nag loops for critical tasks.
 - **100% Single Source of Truth System Prompt**: Persona, behavior, group chat dynamics, and formatting rules live entirely in `config/system-prompt.md`.
 - **Zero AI Slop**: Communicates in authentic Indonesian WhatsApp register (*sat-set*, direct, conversational) with strict zero-emoji enforcement and conscious multi-bubble splitting (`---`).
 
@@ -83,7 +85,7 @@ Helmis/
 │   │   ├── tools/                    # Tool registrations, schemas, search
 │   │   ├── server.py                 # FastMCP SSE & Starlette webhook entry point
 │   │   └── __init__.py
-│   └── tests/                        # 14 pytest test suites (107 tests passing)
+│   └── tests/                        # 16 pytest test suites (122 tests passing)
 ├── scheduler/                        # Supercronic proactive cron runner
 ├── docker-compose.yml                # Multi-container orchestration
 └── .env                              # Environment secrets and phone numbers

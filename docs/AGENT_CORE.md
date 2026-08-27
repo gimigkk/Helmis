@@ -1,6 +1,6 @@
 # Agent Core & ReAct Execution Engine
 
-This document details the internal reasoning engine of Helmis: the autonomous **ReAct Agent Loop**, the **Gemini Multi-Key Cascade**, **Mid-Turn Mailbox Steering**, **State Fidelity Guardrails**, and **Turn Tracing**.
+This document details the internal reasoning engine of Helmis: the autonomous **ReAct Agent Loop**, the **Gemini Multi-Key Cascade**, **Mid-Turn Mailbox Steering**, **State Fidelity Guardrails**, **Polymorphic Tool Execution**, and **Turn Tracing**.
 
 ---
 
@@ -17,7 +17,7 @@ flowchart TD
     CallLLM --> CheckResponse{Response Type}
     
     CheckResponse -->|Final Text| CheckSteering{New User Messages in Mailbox?}
-    CheckResponse -->|Tool Call| ExecTool[Execute Python Tool Handler]
+    CheckResponse -->|Tool Call| ExecTool[Execute Python Tool Handler via Registry]
     
     ExecTool --> RecordOutcome[Record Verified Result on Disk]
     RecordOutcome --> CheckSteering
@@ -26,7 +26,7 @@ flowchart TD
     CheckSteering -->|No| HasMoreTools{More Tool Steps Needed?}
     
     InjectSteer --> CallLLM
-    HasMoreTools -->|Yes (<= 10 steps)| CallLLM
+    HasMoreTools -->|Yes (<= 12 steps)| CallLLM
     HasMoreTools -->|No| Guardrail[State Fidelity Guardrail Verification]
     
     Guardrail --> Footnotes[Append ↳ Footnote Chips if tools used]
@@ -34,12 +34,31 @@ flowchart TD
 ```
 
 ### Iteration Limits & Safeguards
-- **Max Iterations**: Capped at 10 ReAct steps per turn to prevent infinite tool loops.
+- **Max Iterations**: Capped at 12 ReAct steps per turn to prevent infinite tool loops.
 - **Outcome Verification**: When tools mutate memory (e.g. `add_task`, `save_vault_file`), the agent inspects the returned status dictionary before stating success to the user.
 
 ---
 
-## 2. Gemini Multi-Key Cascade (`src/agent/cascade.py`)
+## 2. Polymorphic Tool Registry (`src/tools/registry.py`)
+
+Tools are registered declaratively using the `@register_tool` decorator and dispatched via the universal `execute_tool_call()` runner:
+
+### Core Tool Capabilities
+- **Task & Schedule Management (`tasks.py`)**:
+  - `add_task`: Supports `task_type="reminder"` (human tasks with lead buffers & nags) and `task_type="scheduled_action"` (autonomous bot jobs with polymorphic `job` descriptors).
+  - `list_tasks`: Urgency-sorted listing with filtering by `status` (`pending`, `completed`, `all`) and `task_type`.
+  - `update_task` & `complete_task`: Full lifecycle updates, rescheduling, and status management.
+- **Document Vault & Media (`files.py`, `whatsapp.py`)**:
+  - `send_vault_file`: Dispatches files from the vault. Supports `as_document=False` (native inline photo preview bubble) and `as_document=True` (lossless uncompressed document file).
+  - Clean Media Delivery: Zero redundant `Dokumen: <filename>` caption clutter; respects WhatsApp's native UI cards.
+- **Memory & Notes (`notes.py`, `memory.py`)**:
+  - Persistent JSON and semantic vector memories.
+- **Live Search & External Context (`web.py`)**:
+  - Real-time search integration.
+
+---
+
+## 3. Gemini Multi-Key Cascade (`src/agent/cascade.py`)
 
 To ensure 24/7 high availability, zero quota downtime, and rapid recovery from rate limits (`429`), Helmis implements dynamic API model discovery, multi-key rotation, and latency-optimized cascade sorting.
 
@@ -56,7 +75,7 @@ To ensure 24/7 high availability, zero quota downtime, and rapid recovery from r
 
 ---
 
-## 3. Mid-Turn Mailbox Steering
+## 4. Mid-Turn Mailbox Steering
 
 Users frequently send rapid follow-up messages or corrections while the agent is actively executing long-running tools (e.g. *"Wait, cancel that"*, *"Also include Bunga"*, *"Actually make it 7 PM instead"*).
 
@@ -73,7 +92,7 @@ Users frequently send rapid follow-up messages or corrections while the agent is
 
 ---
 
-## 4. State Fidelity Guardrails (`src/agent/guardrails.py`)
+## 5. State Fidelity Guardrails (`src/agent/guardrails.py`)
 
 To prevent hallucinations, Helmis enforces strict fidelity checking between tool execution results and final generated responses.
 
@@ -88,7 +107,7 @@ To prevent hallucinations, Helmis enforces strict fidelity checking between tool
 
 ---
 
-## 5. Execution Tracer (`src/agent/tracer.py`)
+## 6. Execution Tracer (`src/agent/tracer.py`)
 
 Every turn produces structured trace logs recorded to `data/agent_traces.jsonl` and formatted with color-coded ANSI output in the server console:
 

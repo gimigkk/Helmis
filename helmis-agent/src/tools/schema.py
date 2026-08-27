@@ -9,29 +9,37 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
         "function_declarations": [
             {
                 "name": "add_task",
-                "description": "Save a task, appointment, deadline, or reminder to Helmis persistent storage.",
+                "description": "Save a task, appointment, deadline, or scheduled action to Helmis persistent storage. Can be used for human reminders ('Gilang', 'Bunga', 'Both') OR for autonomous bot actions scheduled for Helmis ('assignee': 'Helmis', 'task_type': 'scheduled_action').",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
                         "title": {
                             "type": "STRING",
-                            "description": "The task or reminder description",
+                            "description": "The task, reminder, or scheduled action description",
                         },
                         "due": {
                             "type": "STRING",
-                            "description": "Date and time in WIB, e.g. '2026-08-26 18:00 WIB'",
+                            "description": "Date and time in WIB, e.g. '2026-08-26 18:00 WIB' or relative time like '30 menit lagi'",
                         },
                         "assignee": {
                             "type": "STRING",
-                            "description": "Person responsible: 'Gilang', 'Bunga', or 'Both' (for shared couple/team tasks)",
+                            "description": "Entity responsible: 'Gilang', 'Bunga', 'Both' (for human reminders), or 'Helmis' (for bot actions scheduled to execute autonomously)",
                         },
                         "priority": {
                             "type": "STRING",
-                            "description": "Urgency level: 'urgent' (activates 10-minute nag escalation loop until confirmed), 'normal' (standard single reminder), or 'low' (gentle/backlog)",
+                            "description": "Urgency level: 'urgent' (activates 10-minute nag escalation loop for humans until confirmed), 'normal' (standard reminder/action), or 'low'",
                         },
                         "lead_time_minutes": {
                             "type": "INTEGER",
-                            "description": "Preparation buffer in minutes for non-instant tasks (e.g. 120 for assignments/proposals, 180 for flights, 30 for meetings). 0 for instant tasks.",
+                            "description": "Preparation buffer in minutes for human tasks (e.g. 120 for assignments/proposals, 30 for meetings). Set to 0 for bot actions or instant tasks.",
+                        },
+                        "task_type": {
+                            "type": "STRING",
+                            "description": "Type of task: 'reminder' (default for human todos/deadlines) or 'scheduled_action' (for actions Helmis executes autonomously when due).",
+                        },
+                        "job": {
+                            "type": "OBJECT",
+                            "description": "Polymorphic job execution descriptor for scheduled actions. E.g. {'kind': 'tool', 'tool_name': 'waha_send_message', 'tool_args': {'chat_id': '...', 'text': '...'}} or {'kind': 'tool', 'tool_name': 'send_vault_file_to_chat', 'tool_args': {'filename': '...', 'chat_id': '...'}} or {'kind': 'agent', 'prompt': '...', 'target_chat': '...'}",
                         },
                     },
                     "required": ["title", "due"],
@@ -39,7 +47,7 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
             },
             {
                 "name": "list_tasks",
-                "description": "List current tasks and reminders from storage. By default, items are sorted by urgency (earliest deadline first).",
+                "description": "List current tasks, reminders, and scheduled actions from storage. By default, items are sorted by urgency (earliest deadline first).",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
@@ -50,6 +58,10 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         "sort_by": {
                             "type": "STRING",
                             "description": "Sorting criteria: 'urgency' (default, earliest deadline/overdue first), 'created' (newest first), or 'alphabetical'",
+                        },
+                        "task_type": {
+                            "type": "STRING",
+                            "description": "Filter by task type: 'all' (default), 'reminder' (human todos only), or 'scheduled_action' (Helmis bot jobs only)",
                         },
                     },
                 },
@@ -70,7 +82,7 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
             },
             {
                 "name": "update_task",
-                "description": "Update or reassign an existing task (change assignee, deadline, priority, lead time, or title).",
+                "description": "Update or reassign an existing task (change assignee, deadline, priority, lead time, title, or scheduled job descriptor).",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
@@ -80,7 +92,7 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         },
                         "new_assignee": {
                             "type": "STRING",
-                            "description": "New assignee: 'Gilang', 'Bunga', or 'Both'",
+                            "description": "New assignee: 'Gilang', 'Bunga', 'Both', or 'Helmis'",
                         },
                         "new_due": {
                             "type": "STRING",
@@ -97,6 +109,14 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         "new_lead_time_minutes": {
                             "type": "INTEGER",
                             "description": "New preparation buffer in minutes",
+                        },
+                        "new_task_type": {
+                            "type": "STRING",
+                            "description": "New task type: 'reminder' or 'scheduled_action'",
+                        },
+                        "new_job": {
+                            "type": "OBJECT",
+                            "description": "Updated polymorphic job execution descriptor",
                         },
                     },
                     "required": ["title"],
@@ -345,6 +365,10 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                             "type": "STRING",
                             "description": "Optional caption for the media in WhatsApp markdown with ZERO EMOJIS",
                         },
+                        "as_document": {
+                            "type": "BOOLEAN",
+                            "description": "Set to true if user specifically asks to send as a document/file (uncompressed original quality). Defaults to false (sends images/videos as native preview bubbles).",
+                        },
                     },
                     "required": ["recipient", "media_url"],
                 },
@@ -487,7 +511,11 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         },
                         "caption": {
                             "type": "STRING",
-                            "description": "Caption message accompanying the sent file.",
+                            "description": "Optional caption message accompanying the sent file.",
+                        },
+                        "as_document": {
+                            "type": "BOOLEAN",
+                            "description": "Set to true if user specifically asks to send as a document/file (uncompressed original quality). Defaults to false (sends images/videos as native preview bubbles).",
                         },
                     },
                     "required": ["file_id_or_name"],

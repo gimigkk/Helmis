@@ -1,6 +1,6 @@
 # Communication & Message Routing
 
-This document details how Helmis connects to WhatsApp via WAHA (WhatsApp HTTP API), normalizes payloads, handles per-chat debounce queues, resolves group chat dynamics, and processes multimodal inputs.
+This document details how Helmis connects to WhatsApp via WAHA (WhatsApp HTTP API), dynamically routes media types, normalizes payloads, handles per-chat debounce queues, resolves group chat dynamics, and processes multimodal inputs.
 
 ---
 
@@ -9,7 +9,12 @@ This document details how Helmis connects to WhatsApp via WAHA (WhatsApp HTTP AP
 Helmis uses **WAHA (WhatsApp HTTP API)** with the **GOWS (Go-based WebSocket)** engine for lightweight, low-latency, self-hosted connectivity.
 
 - **Inbound**: WAHA receives WebSocket events from WhatsApp servers and forwards them as HTTP POST requests to `http://agent:8644/webhooks/waha`.
-- **Outbound**: The agent interacts with WAHA via REST API endpoints (`/api/sendText`, `/api/sendFile`, `/api/startTyping`, `/api/getMessages`).
+- **Outbound Text**: Plain text messages are sent via `/api/sendText`.
+- **Outbound Media Routing**: Media dispatches are dynamically routed to native WhatsApp endpoints based on MIME type and the `as_document` flag:
+  - **Images (`image/*`, `.jpg`, `.png`, `.webp`)**: Routed to `/api/sendImage` for native inline photo bubbles.
+  - **Videos (`video/*`, `.mp4`, `.mov`, `.webm`)**: Routed to `/api/sendVideo` for inline playable video bubbles.
+  - **Voice Notes (`audio/*`, `.ogg`, `.opus`)**: Routed to `/api/sendVoice` for playable voice note bubbles.
+  - **Documents (`application/*`, `.pdf`, `.zip`, or `as_document=True`)**: Routed to `/api/sendFile` for clean uncompressed document cards without quality loss.
 - **Retry & Rate Limiting**: The client features exponential backoff retry for transient network glitches and typing keep-alives.
 
 ---

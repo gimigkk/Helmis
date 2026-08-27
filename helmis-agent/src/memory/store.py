@@ -184,8 +184,10 @@ def add_task(
     assignee: str = "Gilang",
     priority: str = "normal",
     lead_time_minutes: int = 0,
+    task_type: str = "reminder",
+    job: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Add a new task to memory (or update existing if same title and pending)."""
+    """Add a new task or scheduled action to memory (or update existing if same title and pending)."""
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")
     clean_title = title.strip()
@@ -195,6 +197,12 @@ def add_task(
     if clean_priority not in ("urgent", "normal", "low"):
         clean_priority = "normal"
     clean_lead = lead_time_minutes or 0
+
+    clean_task_type = str(task_type).strip().lower() if task_type else "reminder"
+    if clean_assignee.lower() == "helmis" or job or clean_task_type in ("scheduled_action", "action", "bot"):
+        clean_task_type = "scheduled_action"
+        clean_assignee = "Helmis"
+        clean_lead = 0  # Bot actions do not need human preparation lead-time buffers
 
     mem = load_memory()
     tasks = mem.setdefault("tasks", [])
@@ -206,24 +214,36 @@ def add_task(
             t["assignee"] = clean_assignee
             t["priority"] = clean_priority
             t["lead_time_minutes"] = clean_lead
+            t["task_type"] = clean_task_type
+            if job is not None:
+                t["job"] = job
             t["updated_at"] = get_current_time_str()
             save_memory(mem)
             return cast(dict[str, Any], t)
 
-    new_task = {
+    new_task: dict[str, Any] = {
         "title": clean_title,
         "due": clean_due,
         "assignee": clean_assignee,
         "priority": clean_priority,
         "lead_time_minutes": clean_lead,
+        "task_type": clean_task_type,
         "status": "pending",
         "kickoff_reminded": False,
         "due_reminded": False,
         "nudge_count": 0,
         "last_nudged_at": None,
         "nudge_stopped": False,
+        "retry_count": 0,
+        "max_retries": 3,
+        "execution_status": "pending",
         "created_at": get_current_time_str(),
+        "updated_at": None,
+        "completed_at": None,
     }
+    if job:
+        new_task["job"] = job
+
     tasks.append(new_task)
     save_memory(mem)
     return new_task
@@ -237,6 +257,8 @@ def update_task(
     new_status: str | None = None,
     new_priority: str | None = None,
     new_lead_time_minutes: int | None = None,
+    new_task_type: str | None = None,
+    new_job: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Update existing task fields by title (exact match first, then substring)."""
     mem = load_memory()
@@ -261,16 +283,24 @@ def update_task(
             target_task["nudge_count"] = 0
             target_task["last_nudged_at"] = None
             target_task["nudge_stopped"] = False
+            target_task["execution_status"] = "pending"
+            target_task["retry_count"] = 0
         if new_assignee:
             target_task["assignee"] = new_assignee.strip()
         if new_status:
             target_task["status"] = new_status.strip()
+            if new_status.strip().lower() == "completed" and not target_task.get("completed_at"):
+                target_task["completed_at"] = get_current_time_str()
         if new_priority:
             p = new_priority.strip().lower()
             if p in ("urgent", "normal", "low"):
                 target_task["priority"] = p
         if new_lead_time_minutes is not None:
             target_task["lead_time_minutes"] = new_lead_time_minutes
+        if new_task_type:
+            target_task["task_type"] = new_task_type.strip().lower()
+        if new_job is not None:
+            target_task["job"] = new_job
         target_task["updated_at"] = get_current_time_str()
         save_memory(mem)
         return cast(dict[str, Any], target_task)
@@ -469,14 +499,22 @@ def parse_due_timestamp(due_str: str) -> float:
     return float("inf")
 
 
-def list_tasks(status: str = "pending", sort_by: str = "urgency") -> list[dict[str, Any]]:
+def list_tasks(
+    status: str = "pending",
+    sort_by: str = "urgency",
+    task_type: str = "all",
+) -> list[dict[str, Any]]:
     """
-    List tasks filtered by status ('pending', 'completed', 'all').
+    List tasks filtered by status ('pending', 'completed', 'all') and task_type ('all', 'reminder', 'scheduled_action').
     Default sort order is by urgency (earliest deadline first, no-deadline items last).
     """
     mem = load_memory()
     tasks = cast(list[dict[str, Any]], mem.get("tasks", []))
     filtered = tasks if status == "all" else [t for t in tasks if t.get("status") == status]
+
+    if task_type != "all":
+        clean_tt = task_type.strip().lower()
+        filtered = [t for t in filtered if t.get("task_type", "reminder") == clean_tt]
 
     if sort_by == "urgency":
         return sorted(filtered, key=lambda t: parse_due_timestamp(t.get("due", "")))

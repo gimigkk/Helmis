@@ -35,11 +35,11 @@ graph TD
 
         subgraph "Scheduler Container"
             Cron["Supercronic Daemon<br/>(Alpine Linux)"]
-            Trigger["trigger.sh<br/>(Periodic HTTP POST /webhooks/scheduler)"]
+            Trigger["trigger.sh<br/>(1-Minute Periodic HTTP POST)"]
         end
 
         subgraph "Local Persistent Storage (./data)"
-            JSONStore[("helmis_memory.json<br/>Tasks, Directory, Notes")]
+            JSONStore[("helmis_memory.json<br/>Tasks, Scheduled Jobs, Directory, Notes")]
             VaultStore[("vault/ & file_catalog.json<br/>PDFs, Binary Files & Catalog")]
             VecStore[("semantic_memories.json<br/>Episodic Vector Embeddings")]
             TraceLog[("agent_traces.jsonl<br/>Execution Logs")]
@@ -56,8 +56,8 @@ graph TD
     GroupT <-->|WhatsApp Protocol| WAHA
 
     WAHA -->|HTTP POST Webhook| WH
-    Cron -->|Runs every 5 min| Trigger
-    Trigger -->|HTTP POST /webhooks/scheduler| WH
+    Cron -->|Runs every 1 min| Trigger
+    Trigger -->|HTTP POST /webhooks/waha| WH
 
     WH --> AuthF
     AuthF --> QueueMgr
@@ -189,7 +189,7 @@ sequenceDiagram
     Agent->>WAHA: Fetch recent chat history
     
     Note over Agent: Stage 4: ReAct Tool Execution & Steering
-    loop Up to 10 Iterations
+    loop Up to 12 Iterations
         Agent->>Gemini: Generate turn step (System Prompt + History + Tools)
         Gemini-->>Agent: Returns Tool Call or Final Response
         alt Tool Call Requested

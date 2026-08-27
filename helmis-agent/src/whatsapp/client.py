@@ -248,6 +248,7 @@ class WahaClient:
         reply_to_message_id: str | None = None,
         filename: str | None = None,
         mimetype: str | None = None,
+        as_document: bool = False,
     ) -> WahaMessageResponse:
         """
         Send a media file (image, document, audio, etc.) to a WhatsApp chat.
@@ -259,6 +260,7 @@ class WahaClient:
             reply_to_message_id: If set, the reply quotes this message.
             filename: Optional original filename displayed in WhatsApp document cards.
             mimetype: Optional MIME type of the file.
+            as_document: If True, forces routing through /api/sendFile (uncompressed original file).
 
         Returns:
             WahaMessageResponse containing the sent message's ID and timestamp.
@@ -282,7 +284,41 @@ class WahaClient:
         if reply_to_message_id:
             body["reply_to"] = reply_to_message_id
 
-        data = await self._post("/api/sendFile", body)
+        # Determine appropriate WAHA media endpoint based on MIME / file extension
+        clean_mime = (mimetype or "").lower()
+        clean_fn = (filename or "").lower()
+        clean_url = media_url.lower()
+
+        endpoint = "/api/sendFile"
+        if not as_document:
+            if (
+                clean_mime.startswith("image/")
+                or clean_fn.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
+                or clean_url.startswith("data:image/")
+            ):
+                endpoint = "/api/sendImage"
+            elif (
+                clean_mime.startswith("video/")
+                or clean_fn.endswith((".mp4", ".mov", ".webm", ".avi", ".3gp"))
+                or clean_url.startswith("data:video/")
+            ):
+                endpoint = "/api/sendVideo"
+            elif (
+                clean_mime.startswith("audio/")
+                or clean_fn.endswith((".ogg", ".opus", ".mp3", ".m4a", ".wav"))
+                or clean_url.startswith("data:audio/")
+            ):
+                endpoint = "/api/sendVoice"
+
+        try:
+            data = await self._post(endpoint, body)
+        except Exception as err:
+            if endpoint != "/api/sendFile":
+                log.warning("Media endpoint %s failed, falling back to /api/sendFile: %s", endpoint, err)
+                data = await self._post("/api/sendFile", body)
+            else:
+                raise
+
         msg_id = str(data.get("id", "") if isinstance(data, dict) else data)
         ts = int(data.get("timestamp", 0) if isinstance(data, dict) else 0)
         return WahaMessageResponse(message_id=msg_id, timestamp=ts)

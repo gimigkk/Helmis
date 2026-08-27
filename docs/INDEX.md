@@ -16,7 +16,7 @@ docs/
 ├── PROACTIVE_ENGINE.md              # Scheduler Cron Triggers, Lead-Time Buffering, & Nag Loops
 ├── CONFIGURATION_AND_SKILLS.md      # Single Source of Truth Prompt & Skill Playbooks
 ├── DEPLOYMENT_AND_OPERATIONS.md     # VPS Deployment, Healthchecks, Zero-Downtime, & Backups
-├── DEVELOPMENT_AND_TESTING.md       # Pytest Suites (107 Tests), Fixtures, & Contribution Guide
+├── DEVELOPMENT_AND_TESTING.md       # Pytest Suites (122 Tests), Fixtures, & Contribution Guide
 └── SCENARIOS_AND_PLAYBOOKS.md       # Operational Real-World Scenarios & Failure Playbooks
 ```
 
@@ -28,9 +28,9 @@ docs/
 |---|---|---|
 | **Architecture** | Pure domain packaging (`src/agent`, `src/memory`, `src/whatsapp`, `src/tools`), Docker bridge network, FastMCP SSE server | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | **Agent Core** | ReAct tool loop, multi-key round-robin failover, mid-turn mailbox steering, structured tracer | [AGENT_CORE.md](AGENT_CORE.md) |
-| **Communication** | WAHA GOWS engine, 1.0s burst debouncing, pronoun disambiguation in couple group chat, reply quoting | [COMMUNICATION_AND_ROUTING.md](COMMUNICATION_AND_ROUTING.md) |
+| **Communication** | WAHA GOWS engine, dynamic media endpoint routing (photo bubbles vs uncompressed documents), 1.0s burst debouncing | [COMMUNICATION_AND_ROUTING.md](COMMUNICATION_AND_ROUTING.md) |
 | **Storage & Memory** | Atomic JSON store (`helmis_memory.json`), 3072-dim Gemini embeddings, categorized Document Vault | [MEMORY_AND_STORAGE.md](MEMORY_AND_STORAGE.md) |
-| **Proactive Engine** | 5-minute cron evaluations, 2-stage lead-time buffers, 10-minute nag loops for critical tasks | [PROACTIVE_ENGINE.md](PROACTIVE_ENGINE.md) |
+| **Proactive Engine** | 1-minute cron evaluations, polymorphic job execution (`ToolJobExecutor` & `AgentLoopJobExecutor`), near-horizon exact-second timers, 2-stage lead buffers & nag loops | [PROACTIVE_ENGINE.md](PROACTIVE_ENGINE.md) |
 | **Configuration** | 100% Single Source of Truth `config/system-prompt.md`, 8 modular skills in `config/skills/` | [CONFIGURATION_AND_SKILLS.md](CONFIGURATION_AND_SKILLS.md) |
 | **Operations** | Zero-downtime container updates, auto-restarting services, automated backup scripts | [DEPLOYMENT_AND_OPERATIONS.md](DEPLOYMENT_AND_OPERATIONS.md) |
-| **Testing** | 14 test suites covering 107 test cases with comprehensive mocking of external APIs | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md) |
+| **Testing** | 16 test suites covering 122 test cases with comprehensive mocking of external APIs | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md) |

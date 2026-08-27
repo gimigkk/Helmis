@@ -5,7 +5,8 @@
 # Timezone is controlled by the TZ env var in docker-compose.yml (Asia/Jakarta)
 #
 # Current schedule:
-#   Every 5 minutes — check for due reminders and approaching deadlines
+#   Every 1 minute — check for due reminders, scheduled actions, and approaching deadlines
 # =============================================================================
 
-*/5 * * * * /app/trigger.sh
+* * * * * /app/trigger.sh
+
