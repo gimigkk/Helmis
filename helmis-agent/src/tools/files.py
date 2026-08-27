@@ -152,6 +152,7 @@ async def handle_send_vault_file(
     args: dict[str, Any],
     default_sender: str,
     client: WahaClient | None = None,
+    chat_id: str | None = None,
 ) -> dict[str, Any]:
     file_id_or_name = str(args.get("file_id_or_name", "")).strip()
     recipient = str(args.get("recipient", "current")).strip()
@@ -184,7 +185,7 @@ async def handle_send_vault_file(
         agent_port = os.environ.get("PORT", "8644")
         media_url = f"http://{agent_host}:{agent_port}/vault/file/{file_id}"
 
-    target_jid = _resolve_target_jid(recipient, default_sender)
+    target_jid = _resolve_target_jid(recipient, default_sender, chat_id=chat_id)
     await client.send_media(
         chat_id=target_jid,
         media_url=media_url,

@@ -536,6 +536,7 @@ async def test_save_and_send_vault_file_tools_use_original_filename() -> None:
         args={"file_id_or_name": file_rec["id"], "recipient": "current"},
         default_sender="Gilang",
         client=mock_client,
+        chat_id="120363123456789@g.us",
     )
 
     assert send_res["status"] == "success"
@@ -543,4 +544,5 @@ async def test_save_and_send_vault_file_tools_use_original_filename() -> None:
     mock_client.send_media.assert_called_once()
     _, kwargs = mock_client.send_media.call_args
     assert kwargs["filename"] == orig_doc_name
+    assert kwargs["chat_id"] == "120363123456789@g.us"
 

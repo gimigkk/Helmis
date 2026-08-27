@@ -234,7 +234,7 @@ async def run_agentic_react_loop(
 
             # Execute tool locally
             tool_result = await execute_tool_call(
-                func_name, func_args, sender_name, client=client, media_data=media_data
+                func_name, func_args, sender_name, client=client, media_data=media_data, chat_id=chat_id
             )
             executed_tools.append({"name": func_name, "args": func_args, "result": tool_result})
 

@@ -41,7 +41,7 @@ Files are organized by category and owner:
 
 ## 4. Retrieval & Dispatching
 1. When asked to retrieve or send a document, search for the target file via `search_vault_files`.
-2. Dispatch the file using `send_vault_file(file_id_or_name=..., recipient=...)`.
+2. Dispatch the file using `send_vault_file(file_id_or_name=..., recipient="current")`. Always send directly to the active chat where the request occurred (Group or DM). Never redirect to a private DM unless explicitly asked.
 3. If multiple ambiguous matches exist, list the matching candidates and ask for clarification.
 
 ---
