@@ -164,3 +164,19 @@ def test_parse_due_timestamp_indonesian_natural_expressions() -> None:
     dt_maghrib = datetime.fromtimestamp(ts_maghrib, tz=memory.TZ)
     assert dt_maghrib.hour == 18
     assert dt_maghrib.minute == 30
+
+
+def test_get_memory_context_summary_temporal_isolation() -> None:
+    """Verify that get_memory_context_summary provides temporal anchoring without leaking tasks, notes, or contacts."""
+    memory.add_task(title="Secret Task 123", due="Tomorrow 10:00 WIB")
+    memory.add_person(name="Secret Contact", phone="+628111999888")
+    memory.save_note(title="Secret Note", content="Secret note body")
+
+    summary = memory.get_memory_context_summary()
+    assert "Current Local Time" in summary
+    assert "WIB" in summary
+    # Assert no static database leaks into prompt
+    assert "Secret Task 123" not in summary
+    assert "Secret Contact" not in summary
+    assert "Secret note body" not in summary
+

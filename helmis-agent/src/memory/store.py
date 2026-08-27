@@ -142,75 +142,26 @@ def get_current_time_str() -> str:
 
 
 def get_memory_context_summary() -> str:
-    """Format memory state into prompt context."""
+    """Format temporal context for the agent prompt without leaking static database dumps."""
     mem = load_memory()
     now_str, period_info = get_time_of_day_info()
 
-    tasks = mem.get("tasks", [])
-    active_tasks = sorted(
-        [t for t in tasks if t.get("status") != "completed"],
-        key=lambda t: parse_due_timestamp(t.get("due", "")),
-    )
-
-    def format_task_line(t: dict[str, Any]) -> str:
-        due = t.get("due", "No deadline")
-        title = t.get("title", "")
-        assignee = t.get("assignee", "Gilang")
-        p_val = t.get("priority", "normal")
-        priority_tag = f" [{p_val.upper()}]" if p_val != "normal" else ""
-        lead_val = t.get("lead_time_minutes", 0)
-        lead_tag = f" (Lead: {lead_val}m)" if lead_val else ""
-        if t.get("reminded") or t.get("due_reminded"):
-            remind_status = f" | [REMINDER SENT to {assignee} at {t.get('reminded_at', 'earlier')}]"
-        elif t.get("kickoff_reminded"):
-            remind_status = f" | [KICKOFF PREP SENT to {assignee}]"
-        else:
-            remind_status = " | [Reminder NOT sent yet]"
-        return f"- [{due}]{priority_tag} {title}{lead_tag} (Assignee: {assignee}){remind_status}"
-
-    tasks_summary = (
-        "\n".join([format_task_line(t) for t in active_tasks])
-        if active_tasks
-        else "No active tasks recorded yet. (Do NOT invent fake tasks!)"
-    )
-
     # Activity log of recent messages/reminders sent by Helmis
     activity_log = mem.get("activity_log", [])
-    recent_activities = activity_log[-6:]
+    recent_activities = activity_log[-4:]
     activity_summary = (
         "\n".join([f"- [{a.get('time', '')}] {a.get('summary', '')}" for a in recent_activities])
         if recent_activities
         else "No recent proactive messages logged."
     )
 
-    people = mem.get("people", {})
-    people_summary = (
-        "\n".join(
-            [
-                f"- {name}: {info.get('role', '')} | {info.get('notes', '')}"
-                for name, info in people.items()
-            ]
-        )
-        if people
-        else "No contacts recorded yet."
-    )
-
-    notes = mem.get("notes", [])
-    notes_summary = "\n".join([f"- {n.get('content')}" for n in notes]) if notes else "No notes."
-
     return f"""
-[TEMPORAL CONTEXT & LIVE MEMORY]
+[TEMPORAL CONTEXT]
 - Current Local Time: {now_str}
 - Current Time of Day: {period_info}
-- Temporal Rule: Always respect the current time of day. NEVER greet with 'Selamat pagi' during sore/malam!
-- Active Tasks & Reminder Status:
-{tasks_summary}
-- Recent Messages & Reminders Dispatched by Helmis:
+- Timezone: Asia/Jakarta (WIB, UTC+7)
+- Recent Proactive Alerts Dispatched by Helmis:
 {activity_summary}
-- People Directory:
-{people_summary}
-- Shared Notes:
-{notes_summary}
 """
 
 
