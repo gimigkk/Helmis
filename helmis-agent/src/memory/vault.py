@@ -582,11 +582,12 @@ def read_vault_file(
             if is_encrypted:
                 extracted_text = "[Dokumen PDF terenkripsi / ber-password. Konten teks tidak dapat diekstrak tanpa kata sandi.]"
             else:
+                total_p = len(reader.pages)
                 for i, page in enumerate(reader.pages):
                     try:
                         p_txt = page.extract_text() or ""
                         if p_txt.strip():
-                            pdf_pages_text.append(f"--- Halaman {i+1} ---\n{p_txt.strip()}")
+                            pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt.strip()}")
                     except Exception:
                         continue
                 if pdf_pages_text:

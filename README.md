@@ -7,7 +7,7 @@
 [![WhatsApp](https://img.shields.io/badge/WhatsApp-WAHA%20GOWS-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://waha.devlike.pro/)
 [![FastMCP](https://img.shields.io/badge/MCP-FastMCP%20SSE-00D26A?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
 [![Docker](https://img.shields.io/badge/Docker%20Compose-v2-2496ED?style=for-the-badge&logo=docker&logoColor=white)](docker-compose.yml)
-[![Tests](https://img.shields.io/badge/Tests-122%20Passed-4c1?style=for-the-badge&logo=pytest&logoColor=white)](helmis-agent/tests/)
+[![Tests](https://img.shields.io/badge/Tests-142%20Passed-4c1?style=for-the-badge&logo=pytest&logoColor=white)](helmis-agent/tests/)
 [![Architecture](https://img.shields.io/badge/Engine-Autonomous%20ReAct-FF6B6B?style=for-the-badge&logo=diagram-next&logoColor=white)](docs/AGENT_CORE.md)
 [![Timezone](https://img.shields.io/badge/Timezone-WIB%20(UTC%2B7)-F39C12?style=for-the-badge&logo=clockify&logoColor=white)](config/system-prompt.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-111111?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
@@ -16,7 +16,7 @@
 
 ## What is Helmis?
 
-Helmis is a private, zero-latency AI executive secretary built for real-world personal coordination over WhatsApp. Operating across private direct messages and a shared couple group chat (*Trio Helmis*), it manages schedules, tasks, contacts, shared notes, a categorized Document Vault, PDF text extraction, live web search, dynamic media dispatching, and proactive deadline reminders with strict state fidelity and zero AI slop.
+Helmis is a private, zero-latency AI executive secretary built for real-world personal coordination over WhatsApp. Operating across private direct messages and a shared couple group chat (*Trio Helmis*), it manages schedules, tasks, contacts, shared notes, a categorized Document Vault, PDF manipulation & text extraction, live web search, dynamic media dispatching, and proactive deadline reminders with strict state fidelity and zero AI slop.
 
 ```
                     ┌──────────────────────────────┐
@@ -68,7 +68,7 @@ Helmis is a private, zero-latency AI executive secretary built for real-world pe
 ```
 Helmis/
 ├── config/
-│   ├── skills/                       # Markdown skill playbooks (8 modular skills)
+│   ├── skills/                       # Markdown skill playbooks (9 modular skills)
 │   └── system-prompt.md              # Single source of truth system prompt
 ├── data/                             # Local persistent storage (gitignored)
 │   ├── helmis_memory.json            # Tasks, notes, directory records

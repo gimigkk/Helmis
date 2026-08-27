@@ -181,17 +181,34 @@ def load_all_skills() -> str:
         return ""
 
     skill_texts = []
-    for root, _, files in os.walk(target_dir):
-        for file in files:
+    on_demand_skills = []
+
+    for root, _, files in sorted(os.walk(target_dir)):
+        for file in sorted(files):
             if file.endswith(".md"):
                 full_path = os.path.join(root, file)
                 try:
                     with open(full_path, encoding="utf-8") as f:
+                        content = f.read()
                         skill_name = os.path.basename(os.path.dirname(full_path))
-                        skill_texts.append(f"### SKILL: {skill_name}\n{f.read()}")
+                        
+                        # Check if skill is on-demand toolkit
+                        if skill_name.endswith("-toolkit") or "on-demand" in content.lower():
+                            import re
+                            m = re.search(r"description:\s*(.+)", content, re.IGNORECASE)
+                            desc = m.group(1).strip() if m else "Specialized domain operations."
+                            on_demand_skills.append(f"- `{skill_name}`: {desc} (Invoke `load_skill(name='{skill_name}')` when needed)")
+                        else:
+                            skill_texts.append(f"### SKILL: {skill_name}\n{content}")
                 except Exception as ex:
                     log.warning("Could not load skill %s: %s", full_path, ex)
 
-    if not skill_texts:
+    output_sections = []
+    if skill_texts:
+        output_sections.append("## ACTIVE SKILLS & BEHAVIORAL PLAYBOOKS:\n" + "\n\n---\n\n".join(skill_texts))
+    if on_demand_skills:
+        output_sections.append("## ON-DEMAND DOMAIN SKILLS (Load via `load_skill` when needed):\n" + "\n".join(on_demand_skills))
+
+    if not output_sections:
         return ""
-    return "\n\n## ACTIVE SKILLS & BEHAVIORAL PLAYBOOKS:\n" + "\n\n---\n\n".join(skill_texts)
+    return "\n\n".join(output_sections)

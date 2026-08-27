@@ -91,6 +91,7 @@ helmis-agent/src/
 │   ├── tracer.py           # Structured execution tracer & ANSI debugging
 │   └── __init__.py
 ├── memory/                 # Storage, Episodic Memory & Vault
+│   ├── pdf_engine.py       # High-performance PDF & Document conversion engine
 │   ├── semantic.py         # Vector embeddings & semantic memory search
 │   ├── store.py            # JSON-backed tasks, people, schedules & notes
 │   ├── vault.py            # Document vault, catalog, categorization & PDF extractor
@@ -111,9 +112,11 @@ helmis-agent/src/
 │   ├── mcp_export.py       # FastMCP SSE tool registration
 │   ├── memory.py           # Semantic memory tool handlers
 │   ├── notes.py            # Quick notes tool handlers
+│   ├── pdf_ops.py          # Unified PDF & document manipulation tool (process_pdf)
 │   ├── registry.py         # Tool registry decorator & dispatcher
 │   ├── schema.py           # Gemini Tool function declarations
 │   ├── search.py           # Live DuckDuckGo / Tavily web search engine
+│   ├── skills.py           # Dynamic on-demand skill loader (load_skill)
 │   ├── tasks.py            # Task & reminder tool handlers
 │   ├── web.py              # Web search tool handler
 │   ├── whatsapp.py         # WhatsApp message sending tool handlers

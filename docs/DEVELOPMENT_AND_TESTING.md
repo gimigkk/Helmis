@@ -45,9 +45,9 @@ pytest --cov=src tests/
 
 ---
 
-## 3. Test Suite Breakdown (122 Tests)
+## 3. Test Suite Breakdown (142 Tests)
 
-The test suite consists of 16 comprehensive test modules:
+The test suite consists of 18 comprehensive test modules:
 
 | Test File | Cases | Focus Area |
 |---|---|---|
@@ -60,12 +60,14 @@ The test suite consists of 16 comprehensive test modules:
 | `test_history.py` | 3 | Message deduplication, multi-turn history formatting |
 | `test_memory.py` | 9 | Task creation, updating, completion, note storage, temporal context isolation |
 | `test_mid_turn_steering_matrix.py` | 8 | Dynamic mid-turn user steering during active tool execution |
+| `test_pdf_tools.py` | 14 | PDF merge (zero-margin/A4), split, render image (PNG/JPG), images to PDF, PDF ⇄ DOCX, compression |
 | `test_proactive_engine.py` | 6 | Scheduler evaluations, 2-stage lead-time buffers, nag loops |
 | `test_queue.py` | 7 | FIFO per-chat debounce queue, 1.0s window burst batching |
 | `test_quoted_messages.py` | 5 | Quoted message extraction across GOWS, NOWEB, and WEBJS |
 | `test_scheduled_actions.py` | 6 | Polymorphic ToolJobExecutor, AgentLoopJobExecutor, near-horizon timers, expiration |
 | `test_search.py` | 3 | DuckDuckGo and Tavily web search integration |
 | `test_semantic_memory.py` | 4 | Gemini vector embeddings, cosine search, temporal supersession |
+| `test_skills.py` | 6 | Dynamic on-demand skill discovery, playbook loading, prompt segregation |
 | `test_vault.py` | 17 | Document Vault catalog, categories, PDF text layer extraction |
 
 ---

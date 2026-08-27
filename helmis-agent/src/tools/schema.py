@@ -593,6 +593,67 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                     "required": ["directory_path"],
                 },
             },
+            {
+                "name": "load_skill",
+                "description": "Dynamically load the complete operational playbook for a specialized domain skill into working context.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "name": {
+                            "type": "STRING",
+                            "description": "Name of the skill to load (e.g. 'pdf-toolkit').",
+                        },
+                    },
+                    "required": ["name"],
+                },
+            },
+            {
+                "name": "process_pdf",
+                "description": "Perform high-performance local PDF operations: merge files, split/slice pages, render page as image, images to PDF, PDF to DOCX, DOCX to PDF, or compress.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "action": {
+                            "type": "STRING",
+                            "description": "Operation: 'merge', 'split', 'render_image', 'images_to_pdf', 'to_docx', 'from_docx', 'compress'",
+                        },
+                        "target_files": {
+                            "type": "ARRAY",
+                            "items": {"type": "STRING"},
+                            "description": "List of vault filenames or IDs to process (e.g. ['bab1.pdf', 'bab2.pdf'] or ['laporan.pdf']).",
+                        },
+                        "pages": {
+                            "type": "STRING",
+                            "description": "Page specification for split (e.g. '1-3, 5', 'last', 'odd', 'even').",
+                        },
+                        "page_number": {
+                            "type": "INTEGER",
+                            "description": "1-indexed page number to render for 'render_image' (e.g. 4).",
+                        },
+                        "page_sizing": {
+                            "type": "STRING",
+                            "description": "Page sizing mode: 'original' (default for merge, 0 added outer white margins), 'fit_image' (default for images_to_pdf, 0 margins), or 'a4' (uniform standard format).",
+                        },
+                        "rotate_deg": {
+                            "type": "INTEGER",
+                            "description": "Optional rotation in degrees (90, 180, 270) for split.",
+                        },
+                        "dpi": {
+                            "type": "INTEGER",
+                            "description": "Resolution for render_image. Defaults to 150 (fast WhatsApp preview).",
+                        },
+                        "format": {
+                            "type": "STRING",
+                            "description": "Image format for render_image: 'png' (default) or 'jpg'.",
+                        },
+                        "output_filename": {
+                            "type": "STRING",
+                            "description": "Optional clean filename for the output file saved in Document Vault.",
+                        },
+                    },
+                    "required": ["action", "target_files"],
+                },
+            },
         ]
     }
 ]

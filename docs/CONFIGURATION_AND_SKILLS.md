@@ -26,11 +26,15 @@ Skills provide specialized domain knowledge and procedures. Each skill is define
 | `skills/task-manager/` | Task lifecycle & lead-time inference | Creating tasks, setting lead buffers, completion, rescheduling |
 | `skills/vault-manager/` | Document vault & file storage | Saving files, original filename preservation, search, dispatch |
 | `skills/document-reader/` | Multimodal document inspection | Extracting text, digital PDF parsing, invoice data extraction |
+| `skills/pdf-toolkit/` | On-demand PDF & document toolkit | Merging (zero-margin/A4), splitting, page-to-image preview, PDF ⇄ DOCX, compression |
 | `skills/shared-notes/` | Categorized shared notebooks | Creating, updating, appending, and searching shared notes |
 | `skills/proactive-check/` | Scheduler tick evaluations | Evaluating due reminders, lead-time thresholds, overdue nudges |
 | `skills/reminder-engine/` | Time-based reminders | Setting one-shot and recurring reminders in WIB timezone |
 | `skills/people-directory/` | Contacts & relationship directory | Tracking roles, phone numbers, emails, notes for actors |
 | `skills/schedule-manager/` | Calendar events & class routines | Daily agendas, weekly schedules, class timetables in unified cards |
+
+### On-Demand Progressive Skill Loading (`load_skill`)
+To prevent prompt bloat and preserve sub-second response times, specialized toolkits (such as `pdf-toolkit`) are segregated into an **On-Demand Skills Index** in the base system prompt (~30 tokens). When Helmis encounters a complex domain task, it invokes `load_skill(name="<skill-name>")` to dynamically load the complete operational playbook into working memory.
 
 ---
 

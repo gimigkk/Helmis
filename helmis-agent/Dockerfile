@@ -13,6 +13,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Install lightweight headless LibreOffice for high-fidelity DOCX to PDF rendering
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libreoffice-writer-nogui \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first (layer-cached, only rebuilds on pyproject.toml change)
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip && \

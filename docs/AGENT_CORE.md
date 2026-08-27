@@ -51,6 +51,10 @@ Tools are registered declaratively using the `@register_tool` decorator and disp
 - **Document Vault & Media (`files.py`, `whatsapp.py`)**:
   - `send_vault_file`: Dispatches files from the vault. Supports `as_document=False` (native inline photo preview bubble) and `as_document=True` (lossless uncompressed document file).
   - Clean Media Delivery: Zero redundant `Dokumen: <filename>` caption clutter; respects WhatsApp's native UI cards.
+- **PDF & Document Manipulation Toolkit (`pdf_ops.py`, `pdf_engine.py`)**:
+  - `process_pdf`: Unified polymorphic tool supporting `merge` (native zero-margin or uniform A4), `split` (page slicing & rotation), `render_image` (PNG/JPG photo preview), `images_to_pdf` (photos to PDF), `to_docx` (PDF ➔ Word), `from_docx` (Word ➔ PDF), and `compress` (stream optimization).
+- **On-Demand Skill Engine (`skills.py`)**:
+  - `load_skill`: Dynamically loads domain playbooks (e.g. `pdf-toolkit`) into working memory on-demand.
 - **Memory & Notes (`notes.py`, `memory.py`)**:
   - Persistent JSON and semantic vector memories.
 - **Live Search & External Context (`web.py`)**:

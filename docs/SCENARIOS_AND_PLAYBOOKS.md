@@ -60,6 +60,19 @@ This document outlines real-world interaction scenarios, conversational edge cas
   ↳ `read_vault_file`
   ```
 
+### Scenario C: PDF Manipulation & Instant Photo Preview Bubble
+- **Inbound Message**: `[Gilang]: Cariin halaman tentang dividen di laporan_tahunan.pdf terus kirim fotonya dong`
+- **ReAct Execution**:
+  1. Executes `read_vault_file(file_id_or_name="laporan_tahunan.pdf")` -> discovers topic is on Page 4.
+  2. Executes `load_skill(name="pdf-toolkit")` -> loads operational rules.
+  3. Executes `process_pdf(action="render_image", target_files=["laporan_tahunan.pdf"], page_number=4, format="png")` -> creates `laporan_tahunan_hal_4.png`.
+  4. Executes `send_vault_file(file_id_or_name="laporan_tahunan_hal_4.png", recipient="Gilang", as_document=False)` -> delivers inline photo preview.
+- **Response**:
+  ```text
+  Beres Gilang, foto halaman 4 yang membahas dividen sudah dikirimkan ke chat ini ya.
+  ↳ `read_vault_file` `load_skill` `process_pdf` `send_vault_file`
+  ```
+
 ---
 
 ## 3. Group Chat & Conversational Non-Intervention

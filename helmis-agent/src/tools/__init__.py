@@ -2,7 +2,7 @@
 tools package — Modular Tool Registration, Declarations, and Domain Handlers.
 """
 
-from . import contacts, files, memory, notes, search, tasks, web, whatsapp
+from . import contacts, files, memory, notes, pdf_ops, search, skills, tasks, web, whatsapp
 from .mcp_export import register_all_tools
 from .registry import TOOL_REGISTRY, execute_tool_call, register_tool
 from .schema import GEMINI_TOOLS
@@ -16,10 +16,12 @@ __all__ = [
     "files",
     "memory",
     "notes",
+    "pdf_ops",
     "register_all_tools",
     "register_tool",
     "search",
     "search_web",
+    "skills",
     "tasks",
     "web",
     "whatsapp",
