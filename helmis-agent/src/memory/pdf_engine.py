@@ -315,13 +315,93 @@ def images_to_pdf_bytes(
 # ============================================================
 
 
-def pdf_to_docx_bytes(pdf_bytes: bytes) -> bytes:
+def _convert_via_ilovepdf_api(pdf_bytes: bytes, filename: str = "document.pdf") -> bytes | None:
     """
-    Convert PDF bytes to editable Microsoft Word .docx bytes with preserved whitespace and formatting.
+    Convert PDF bytes to DOCX using the official iLovePDF REST API.
+    Requires ILOVEPDF_PUBLIC_KEY and optionally ILOVEPDF_SECRET_KEY in environment.
+    """
+    public_key = os.environ.get("ILOVEPDF_PUBLIC_KEY", "").strip()
+    secret_key = os.environ.get("ILOVEPDF_SECRET_KEY", "").strip()
+    if not public_key:
+        return None
+
+    import httpx
+
+    try:
+        # Step 1: Authenticate to obtain JWT Bearer token
+        auth_payload: dict[str, str] = {"public_key": public_key}
+        if secret_key:
+            auth_payload["secret_key"] = secret_key
+
+        with httpx.Client(timeout=45.0) as http_client:
+            auth_resp = http_client.post("https://api.ilovepdf.com/v1/auth", json=auth_payload)
+            if auth_resp.status_code != 200:
+                log.warning("iLovePDF auth failed (%d): %s", auth_resp.status_code, auth_resp.text[:200])
+                return None
+            token = auth_resp.json().get("token")
+            headers = {"Authorization": f"Bearer {token}"}
+
+            # Step 2: Start pdfword task
+            start_resp = http_client.get("https://api.ilovepdf.com/v1/start/pdfword", headers=headers)
+            if start_resp.status_code != 200:
+                log.warning("iLovePDF start task failed (%d): %s", start_resp.status_code, start_resp.text[:200])
+                return None
+            start_data = start_resp.json()
+            server = start_data.get("server")
+            task_id = start_data.get("task")
+
+            # Step 3: Upload PDF file to assigned server
+            upload_url = f"https://{server}/v1/upload"
+            files = {"file": (filename, pdf_bytes, "application/pdf")}
+            data = {"task": task_id}
+            upload_resp = http_client.post(upload_url, headers=headers, data=data, files=files)
+            if upload_resp.status_code != 200:
+                log.warning("iLovePDF upload failed (%d): %s", upload_resp.status_code, upload_resp.text[:200])
+                return None
+            server_filename = upload_resp.json().get("server_filename")
+
+            # Step 4: Process conversion
+            process_url = f"https://{server}/v1/process"
+            process_payload = {
+                "task": task_id,
+                "tool": "pdfword",
+                "files": [{"server_filename": server_filename, "filename": filename}],
+            }
+            process_resp = http_client.post(process_url, headers=headers, json=process_payload)
+            if process_resp.status_code != 200:
+                log.warning("iLovePDF process failed (%d): %s", process_resp.status_code, process_resp.text[:200])
+                return None
+
+            # Step 5: Download converted .docx file
+            download_url = f"https://{server}/v1/download/{task_id}"
+            download_resp = http_client.get(download_url, headers=headers)
+            if download_resp.status_code == 200 and download_resp.content.startswith(b"PK\x03\x04"):
+                log.info("Successfully converted PDF to DOCX via official iLovePDF API.")
+                return download_resp.content
+            else:
+                log.warning("iLovePDF download failed or invalid content (%d)", download_resp.status_code)
+                return None
+
+    except Exception as ex:
+        log.warning("iLovePDF API conversion encountered error: %s", ex)
+        return None
+
+
+def pdf_to_docx_bytes(pdf_bytes: bytes, filename: str = "document.pdf") -> bytes:
+    """
+    Convert PDF bytes to editable Microsoft Word .docx bytes.
+    Automatically utilizes official iLovePDF Cloud API if ILOVEPDF_PUBLIC_KEY is configured,
+    with seamless high-fidelity local layout engine fallback.
     """
     if not pdf_bytes:
         raise ValueError("File PDF kosong.")
 
+    # 1. Attempt official iLovePDF Cloud API conversion if configured
+    ilovepdf_result = _convert_via_ilovepdf_api(pdf_bytes, filename=filename)
+    if ilovepdf_result:
+        return ilovepdf_result
+
+    # 2. Local layout engine fallback
     import pdf2docx.text.Spans as spans_mod
     from pdf2docx import Converter
     from pdf2docx.image.ImageSpan import ImageSpan

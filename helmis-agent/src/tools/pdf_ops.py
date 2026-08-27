@@ -253,7 +253,7 @@ async def handle_process_pdf(
             rec, b = res
             orig_name = rec.get("original_filename") or rec["filename"]
 
-            docx_bytes = pdf_to_docx_bytes(b)
+            docx_bytes = pdf_to_docx_bytes(b, filename=orig_name)
 
             if not output_filename:
                 base_name = os.path.splitext(orig_name)[0]

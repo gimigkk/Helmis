@@ -191,6 +191,56 @@ def test_pdf_to_docx_conversion() -> None:
     assert "Deploy Bot" in full_text
 
 
+def test_pdf_to_docx_ilovepdf_api_mock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify iLovePDF Cloud API integration when credentials are set."""
+    from unittest.mock import MagicMock
+    import httpx
+
+    monkeypatch.setenv("ILOVEPDF_PUBLIC_KEY", "project_public_test_key")
+    monkeypatch.setenv("ILOVEPDF_SECRET_KEY", "secret_test_key")
+
+    mock_docx_bytes = b"PK\x03\x04\x14\x00\x00\x00\x08\x00mocked_ilovepdf_word_docx"
+
+    # Mock httpx.Client calls
+    orig_client = httpx.Client
+
+    class MockHttpxClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def post(self, url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            if "auth" in str(url):
+                resp.json.return_value = {"token": "fake_jwt_token"}
+            elif "upload" in str(url):
+                resp.json.return_value = {"server_filename": "uploaded_server_file.pdf"}
+            elif "process" in str(url):
+                resp.json.return_value = {"status": "TaskSuccess"}
+            return resp
+
+        def get(self, url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            if "start" in str(url):
+                resp.json.return_value = {"server": "api2.ilovepdf.com", "task": "task_abc123"}
+            elif "download" in str(url):
+                resp.content = mock_docx_bytes
+            return resp
+
+    monkeypatch.setattr(httpx, "Client", MockHttpxClient)
+
+    pdf = _create_sample_pdf(["Test iLovePDF API"])
+    res = pdf_to_docx_bytes(pdf, filename="test.pdf")
+    assert res == mock_docx_bytes
+
+
 def test_compress_pdf() -> None:
     """Verify stream deflation and optimization of PDF."""
     pdf = _create_sample_pdf(["Uncompressed document text stream repeated " * 50])
