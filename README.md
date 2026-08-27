@@ -2,10 +2,15 @@
 
 > **Self-hosted autonomous AI executive secretary for WhatsApp**, powered by Google Gemini, multi-step ReAct tool calling, localized semantic memory, and document vault.
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
-[![Docker Compose](https://img.shields.io/badge/docker--compose-v2-2496ED.svg)](docker-compose.yml)
-[![Tests](https://img.shields.io/badge/tests-116%20passed-brightgreen.svg)](helmis-agent/tests/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-Cascade%20API-8E75C2?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
+[![WhatsApp](https://img.shields.io/badge/WhatsApp-WAHA%20GOWS-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://waha.devlike.pro/)
+[![FastMCP](https://img.shields.io/badge/MCP-FastMCP%20SSE-00D26A?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
+[![Docker](https://img.shields.io/badge/Docker%20Compose-v2-2496ED?style=for-the-badge&logo=docker&logoColor=white)](docker-compose.yml)
+[![Tests](https://img.shields.io/badge/Tests-116%20Passed-4c1?style=for-the-badge&logo=pytest&logoColor=white)](helmis-agent/tests/)
+[![Architecture](https://img.shields.io/badge/Engine-Autonomous%20ReAct-FF6B6B?style=for-the-badge&logo=diagram-next&logoColor=white)](docs/AGENT_CORE.md)
+[![Timezone](https://img.shields.io/badge/Timezone-WIB%20(UTC%2B7)-F39C12?style=for-the-badge&logo=clockify&logoColor=white)](config/system-prompt.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-111111?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
 
 ---
 
