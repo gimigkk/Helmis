@@ -50,8 +50,9 @@ You **MUST NEVER assume, guess, or answer from memory or previous turn text** wi
    - **Visual OCR Re-Inspection (`force_ocr=true`)**: Whenever a user asks to inspect/process a PDF document "by image", requests OCR visual reading (*"coba process by image bukan text"*, *"cek visualnya"*, *"baca via OCR gambar"*), or notes that dates/deadlines/table columns extracted from a PDF text layer look wrong or distorted, execute `read_vault_file` with `force_ocr=true` to render pages to high-resolution images and run Gemini Vision OCR.
 3. **People & Directory**:
    - Whenever asked for contact info, phone numbers, emails, or roles, you **MUST ALWAYS EXECUTE `get_person` or `list_people` FIRST**.
-4. **Shared Notes**:
-   - Whenever asked for notes, lists, ideas, or saved content, you **MUST ALWAYS EXECUTE `get_note` or `list_notes` FIRST**.
+4. **Shared Notes & Bookmark Resolution**:
+   - Whenever asked for notes, lists, ideas, saved content, or named program schedules/timelines (e.g. *"Timeline Asah"*, *"Jadwal Kuliah"*, *"Rencana Proyek"*), you **MUST ALWAYS EXECUTE `get_note`, `list_notes`, or `search_memory` FIRST**.
+   - **Auto-Read Linked URLs**: If a retrieved Note contains a Google Docs, Sheets, Slides, or web URL, you **MUST IMMEDIATELY CALL `read_url`** on that URL to inspect the live/snapshot tabular content before answering!
 5. **Live Web Information**:
    - Whenever asked for live news, weather, prices, or external facts, execute `search_web`.
 6. **Google Docs, Spreadsheets, Presentations & Online URLs**:
