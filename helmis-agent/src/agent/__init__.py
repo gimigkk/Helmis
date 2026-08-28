@@ -13,7 +13,12 @@ from .cascade import (
     load_all_skills,
     load_system_prompt,
 )
-from .guardrails import format_tool_chips, inject_tool_directive, verify_action_fidelity
+from .guardrails import (
+    detect_unexecuted_mutation_claims,
+    format_tool_chips,
+    inject_tool_directive,
+    verify_action_fidelity,
+)
 from .loop import drain_and_inject_mid_turn_mailbox, run_agentic_react_loop
 from .proactive import handle_proactive_scheduler_tick
 from .tracer import AgentTurnTracer
@@ -23,6 +28,7 @@ __all__ = [
     "GEMINI_KEYS",
     "GEMINI_MODELS",
     "GEMINI_TOOLS",
+    "detect_unexecuted_mutation_claims",
     "drain_and_inject_mid_turn_mailbox",
     "execute_tool_call",
     "fetch_available_gemini_models",

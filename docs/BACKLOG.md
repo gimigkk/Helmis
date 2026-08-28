@@ -10,7 +10,7 @@ Dokumen ini mencatat seluruh backlog masalah, temuan root-cause dari runtime log
 | :--- | :--- | :--- | :---: | :---: |
 | **[BACKLOG-01]** | Web & Tools | Pembaca Google Docs, Spreadsheets, Slides, & Web URL Publik | `P0 - High` | ✅ Completed |
 | **[BACKLOG-02]** | Architecture | Temp Sandbox Workspace untuk File Sementara & URL Cache | `P0 - High` | ✅ Completed |
-| **[BACKLOG-03]** | Agent & Guardrails | Eliminasi Halusinasi Konfirmasi Aksi (Two-Step & Strict State Guardrail) | `P0 - High` | 📋 Planned |
+| **[BACKLOG-03]** | Agent & Guardrails | Eliminasi Halusinasi Konfirmasi Aksi (Two-Step & Strict State Guardrail) | `P0 - High` | ✅ Completed |
 | **[BACKLOG-04]** | Vault & Files | Penanganan Bookmark Link vs Dokumen Fisik Brankas | `P1 - Medium` | 📋 Planned |
 | **[BACKLOG-05]** | Memory & Vault | Parser Dokumen Microsoft Office (`.pptx`, `.docx`, `.xlsx`) di `read_vault_file` | `P1 - Medium` | 📋 Planned |
 | **[BACKLOG-06]** | WhatsApp Engine | Sinkronisasi `media_data` Biner pada Mid-Turn Steering | `P2 - Low` | 📋 Planned |
@@ -45,13 +45,15 @@ Dokumen ini mencatat seluruh backlog masalah, temuan root-cause dari runtime log
 ---
 
 ### [BACKLOG-03] Eliminasi Halusinasi Konfirmasi Aksi (Two-Step & Strict State Guardrail)
-* **Masalah:**
-  Pada turn WhatsApp, Gemini Flash Lite terkadang langsung membalas percakapan di Step 1 (misal: *"Sip, tugas ... sudah Helmis tandai selesai ya."*) tanpa pernah memanggil tool database (`complete_task` / `delete_task` / `add_task`). Akibatnya, status tugas di database tidak berubah sama sekali, namun user mengira tugas sudah selesai.
-* **Root Cause:**
-  Model diizinkan mengembalikan teks pada step 1. Guardrail `verify_action_fidelity()` hanya memvalidasi hasil jika ada tool mutasi yang dijalankan (`if not executed_tools: return cleaned_text`).
-* **Solusi Rencana:**
-  1. **Anti-Hallucination Regex Guardrail:** Di `guardrails.py`, jika teks balasan mengklaim mutasi data (*"sudah ditandai selesai"*, *"berhasil dihapus"*, *"sudah dicatat"*), tetapi `executed_tools` tidak mencatat eksekusi tool terkait, cegah teks tersebut dan paksa agen mengeksekusi tool terlebih dahulu.
-  2. **Two-Step Tool Execution Prompting:** Perjelas aturan sistem di `system-prompt.md` bahwa konfirmasi tindakan mutasi **dilarang keras** diucapkan sebelum tool mengembalikan status sukses.
+* **Status:** `✅ Completed (Deployed)`
+* **Implementasi:**
+  1. **State Mutation Claim Detector (`detect_unexecuted_mutation_claims` di `src/agent/guardrails.py`):**
+     - Mendeteksi klaim penyelesaian tugas (`complete_task`), penghapusan data (`delete_task`, `delete_note`, `delete_memory`), pencatatan tugas baru (`add_task`), penyimpanan ke brankas (`save_vault_file`), dan pengiriman pesan/file (`send_whatsapp_message`, `send_vault_file`).
+  2. **Dynamic Turn Interception (`src/agent/loop.py`):**
+     - Jika model mencoba mengembalikan teks konfirmasi pada Step 1 tanpa memanggil tool terkait, teks tersebut **langsung dicegat dan ditolak**.
+     - Sistem menyuntikkan instruksi tegas: *"SYSTEM INTEGRITY FAULT: Kamu mengklaim telah melakukan tindakan, tetapi BELUM memanggil functionCall ke tool terkait! Eksekusi functionCall sekarang."*
+  3. **Fallback Fidelity:**
+     - Jika batas langkah tercapai tanpa eksekusi tool, teks klaim palsu otomatis diganti dengan pernyataan jujur bahwa aksi belum diproses di database.
 
 ---
 

@@ -76,6 +76,89 @@ def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
 
 import re
 
+MUTATION_CLAIM_PATTERNS = [
+    (
+        "complete_task",
+        re.compile(
+            r"(?:sudah|telah|berhasil)\s+(?:helmis\s+)?(?:tandai|ditandai|selesaikan|diselesaikan)\s+selesai|"
+            r"(?:tugas|reminder)\s+.*?\s+(?:sudah|telah|berhasil)\s+(?:ditandai\s+selesai|helmis\s+tandai|helmis\s+selesaikan)|"
+            r"(?:tandai|menandai)\s+tugas\s+.*?\s+sebagai\s+selesai|"
+            r"marked\s+(?:it\s+)?(?:as\s+)?completed",
+            re.IGNORECASE,
+        ),
+        {"complete_task"},
+    ),
+    (
+        "delete_action",
+        re.compile(
+            r"(?:sudah|telah|berhasil)\s+(?:helmis\s+)?(?:dihapus|hapus|dihilangkan|menghapus)|"
+            r"(?:catatan|tugas|memori|ingatan|file|dokumen)\s+.*?\s+(?:sudah|telah|berhasil)\s+(?:dihapus|dihilangkan)|"
+            r"berhasil\s+(?:helmis\s+)?menghapus",
+            re.IGNORECASE,
+        ),
+        {"delete_task", "delete_note", "delete_memory", "delete_vault_files", "delete_vault_directory"},
+    ),
+    (
+        "add_task",
+        re.compile(
+            r"(?:sudah|telah|berhasil)\s+(?:helmis\s+)?(?:catat|dicatat|jadwalkan|dijadwalkan|buatkan\s+pengingat|buatkan\s+jadwal)|"
+            r"(?:pengingat|reminder|tugas)\s+.*?\s+(?:sudah|telah|berhasil)\s+(?:dicatat|dibuat|disimpan\s+ke\s+daftar|dijadwalkan)",
+            re.IGNORECASE,
+        ),
+        {"add_task"},
+    ),
+    (
+        "save_vault_file",
+        re.compile(
+            r"(?:sudah|telah|berhasil)\s+(?:helmis\s+)?(?:disimpan|simpan)\s+ke\s+brankas|"
+            r"tersimpan\s+(?:rapi\s+)?di\s+brankas",
+            re.IGNORECASE,
+        ),
+        {"save_vault_file"},
+    ),
+    (
+        "send_action",
+        re.compile(
+            r"(?:sudah|telah|berhasil)\s+(?:helmis\s+)?(?:dikirimkan|kirimkan|mengirimkan)\s+(?:file|pesan|dokumen)\s+ke|"
+            r"(?:file|dokumen|pesan)\s+.*?\s+(?:sudah|telah|berhasil)\s+(?:dikirim|dikirimkan)",
+            re.IGNORECASE,
+        ),
+        {"send_vault_file", "send_whatsapp_message", "send_whatsapp_media"},
+    ),
+]
+
+
+def detect_unexecuted_mutation_claims(text: str, executed_tools: list[dict[str, Any]]) -> str | None:
+    """
+    Detect whether the model's generated text claims an action was executed (e.g. task completed,
+    note deleted, file saved) without any corresponding tool having been successfully executed.
+    Returns the category name of the missing tool, or None if compliant.
+    """
+    if not text or text.strip() in ("[NO_REPLY]", "NO_REPLY", "None"):
+        return None
+
+    success_tools = {
+        t.get("name")
+        for t in executed_tools
+        if t.get("name") and t.get("result", {}).get("status") == "success"
+    }
+
+    # If list_tasks was called, general references to completed tasks are allowed queries
+    if "list_tasks" in success_tools:
+        return None
+
+    for category_name, pattern, required_tools in MUTATION_CLAIM_PATTERNS:
+        if pattern.search(text):
+            if not required_tools.intersection(success_tools):
+                log.warning(
+                    "Detected unexecuted mutation claim '%s' in model text without required tools %s",
+                    category_name,
+                    required_tools,
+                )
+                return category_name
+
+    return None
+
 
 def strip_hallucinated_tool_chips(text: str) -> str:
     """Strip any hallucinated or LLM-mimicked tool chips footnote lines."""
@@ -99,6 +182,18 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
 
     # Strip any synthetic/hallucinated tool chips emitted by the model
     cleaned_text = strip_hallucinated_tool_chips(text)
+
+    # If an unexecuted mutation claim was made without running the tool, block the fake confirmation
+    unexecuted_claim = detect_unexecuted_mutation_claims(cleaned_text, executed_tools)
+    if unexecuted_claim:
+        log.error(
+            "Blocking hallucinated response claiming '%s' because required tool was not executed!",
+            unexecuted_claim,
+        )
+        return (
+            "Mohon maaf, tindakan tersebut belum berhasil diproses di sistem database. "
+            "Silakan ulangi perintah secara spesifik agar Helmis dapat memprosesnya."
+        )
 
     # If no tools were executed, return cleaned text (guaranteed no fake tool chips)
     if not executed_tools:

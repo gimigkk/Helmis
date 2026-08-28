@@ -18,7 +18,11 @@ from .cascade import (
     load_all_skills,
     load_system_prompt,
 )
-from .guardrails import inject_tool_directive, verify_action_fidelity
+from .guardrails import (
+    detect_unexecuted_mutation_claims,
+    inject_tool_directive,
+    verify_action_fidelity,
+)
 
 log = logging.getLogger("helmis-agent")
 
@@ -289,6 +293,32 @@ async def run_agentic_react_loop(
             for prefix in ("[Helmis]:", "[Helmis]: ", "[Gilang]:", "[Gilang]: ", "[Bunga]:", "[Bunga]: "):
                 if raw_cleaned.startswith(prefix):
                     raw_cleaned = raw_cleaned[len(prefix):].strip()
+
+            # Anti-Hallucination Guardrail: Intercept unexecuted mutation claims before returning text
+            unexecuted_claim = detect_unexecuted_mutation_claims(raw_cleaned, executed_tools)
+            if unexecuted_claim and step < max_steps - 1:
+                log.warning(
+                    "Turn Intercepted: Model emitted unexecuted mutation claim '%s' on step %d without calling tool. Steering to functionCall...",
+                    unexecuted_claim,
+                    step + 1,
+                )
+                contents.append({"role": "model", "parts": [candidate_part]})
+                contents.append({
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                f"SYSTEM INTEGRITY FAULT: Kamu baru saja mengklaim telah melakukan tindakan '{unexecuted_claim}', "
+                                "tetapi kamu BELUM mengeksekusi functionCall ke tool terkait! "
+                                "Dilarang membuat konfirmasi teks sebelum tool berhasil dijalankan. "
+                                "Kamu WAJIB mengeksekusi functionCall ke tool yang tepat sekarang."
+                            )
+                        }
+                    ],
+                })
+                step += 1
+                continue
+
             cleaned = verify_action_fidelity(raw_cleaned, executed_tools)
             if tracer:
                 tracer.log_step(
