@@ -526,11 +526,13 @@ def _update_vault_file_ocr(file_id: str, ocr_text: str) -> None:
 def read_vault_file(
     file_id_or_name: str,
     max_chars: int = 15000,
+    force_ocr: bool = False,
 ) -> dict[str, Any]:
     """
     Read content of a file from the vault.
     - Plain text / JSON / Markdown / CSV: Decoded as string.
-    - PDF: Page-by-page digital text layer, falling back to Gemini Vision OCR for raster scans.
+    - PDF: Page-by-page digital text layer, falling back to Gemini Vision OCR for raster scans,
+           or forcing full visual Vision OCR on all pages when force_ocr=True.
     - DOCX / PPTX / XLSX: Extracted to structured Markdown.
     - Images: Extracted via dynamic Gemini Vision OCR and cached into catalog.
     """
@@ -568,23 +570,20 @@ def read_vault_file(
         )
     ):
         content_type = "text"
-        try:
-            extracted_text = raw_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            extracted_text = raw_bytes.decode("latin-1", errors="replace")
+        extracted_text = raw_bytes.decode("utf-8", errors="ignore").strip()
 
-        # Binary spoof detection: if text contains > 5% null bytes or non-printable chars, treat as binary
-        if raw_bytes and (extracted_text.count("\x00") / max(1, len(extracted_text)) > 0.02):
+        # Binary spoof detection: if text contains null bytes or binary characters, treat as binary
+        if raw_bytes and (b"\x00" in raw_bytes[:1024] or (extracted_text.count("\x00") / max(1, len(extracted_text)) > 0.02)):
             content_type = "binary"
             desc = record.get("description", "")
             extracted_text = f"[File Biner {mime}]: {desc} (Data biner mentah tidak dapat ditampilkan sebagai teks)"
 
-    # 2. PDF Documents
+    # 2. PDF Documents (.pdf) — PyMuPDF with High-Precision Fallback & Force Vision OCR
     elif ext == ".pdf" or mime == "application/pdf":
         content_type = "pdf"
+        scanned_page_count = 0
         pdf_pages_text: list[str] = []
         is_encrypted = False
-        scanned_page_count = 0
         try:
             import pymupdf
 
@@ -604,45 +603,8 @@ def read_vault_file(
                     p_txt = str(raw_txt).strip() if raw_txt else ""
                     page_parts: list[str] = []
 
-                    if p_txt:
-                        page_parts.append(p_txt)
-
-                    # Inspect embedded images on this page
-                    try:
-                        img_list = page.get_images(full=True)
-                    except Exception:
-                        img_list = []
-
-                    # If page has digital text AND embedded meaningful diagram/chart image(s):
-                    if p_txt and img_list:
-                        processed_imgs = 0
-                        for img_info in img_list:
-                            if processed_imgs >= 2:
-                                break
-                            xref = img_info[0]
-                            try:
-                                base_img = doc.extract_image(xref)
-                                width = base_img.get("width", 0)
-                                height = base_img.get("height", 0)
-                                img_data = base_img.get("image", b"")
-                                img_ext = base_img.get("ext", "png")
-                                # Filter out tiny decorative icons (only process meaningful diagrams >= 50x50 and >= 100 bytes)
-                                if width >= 50 and height >= 50 and len(img_data) >= 100:
-                                    img_mime = f"image/{img_ext}" if img_ext != "jpg" else "image/jpeg"
-                                    ocr_sub = perform_vision_ocr(
-                                        img_data,
-                                        img_mime,
-                                        prompt_hint="Extract all readable text, mathematical formulas ($...$), graphs, labels, numbers, flowchart nodes, and data from this diagram/chart image on the page into clean Markdown.",
-                                    )
-                                    if ocr_sub and ocr_sub.strip():
-                                        page_parts.append(f"*(Hasil Vision OCR Diagram/Gambar Halaman {i+1})*:\n{ocr_sub.strip()}")
-                                        scanned_page_count += 1
-                                        processed_imgs += 1
-                            except Exception as img_ex:
-                                log.warning("Failed to extract embedded image %d on page %d: %s", xref, i + 1, img_ex)
-
-                    # If page has NO digital text (raster scan), render whole page:
-                    elif not p_txt:
+                    # If force_ocr is enabled, bypass text layer and process whole page as image
+                    if force_ocr:
                         scanned_page_count += 1
                         try:
                             pix = page.get_pixmap(dpi=150)
@@ -650,12 +612,69 @@ def read_vault_file(
                             ocr_txt = perform_vision_ocr(
                                 rendered_png,
                                 "image/png",
-                                prompt_hint="Extract all readable text, tabular data, forms, signatures, and stamps from this scanned document page image into clean Markdown.",
+                                prompt_hint="Extract all readable text, timelines, schedules, tables, deadlines, milestones, and visual details from this document page image verbatim into clean Markdown.",
                             )
                             if ocr_txt and ocr_txt.strip():
-                                page_parts.append(f"[Hasil Vision OCR]\n{ocr_txt.strip()}")
+                                page_parts.append(f"[Hasil Vision OCR (Image Mode)]\n{ocr_txt.strip()}")
+                            elif p_txt:
+                                page_parts.append(p_txt)
                         except Exception as ocr_err:
-                            log.warning("Vision OCR failed on PDF page %d of %s: %s", i + 1, filename, ocr_err)
+                            log.warning("Force Vision OCR failed on PDF page %d of %s: %s", i + 1, filename, ocr_err)
+                            if p_txt:
+                                page_parts.append(p_txt)
+                    else:
+                        if p_txt:
+                            page_parts.append(p_txt)
+
+                        # Inspect embedded images on this page
+                        try:
+                            img_list = page.get_images(full=True)
+                        except Exception:
+                            img_list = []
+
+                        # If page has digital text AND embedded meaningful diagram/chart image(s):
+                        if p_txt and img_list:
+                            processed_imgs = 0
+                            for img_info in img_list:
+                                if processed_imgs >= 2:
+                                    break
+                                xref = img_info[0]
+                                try:
+                                    base_img = doc.extract_image(xref)
+                                    width = base_img.get("width", 0)
+                                    height = base_img.get("height", 0)
+                                    img_data = base_img.get("image", b"")
+                                    img_ext = base_img.get("ext", "png")
+                                    # Filter out tiny decorative icons (only process meaningful diagrams >= 50x50 and >= 100 bytes)
+                                    if width >= 50 and height >= 50 and len(img_data) >= 100:
+                                        img_mime = f"image/{img_ext}" if img_ext != "jpg" else "image/jpeg"
+                                        ocr_sub = perform_vision_ocr(
+                                            img_data,
+                                            img_mime,
+                                            prompt_hint="Extract all readable text, mathematical formulas ($...$), graphs, labels, numbers, flowchart nodes, and data from this diagram/chart image on the page into clean Markdown.",
+                                        )
+                                        if ocr_sub and ocr_sub.strip():
+                                            page_parts.append(f"*(Hasil Vision OCR Diagram/Gambar Halaman {i+1})*:\n{ocr_sub.strip()}")
+                                            scanned_page_count += 1
+                                            processed_imgs += 1
+                                except Exception as img_ex:
+                                    log.warning("Failed to extract embedded image %d on page %d: %s", xref, i + 1, img_ex)
+
+                        # If page has NO digital text (raster scan), render whole page:
+                        elif not p_txt:
+                            scanned_page_count += 1
+                            try:
+                                pix = page.get_pixmap(dpi=150)
+                                rendered_png = pix.tobytes("png")
+                                ocr_txt = perform_vision_ocr(
+                                    rendered_png,
+                                    "image/png",
+                                    prompt_hint="Extract all readable text, tabular data, forms, signatures, and stamps from this scanned document page image into clean Markdown.",
+                                )
+                                if ocr_txt and ocr_txt.strip():
+                                    page_parts.append(f"[Hasil Vision OCR]\n{ocr_txt.strip()}")
+                            except Exception as ocr_err:
+                                log.warning("Vision OCR failed on PDF page %d of %s: %s", i + 1, filename, ocr_err)
 
                     if page_parts:
                         pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n" + "\n\n".join(page_parts))

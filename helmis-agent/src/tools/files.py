@@ -37,9 +37,10 @@ async def handle_read_vault_file(
         return {"status": "error", "error": "file_id_or_name tidak boleh kosong."}
 
     max_chars = int(args.get("max_chars") or 8000)
-    result = read_vault_file(file_id_or_name=file_id_or_name, max_chars=max_chars)
+    force_ocr = bool(args.get("force_ocr", False))
+    result = read_vault_file(file_id_or_name=file_id_or_name, max_chars=max_chars, force_ocr=force_ocr)
     if result.get("status") == "success":
-        log_activity(f"Read vault file '{file_id_or_name}' (type: {result.get('content_type')})")
+        log_activity(f"Read vault file '{file_id_or_name}' (type: {result.get('content_type')}, force_ocr: {force_ocr})")
     return result
 
 

@@ -423,6 +423,10 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                             "type": "INTEGER",
                             "description": "Optional max characters to read. Defaults to 8000.",
                         },
+                        "force_ocr": {
+                            "type": "BOOLEAN",
+                            "description": "Set to true to render all PDF/document pages into images and run full visual Multimodal Vision OCR, bypassing the digital text layer (ideal for timeline graphics, complex tables, corrupted text layers, or when user asks to process by image).",
+                        },
                     },
                     "required": ["file_id_or_name"],
                 },

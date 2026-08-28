@@ -691,3 +691,37 @@ async def test_send_vault_file_link_stub_and_note_fallback() -> None:
     mock_client.send_message.assert_called_once()
     assert "https://figma.com/file/abcdef123/UI-Design" in mock_client.send_message.call_args[1]["text"]
 
+
+def test_read_vault_file_force_ocr_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify force_ocr flag triggers visual Vision OCR extraction on PDF pages even when digital text exists."""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=300, height=300)
+    page.insert_text((50, 50), "Timeline Asah 2026: Tahap 1 Deadline 12 Sept")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    rec = save_file_to_vault(
+        data=pdf_bytes,
+        filename="timeline_asah_sample.pdf",
+        category="documents",
+        owner="Gilang",
+    )
+
+    # 1. Normal reading -> uses digital text layer
+    res_normal = read_vault_file(rec["id"], force_ocr=False)
+    assert res_normal["status"] == "success"
+    assert "Timeline Asah 2026" in res_normal["content"]
+    assert "[Hasil Vision OCR (Image Mode)]" not in res_normal["content"]
+
+    # 2. Force OCR reading -> mocks perform_vision_ocr and verifies image mode
+    monkeypatch.setattr(
+        "src.memory.vault.perform_vision_ocr",
+        lambda data, mime, prompt_hint: "Visual Timeline: Tahap 1 -> 15 September 2026 (Verified by Vision)",
+    )
+    res_forced = read_vault_file(rec["id"], force_ocr=True)
+    assert res_forced["status"] == "success"
+    assert "[Hasil Vision OCR (Image Mode)]" in res_forced["content"]
+    assert "Verified by Vision" in res_forced["content"]
+
