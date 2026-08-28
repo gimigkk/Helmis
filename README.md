@@ -2,25 +2,21 @@
 
 > **Self-hosted autonomous AI executive secretary for WhatsApp**, powered by Google Gemini, multi-step ReAct tool calling, localized semantic memory, and document vault.
 
-[![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-Cascade%20API-8E75C2?style=for-the-badge&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
-[![WhatsApp](https://img.shields.io/badge/WhatsApp-WAHA%20GOWS-25D366?style=for-the-badge&logo=whatsapp&logoColor=white)](https://waha.devlike.pro/)
-[![FastMCP](https://img.shields.io/badge/MCP-FastMCP%20SSE-00D26A?style=for-the-badge&logo=fastapi&logoColor=white)](https://modelcontextprotocol.io/)
-[![Docker](https://img.shields.io/badge/Docker%20Compose-v2-2496ED?style=for-the-badge&logo=docker&logoColor=white)](docker-compose.yml)
-[![Tests](https://img.shields.io/badge/Tests-142%20Passed-4c1?style=for-the-badge&logo=pytest&logoColor=white)](helmis-agent/tests/)
-[![Architecture](https://img.shields.io/badge/Engine-Autonomous%20ReAct-FF6B6B?style=for-the-badge&logo=diagram-next&logoColor=white)](docs/AGENT_CORE.md)
-[![Timezone](https://img.shields.io/badge/Timezone-WIB%20(UTC%2B7)-F39C12?style=for-the-badge&logo=clockify&logoColor=white)](config/system-prompt.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-111111?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/Python-3.12+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Google Gemini](https://img.shields.io/badge/Google%20Gemini-Multimodal%20Cascade-8E75C2?style=flat-square&logo=googlegemini&logoColor=white)](https://ai.google.dev/)
+[![WhatsApp Engine](https://img.shields.io/badge/WhatsApp-WAHA%20Core-25D366?style=flat-square&logo=whatsapp&logoColor=white)](https://waha.devlike.pro/)
+[![Tests](https://img.shields.io/badge/Tests-179%20Passing-success?style=flat-square&logo=pytest&logoColor=white)](docs/DEVELOPMENT_AND_TESTING.md)
+[![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)](LICENSE)
 
 ---
 
 ## What is Helmis?
 
-Helmis is a private, zero-latency AI executive secretary built for real-world personal coordination over WhatsApp. Operating across private direct messages and a shared couple group chat (*Trio Helmis*), it manages schedules, tasks, contacts, shared notes, a categorized Document Vault, PDF manipulation & text extraction, live web search, dynamic media dispatching, and proactive deadline reminders with strict state fidelity and zero AI slop.
+Helmis is a private, zero-latency **AI Executive Secretary** built for real-world personal coordination over WhatsApp. Supporting both **Personal Solo Mode** (1 user) and **Duo Mode** (couples/partners in a shared group chat), it manages schedules, tasks, contacts, shared notes, an encrypted Document Vault, PDF manipulation & text extraction, live web search, dynamic media dispatching, and proactive deadline reminders with strict state fidelity and zero AI slop.
 
 ```
                     ┌──────────────────────────────┐
-                    │      WhatsApp (WAHA GOWS)    │
+                    │      WhatsApp (WAHA Core)    │
                     └──────────────┬───────────────┘
                                    │  HTTP Webhook / REST API
                                    ▼
@@ -50,46 +46,16 @@ Helmis is a private, zero-latency AI executive secretary built for real-world pe
 
 ---
 
-## Key Features
+## Key Highlights
 
-- **Domain-Driven Architecture**: Cleanly separated into `src/agent/` (brain & ReAct loop), `src/memory/` (storage & vector memory), `src/whatsapp/` (WAHA bridge & parser), and `src/tools/` (function dispatch & live search).
-- **Gemini Multi-Key Cascade**: Seamless round-robin failover across multiple API keys and model tiers (`gemini-2.5-pro` → `gemini-2.5-flash` → `gemini-2.0-flash`).
-- **Mid-Turn Mailbox Steering**: If a user sends a follow-up or correction while the agent is executing tools, the turn immediately steers to incorporate the new guidance without restarting.
-- **Multimodal Intelligence & Dynamic Media Routing**: Handles voice notes, OCR, PDF extraction, and intelligent outbound media dispatch (inline photo bubbles via `/api/sendImage` or uncompressed raw files via `/api/sendFile` on request).
-- **Categorized Document Vault**: Local persistent storage (`health`, `id_cards`, `travel`, `receipts`, `documents`, `media`, `projects`) with original filename preservation, atomic catalog locking, and clean caption delivery.
-- **Proactive Cron & Exact-Second Timers**: Autonomous 1-minute crontab ticks (`* * * * *`) combined with near-horizon in-process asyncio countdown timers, polymorphic job executors (`ToolJobExecutor` & `AgentLoopJobExecutor`), 2-stage lead-time buffering, and 10-minute nag loops for critical tasks.
-- **100% Single Source of Truth System Prompt**: Persona, behavior, group chat dynamics, and formatting rules live entirely in `config/system-prompt.md`.
+- **Autonomous ReAct Loop & Cascade**: Seamless round-robin failover across multiple Google Gemini API keys and tiers (`gemini-2.5-pro` → `gemini-2.5-flash` → `gemini-2.0-flash`).
+- **Mid-Turn Mailbox Steering**: If a user sends a follow-up or correction while the agent is executing tools, the turn immediately steers to incorporate the new guidance in real-time.
+- **Multimodal Intelligence & Vision OCR**: Extracts text from scanned PDFs, diagrams, spreadsheets, and presentation slides via Gemini Vision OCR (150 DPI page pixmaps).
+- **Categorized Document Vault**: Local persistent storage (`health`, `id_cards`, `travel`, `receipts`, `documents`, `media`, `projects`) with original filename preservation, atomic catalog locking, and clean WhatsApp caption dispatch.
+- **Google Workspace Reader**: Directly inspects published Google Sheets (`pubhtml` with multi-tab support), Google Docs, Slides, and Drive documents with 30-minute sandbox caching.
+- **Proactive Cron & Exact-Second Timers**: Autonomous 1-minute crontab ticks combined with near-horizon in-process asyncio countdown timers, 2-stage lead-time buffering, and 10-minute nag loops for critical commitments.
+- **100% Single Source of Truth System Prompt**: Persona, behavior, group chat dynamics, and formatting rules live entirely in `config/system-prompt.md` (with zero-conflict `config/system-prompt.local.md` support for clones).
 - **Zero AI Slop**: Communicates in authentic Indonesian WhatsApp register (*sat-set*, direct, conversational) with strict zero-emoji enforcement and conscious multi-bubble splitting (`---`).
-
----
-
-## Directory Layout
-
-```
-Helmis/
-├── config/
-│   ├── skills/                       # Markdown skill playbooks (9 modular skills)
-│   └── system-prompt.md              # Single source of truth system prompt
-├── data/                             # Local persistent storage (gitignored)
-│   ├── helmis_memory.json            # Tasks, notes, directory records
-│   ├── file_catalog.json             # Document vault metadata catalog
-│   ├── semantic_memories.json        # 3072-dim episodic vector embeddings
-│   ├── vault/                        # Binary documents, PDFs, scans, receipts
-│   └── agent_traces.jsonl            # Execution traces & step logs
-├── docs/                             # Complete technical documentation (10 guides)
-├── helmis-agent/
-│   ├── src/
-│   │   ├── agent/                    # ReAct loop, cascade, proactive, tracer
-│   │   ├── memory/                   # Atomic store, semantic vector, vault
-│   │   ├── whatsapp/                 # Client, history, models, parser, processor, queue
-│   │   ├── tools/                    # Tool registrations, schemas, search
-│   │   ├── server.py                 # FastMCP SSE & Starlette webhook entry point
-│   │   └── __init__.py
-│   └── tests/                        # 16 pytest test suites (122 tests passing)
-├── scheduler/                        # Supercronic proactive cron runner
-├── docker-compose.yml                # Multi-container orchestration
-└── .env                              # Environment secrets and phone numbers
-```
 
 ---
 
@@ -103,8 +69,9 @@ cp .env.example .env
 nano .env
 ```
 
-Configure your `.env` with:
-- `GILANG_PHONE` and `BUNGA_PHONE` (E.164 formatted, e.g. `6281234567890`)
+Configure `.env` with:
+- `OWNER_PHONE` and `OWNER_NAME` (E.164 formatted, e.g. `6281234567890`)
+- `PARTNER_PHONE` and `PARTNER_NAME` (Optional: leave blank for Solo Mode)
 - `BOT_PHONE`
 - `GEMINI_KEY_1`, `GEMINI_KEY_2`, etc.
 - `WAHA_API_KEY` and `WAHA_DASHBOARD_PASSWORD`
@@ -115,16 +82,16 @@ docker compose up -d --build
 ```
 
 ### 3. Connect WhatsApp
-1. Open the WAHA dashboard in your browser: `http://<your-server-ip>:3005` (or mapped port).
+1. Open the WAHA dashboard in your browser: `http://<your-server-ip>:3005`.
 2. Authenticate with `admin` and your `WAHA_DASHBOARD_PASSWORD`.
 3. Scan the QR code using WhatsApp on your bot phone number.
-4. Once the session is `WORKING`, Helmis is live!
+4. Once the session status is `WORKING`, Helmis is live!
 
 ---
 
 ## Testing & Quality Assurance
 
-Run the comprehensive test suite locally:
+Run the comprehensive test suite (21 modules, 179 test cases):
 
 ```bash
 cd helmis-agent
@@ -135,7 +102,7 @@ pytest
 ```
 
 ```text
-============================= 107 passed in 2.47s ==============================
+============================= 179 passed in 3.32s ==============================
 ```
 
 ---
@@ -144,12 +111,13 @@ pytest
 
 | Guide | Description |
 |---|---|
+| [Master Index](docs/INDEX.md) | Architecture map, roadmap, and complete module catalog. |
 | [System Architecture](docs/ARCHITECTURE.md) | High-level topology, domain packages, container network, and lifecycle. |
-| [Agent Core & ReAct Loop](docs/AGENT_CORE.md) | ReAct loop, Gemini cascade, mid-turn steering, and tracing. |
+| [Agent Core & ReAct Loop](docs/AGENT_CORE.md) | ReAct loop, Gemini cascade, mid-turn steering, and transparent footnote badges. |
 | [Communication & Routing](docs/COMMUNICATION_AND_ROUTING.md) | WAHA integration, payload parser, queue debouncing, and group chat dynamics. |
-| [Memory & Storage](docs/MEMORY_AND_STORAGE.md) | Atomic JSON store, vector semantic memory, and Document Vault. |
+| [Memory & Storage](docs/MEMORY_AND_STORAGE.md) | Atomic JSON store, vector semantic memory, Document Vault, and Google Workspace reader. |
 | [Proactive Engine](docs/PROACTIVE_ENGINE.md) | Scheduler cron triggers, lead-time buffering, and nag loops. |
-| [Configuration & Skills](docs/CONFIGURATION_AND_SKILLS.md) | Single Source of Truth prompt, skill playbooks, and environment variables. |
+| [Configuration & Skills](docs/CONFIGURATION_AND_SKILLS.md) | Single Source of Truth prompt, skill playbooks, and Solo Mode guide. |
 | [Deployment & Operations](docs/DEPLOYMENT_AND_OPERATIONS.md) | VPS deployment, zero-downtime updates, healthchecks, and backups. |
 | [Development & Testing](docs/DEVELOPMENT_AND_TESTING.md) | Test suites, mock strategies, fixtures, and code standards. |
 | [Scenarios & Playbooks](docs/SCENARIOS_AND_PLAYBOOKS.md) | Real-world operational scenarios, error handling, and multimodal workflows. |
