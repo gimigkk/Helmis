@@ -240,3 +240,51 @@ def test_format_tool_chips_google_types():
         {"name": "read_url", "result": {"status": "success", "source_type": "generic_web"}},
     ])
     assert chips == "↳ `read_google_sheet`, `read_google_doc`, `read_google_slides`, `read_web_page`"
+
+
+def test_parse_published_sheets_url():
+    url = "https://docs.google.com/spreadsheets/u/4/d/e/2PACX-1vTpAqVCHdjDuUXceo9K41kwMburOWMdwFGwfiIcWb7qrBuEPNQ6hwwusx27lz0lYBSitxWgI1SLoLSQ/pubhtml#gid=669918733"
+    t, doc_id, p = parse_google_url_type(url)
+    assert t == "sheets_pub"
+    assert doc_id == "2PACX-1vTpAqVCHdjDuUXceo9K41kwMburOWMdwFGwfiIcWb7qrBuEPNQ6hwwusx27lz0lYBSitxWgI1SLoLSQ"
+    assert p.get("gid") == "669918733"
+
+
+@pytest.mark.asyncio
+async def test_read_published_google_sheets(httpx_mock: pytest_httpx.HTTPXMock, tmp_path):
+    with patch("src.memory.sandbox.DATA_DIR", str(tmp_path)):
+        url = "https://docs.google.com/spreadsheets/d/e/2PACX_test_123/pubhtml"
+        index_url = "https://docs.google.com/spreadsheets/d/e/2PACX_test_123/pubhtml"
+
+        mock_index_html = (
+            "<html><body>"
+            "<script>"
+            "var items = ["
+            '{name: "[AE] Cohort Timeline", pageUrl: "https://docs.google.com/spreadsheets/d/e/2PACX_test_123/pubhtml/sheet?headers=false&gid=999"}'
+            "];"
+            "</script>"
+            "</body></html>"
+        )
+        mock_sheet_html = (
+            "<html><body>"
+            "<table>"
+            "<tr><th>Minggu</th><th>Materi</th><th>Deadline</th></tr>"
+            "<tr><td>1</td><td>Prompt Engineering</td><td>31 Agustus 2026</td></tr>"
+            "<tr><td>2</td><td>Python Basics</td><td>6 September 2026</td></tr>"
+            "</table>"
+            "</body></html>"
+        )
+
+        httpx_mock.add_response(url=index_url, text=mock_index_html, status_code=200)
+        httpx_mock.add_response(
+            url="https://docs.google.com/spreadsheets/d/e/2PACX_test_123/pubhtml/sheet?headers=false&gid=999",
+            text=mock_sheet_html,
+            status_code=200,
+        )
+
+        res = await read_url_content(url=url)
+        assert res["status"] == "success"
+        assert res["source_type"] == "google_sheets"
+        assert "Prompt Engineering" in res["content"]
+        assert "31 Agustus 2026" in res["content"]
+        assert "[AE] Cohort Timeline" in res["content"]

@@ -2,7 +2,8 @@
 google_reader.py — Google Workspace & Web URL Direct Snapshot Reader.
 
 Supports:
-- Google Spreadsheets (CSV export with tab/gid support -> Markdown Table)
+- Standard Google Spreadsheets (/spreadsheets/d/{id} -> CSV -> Markdown Table)
+- Published Google Spreadsheets (/spreadsheets/d/e/{pub_id}/pubhtml or /pub -> Multi-Tab HTML Table Parser)
 - Google Docs (Clean UTF-8 plain text export)
 - Google Slides (PDF export -> Slide-by-slide text extraction)
 - Google Drive Files (Direct download -> Content extraction)
@@ -12,12 +13,14 @@ Employs Ephemeral Sandbox Caching and Epistemic Non-Realtime Snapshot Awareness.
 """
 
 import csv
+import html
 import io
 import ipaddress
 import logging
 import re
 import socket
 from datetime import datetime
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
@@ -42,6 +45,108 @@ BLOCKED_IP_NETWORKS = [
 ]
 
 
+class GoogleSheetsHTMLTableParser(HTMLParser):
+    """Zero-dependency HTML table parser for published Google Sheets (pubhtml)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.in_table = False
+        self.in_tr = False
+        self.in_cell = False
+        self.current_cell: list[str] = []
+        self.current_row: list[str] = []
+        self.rows: list[list[str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "table":
+            self.in_table = True
+        elif tag == "tr" and self.in_table:
+            self.in_tr = True
+            self.current_row = []
+        elif tag in ("td", "th") and self.in_tr:
+            self.in_cell = True
+            self.current_cell = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "table":
+            self.in_table = False
+        elif tag == "tr" and self.in_tr:
+            self.in_tr = False
+            # Clean and strip trailing empty cells
+            cleaned = list(self.current_row)
+            while cleaned and not cleaned[-1].strip():
+                cleaned.pop()
+            if any(cleaned):
+                self.rows.append(cleaned)
+        elif tag in ("td", "th") and self.in_cell:
+            self.in_cell = False
+            cell_text = " ".join("".join(self.current_cell).split())
+            self.current_row.append(html.unescape(cell_text))
+
+    def handle_data(self, data: str) -> None:
+        if self.in_cell:
+            self.current_cell.append(data)
+
+
+def format_parsed_rows_to_markdown(
+    rows: list[list[str]],
+    query: str = "",
+    max_rows: int = 100,
+) -> str:
+    """Convert parsed 2D row list into a readable markdown table."""
+    if not rows:
+        return "[Tabel spreadsheet kosong]"
+
+    # Filter row header index if first column is just '1', '2', '3' etc.
+    filtered_rows: list[list[str]] = []
+    for r in rows:
+        if r and r[0].isdigit() and len(r) > 1:
+            filtered_rows.append(r[1:])
+        else:
+            filtered_rows.append(r)
+
+    if not filtered_rows:
+        return "[Tabel spreadsheet kosong]"
+
+    header = filtered_rows[0]
+    data_rows = filtered_rows[1:] if len(filtered_rows) > 1 else []
+
+    if query:
+        q_low = query.lower().strip()
+        data_rows = [r for r in data_rows if any(q_low in c.lower() for c in r)]
+
+    total_matching = len(data_rows)
+    displayed_rows = data_rows[:max_rows]
+
+    # For very wide sheets (>10 columns), render structured record blocks
+    if len(header) > 10:
+        lines = [f"> *Tabel Data Spreadsheet* (Total {total_matching} baris)"]
+        for idx, r in enumerate(displayed_rows):
+            lines.append(f"\n--- Baris {idx + 1} ---")
+            for col_idx, col_name in enumerate(header):
+                val = r[col_idx] if col_idx < len(r) else ""
+                if val.strip():
+                    lines.append(f"• *{col_name.strip()}*: {val.strip()}")
+        if total_matching > max_rows:
+            lines.append(f"\n_... (Dipotong {total_matching - max_rows} baris tambahan karena batasan panjang)_")
+        return "\n".join(lines)
+
+    # Standard Markdown Pipe Table
+    lines = []
+    clean_header = [re.sub(r"[\r\n|]+", " ", h).strip() or f"Kolom_{i+1}" for i, h in enumerate(header)]
+    lines.append("| " + " | ".join(clean_header) + " |")
+    lines.append("| " + " | ".join(["---"] * len(clean_header)) + " |")
+
+    for r in displayed_rows:
+        padded = [re.sub(r"[\r\n|]+", " ", r[i]).strip() if i < len(r) else "" for i in range(len(clean_header))]
+        lines.append("| " + " | ".join(padded) + " |")
+
+    if total_matching > max_rows:
+        lines.append(f"\n_Menampilkan {max_rows} dari total {total_matching} baris data._")
+
+    return "\n".join(lines)
+
+
 def is_ssrf_safe_url(url: str) -> bool:
     """Verify that URL does not resolve to localhost, private LAN, or cloud metadata."""
     try:
@@ -57,7 +162,6 @@ def is_ssrf_safe_url(url: str) -> bool:
         if hostname_clean in ("localhost", "agent", "waha", "scheduler", "host.docker.internal"):
             return False
 
-        # Resolve IP to check against blocked ranges
         addr_info = socket.getaddrinfo(hostname_clean, None)
         for item in addr_info:
             ip_str = item[4][0]
@@ -92,9 +196,20 @@ def parse_google_url_type(url: str) -> tuple[str, str | None, dict[str, Any]]:
     path = parsed.path
     query_params = parse_qs(parsed.query)
 
-    # 1. Google Sheets
+    # 1. Published Google Sheets (/d/e/{pub_id}/pubhtml or /pub)
+    if "/spreadsheets/" in clean_url and ("/d/e/" in path or "/pubhtml" in path or "/pub" in path):
+        match = re.search(r"/spreadsheets/(?:u/\d+/)?d/e/([a-zA-Z0-9_-]+)", clean_url)
+        pub_id = match.group(1) if match else None
+        gid = query_params.get("gid", [None])[0]
+        if not gid and parsed.fragment:
+            frag_match = re.search(r"gid=([0-9]+)", parsed.fragment)
+            if frag_match:
+                gid = frag_match.group(1)
+        return "sheets_pub", pub_id, {"gid": gid}
+
+    # 2. Standard Google Sheets (/spreadsheets/d/{id})
     if "/spreadsheets/d/" in path or "sheets.google.com" in parsed.netloc:
-        match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", path)
+        match = re.search(r"/spreadsheets/(?:u/\d+/)?d/([a-zA-Z0-9_-]+)", clean_url)
         doc_id = match.group(1) if match else None
         gid = query_params.get("gid", [None])[0]
         if not gid and parsed.fragment:
@@ -103,25 +218,25 @@ def parse_google_url_type(url: str) -> tuple[str, str | None, dict[str, Any]]:
                 gid = frag_match.group(1)
         return "sheets", doc_id, {"gid": gid}
 
-    # 2. Google Docs
+    # 3. Google Docs
     if "/document/d/" in path or "docs.google.com/document" in clean_url:
-        match = re.search(r"/document/d/([a-zA-Z0-9_-]+)", path)
+        match = re.search(r"/document/(?:u/\d+/)?d/([a-zA-Z0-9_-]+)", clean_url)
         doc_id = match.group(1) if match else None
         return "docs", doc_id, {}
 
-    # 3. Google Slides / Presentations
+    # 4. Google Slides / Presentations
     if "/presentation/d/" in path or "docs.google.com/presentation" in clean_url:
-        match = re.search(r"/presentation/d/([a-zA-Z0-9_-]+)", path)
+        match = re.search(r"/presentation/(?:u/\d+/)?d/([a-zA-Z0-9_-]+)", clean_url)
         doc_id = match.group(1) if match else None
         return "slides", doc_id, {}
 
-    # 4. Google Forms
+    # 5. Google Forms
     if "/forms/d/" in path or "docs.google.com/forms" in clean_url:
-        match = re.search(r"/forms/d/([a-zA-Z0-9_-]+)", path)
+        match = re.search(r"/forms/(?:u/\d+/)?d/([a-zA-Z0-9_-]+)", clean_url)
         doc_id = match.group(1) if match else None
         return "forms", doc_id, {}
 
-    # 5. Google Drive File
+    # 6. Google Drive File
     if "/file/d/" in path:
         match = re.search(r"/file/d/([a-zA-Z0-9_-]+)", path)
         doc_id = match.group(1) if match else None
@@ -141,49 +256,7 @@ def format_csv_to_markdown_table(csv_text: str, query: str = "", max_rows: int =
     try:
         reader = csv.reader(io.StringIO(csv_text.strip()))
         rows = list(reader)
-        if not rows:
-            return "[Spreadsheet kosong]"
-
-        header = rows[0]
-        data_rows = rows[1:]
-
-        # Filter rows by query if search keyword provided
-        if query:
-            q_lower = query.lower().strip()
-            data_rows = [
-                r for r in data_rows if any(q_lower in cell.lower() for cell in r)
-            ]
-
-        total_matching = len(data_rows)
-        displayed_rows = data_rows[:max_rows]
-
-        # For very wide sheets (>10 columns), render structured record blocks
-        if len(header) > 10:
-            lines = [f"> *Tabel Data Spreadsheet* (Total {total_matching} baris)"]
-            for idx, r in enumerate(displayed_rows):
-                lines.append(f"\n--- Baris {idx + 1} ---")
-                for col_idx, col_name in enumerate(header):
-                    val = r[col_idx] if col_idx < len(r) else ""
-                    if val.strip():
-                        lines.append(f"• *{col_name.strip()}*: {val.strip()}")
-            if total_matching > max_rows:
-                lines.append(f"\n_... (Dipotong {total_matching - max_rows} baris tambahan karena batasan panjang)_")
-            return "\n".join(lines)
-
-        # Standard Markdown Pipe Table
-        lines = []
-        clean_header = [re.sub(r"[\r\n|]+", " ", h).strip() or f"Kolom_{i+1}" for i, h in enumerate(header)]
-        lines.append("| " + " | ".join(clean_header) + " |")
-        lines.append("| " + " | ".join(["---"] * len(clean_header)) + " |")
-
-        for r in displayed_rows:
-            padded_row = [re.sub(r"[\r\n|]+", " ", r[i]).strip() if i < len(r) else "" for i in range(len(clean_header))]
-            lines.append("| " + " | ".join(padded_row) + " |")
-
-        if total_matching > max_rows:
-            lines.append(f"\n_Menampilkan {max_rows} dari total {total_matching} baris data._")
-
-        return "\n".join(lines)
+        return format_parsed_rows_to_markdown(rows, query=query, max_rows=max_rows)
     except Exception as e:
         log.warning("CSV table formatting error: %s", e)
         return csv_text[:4000]
@@ -219,16 +292,10 @@ def extract_pdf_slides_text(pdf_bytes: bytes) -> str:
 
 def extract_clean_html_text(html_text: str) -> str:
     """Extract readable clean text from HTML markup, removing script and style tags."""
-    # Strip script and style blocks
     cleaned = re.sub(r"<(script|style|nav|header|footer|noscript)[^>]*>.*?</\1>", "", html_text, flags=re.DOTALL | re.IGNORECASE)
-    # Convert breaks and paragraphs to newlines
     cleaned = re.sub(r"<(p|br|div|h1|h2|h3|h4|h5|h6|li)[^>]*>", "\n", cleaned, flags=re.IGNORECASE)
-    # Strip all remaining tags
     cleaned = re.sub(r"<[^>]+>", " ", cleaned)
-    # Decode HTML entities
-    import html
     cleaned = html.unescape(cleaned)
-    # Clean whitespace
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
     return "\n".join(lines[:300])
 
@@ -280,7 +347,104 @@ async def read_url_content(
             "_model_directive": "This is a Google Form link for survey/response submission.",
         }
 
-    # 4. Construct direct export/download URL
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "*/*",
+    }
+
+    # 4. Special Handling: Published Google Sheets (/pubhtml or /pub)
+    if doc_type == "sheets_pub" and doc_id:
+        try:
+            gid = extra_params.get("gid")
+            all_tab_sections: list[str] = []
+            combined_bytes = b""
+
+            async with httpx.AsyncClient(timeout=12.0, follow_redirects=True, headers=headers) as client:
+                index_url = f"https://docs.google.com/spreadsheets/d/e/{doc_id}/pubhtml"
+                index_resp = await client.get(index_url)
+                combined_bytes += index_resp.content
+
+                # Parse all tab metadata from JavaScript items
+                tab_matches = re.findall(r'\{\s*name:\s*"([^"]+)"[^}]*pageUrl:\s*"([^"]+)"', index_resp.text)
+
+                if tab_matches:
+                    for raw_tname, raw_purl in tab_matches:
+                        try:
+                            clean_tname = raw_tname.encode("utf-8").decode("unicode_escape", errors="ignore")
+                        except Exception:
+                            clean_tname = raw_tname
+                        clean_purl = raw_purl.replace(r"\/", "/").replace(r"\x3d", "=").replace(r"\x26", "&")
+
+                        # If user asked for specific gid, check matching URL
+                        if gid and f"gid={gid}" not in clean_purl and len(tab_matches) > 1:
+                            # If gid doesn't match, check if query matches tab name
+                            if query and query.lower() not in clean_tname.lower():
+                                continue
+
+                        try:
+                            sheet_resp = await client.get(clean_purl)
+                            combined_bytes += sheet_resp.content
+                            parser = GoogleSheetsHTMLTableParser()
+                            parser.feed(sheet_resp.text)
+                            md_table = format_parsed_rows_to_markdown(parser.rows, query=query)
+                            all_tab_sections.append(f"### Sheet: {clean_tname}\n\n{md_table}")
+                        except Exception as e:
+                            log.warning("Could not fetch tab %s: %s", clean_tname, e)
+
+                # Fallback if no JS tabs found: fetch direct sheet table
+                if not all_tab_sections:
+                    direct_sheet_url = f"https://docs.google.com/spreadsheets/d/e/{doc_id}/pubhtml/sheet?headers=false"
+                    if gid:
+                        direct_sheet_url += f"&gid={gid}"
+                    sheet_resp = await client.get(direct_sheet_url)
+                    combined_bytes += sheet_resp.content
+                    parser = GoogleSheetsHTMLTableParser()
+                    parser.feed(sheet_resp.text)
+                    md_table = format_parsed_rows_to_markdown(parser.rows, query=query)
+                    all_tab_sections.append(md_table)
+
+            parsed_text = "\n\n".join(all_tab_sections)
+            now_dt = datetime.now(TZ)
+            now_str = now_dt.strftime("%A, %d %B %Y - %H:%M WIB")
+
+            sandbox_meta = {
+                "source_url": raw_url,
+                "source_type": "google_sheets",
+                "doc_id": doc_id,
+                "snapshot_at": now_str,
+                "parsed_content": parsed_text,
+            }
+            save_to_sandbox(
+                data=combined_bytes or parsed_text.encode(),
+                filename=f"published_sheet_{doc_id}.html",
+                metadata=sandbox_meta,
+                ttl_seconds=1800,
+            )
+
+            log.info("Successfully fetched and parsed published Google Sheet %s (%d chars)", raw_url, len(parsed_text))
+            return {
+                "status": "success",
+                "url": raw_url,
+                "source_type": "google_sheets",
+                "is_snapshot": True,
+                "snapshot_at": now_str,
+                "content": parsed_text,
+                "_model_directive": (
+                    f"Point-in-time snapshot of published Google Sheet captured at {now_str}. "
+                    "Answer user questions factually and directly based exclusively on this extracted content."
+                ),
+            }
+        except Exception as e:
+            log.exception("Error parsing published Google Sheet %s: %s", raw_url, e)
+            return {
+                "status": "error",
+                "error": f"Gagal membaca Google Sheet yang dipublikasikan: {e}",
+            }
+
+    # 5. Standard Google Docs/Sheets/Slides/Drive/Web
     target_download_url = raw_url
     export_format_label = "web"
     expected_filename = "document.bin"
@@ -312,15 +476,6 @@ async def read_url_content(
             }
         export_format_label = "generic_web"
         expected_filename = "web_page.html"
-
-    # 5. Fetch content via HTTP with strict timeouts and redirect tracking
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": "*/*",
-    }
 
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers) as client:
@@ -364,7 +519,6 @@ async def read_url_content(
                     "content": "[Dokumen/Halaman ini kosong (0 bytes)]",
                 }
 
-            # 6. Parse and extract readable content based on format
             parsed_text = ""
             if export_format_label == "google_sheets":
                 try:
@@ -392,13 +546,11 @@ async def read_url_content(
                 parsed_text = extract_clean_html_text(html_text)
 
             else:
-                # Google Drive generic file
                 try:
                     parsed_text = raw_bytes.decode("utf-8")[:10000]
                 except Exception:
                     parsed_text = f"[File biner Google Drive: {len(raw_bytes)} bytes]"
 
-            # 7. Save snapshot to sandbox with metadata
             now_dt = datetime.now(TZ)
             now_str = now_dt.strftime("%A, %d %B %Y - %H:%M WIB")
 
@@ -413,7 +565,7 @@ async def read_url_content(
                 data=raw_bytes,
                 filename=expected_filename,
                 metadata=sandbox_meta,
-                ttl_seconds=1800,  # 30 minutes cache
+                ttl_seconds=1800,
             )
 
             log.info("Successfully fetched and parsed snapshot for %s (%s, %d bytes)", raw_url, export_format_label, len(raw_bytes))
