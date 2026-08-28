@@ -405,6 +405,10 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                             "type": "STRING",
                             "description": "Optional search keyword to filter rows in huge spreadsheets or find specific sections.",
                         },
+                        "force_ocr": {
+                            "type": "BOOLEAN",
+                            "description": "Set to true to force rendering PDF document/slide pages into images and running high-precision Gemini Vision OCR, bypassing the digital text layer (ideal for timeline graphics, Gantt charts, complex visual tables, or when asked to process by image).",
+                        },
                     },
                     "required": ["url"],
                 },

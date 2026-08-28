@@ -262,32 +262,104 @@ def format_csv_to_markdown_table(csv_text: str, query: str = "", max_rows: int =
         return csv_text[:4000]
 
 
-def extract_pdf_slides_text(pdf_bytes: bytes) -> str:
-    """Extract slide-by-slide text from Google Slides exported PDF."""
+from ..memory.ocr import perform_vision_ocr
+from ..memory.sandbox import get_cached_url_snapshot, save_to_sandbox
+
+log = logging.getLogger("helmis-google-reader")
+TZ = ZoneInfo("Asia/Jakarta")
+
+# SSRF Protection: Deny private, loopback, and cloud metadata ranges
+BLOCKED_IP_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def extract_pdf_slides_text(pdf_bytes: bytes, force_ocr: bool = False) -> str:
+    """Extract slide-by-slide text from Google Slides / PDF documents, running Gemini Vision OCR on diagrams and visual slides."""
     try:
-        import pypdf
+        import pymupdf
 
-        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        if reader.is_encrypted:
-            return "[Dokumen PDF terenkripsi / ber-password.]"
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+        if doc.is_encrypted:
+            try:
+                doc.authenticate("")
+            except Exception:
+                return "[Dokumen PDF terenkripsi / ber-password.]"
 
-        total_pages = len(reader.pages)
+        total_pages = len(doc)
         if total_pages == 0:
-            return "[Presentasi kosong tanpa slide]"
+            return "[Dokumen / Presentasi kosong tanpa halaman]"
 
         slide_texts: list[str] = []
-        for idx, page in enumerate(reader.pages):
-            txt = page.extract_text() or ""
+        for idx, page in enumerate(doc):
+            txt = page.get_text("text") or ""
             clean_txt = txt.strip()
-            if clean_txt:
-                slide_texts.append(f"--- Slide {idx + 1} dari {total_pages} ---\n{clean_txt}")
+            page_parts: list[str] = []
+
+            if force_ocr or not clean_txt:
+                try:
+                    pix = page.get_pixmap(dpi=150)
+                    rendered_png = pix.tobytes("png")
+                    ocr_txt = perform_vision_ocr(
+                        rendered_png,
+                        "image/png",
+                        prompt_hint="Extract all readable text, tabular schedules, dates, deadlines, milestones, and visual details verbatim from this slide / document page into clean Markdown.",
+                    )
+                    if ocr_txt and ocr_txt.strip():
+                        page_parts.append(f"[Hasil Vision OCR (Visual Mode)]\n{ocr_txt.strip()}")
+                    elif clean_txt:
+                        page_parts.append(clean_txt)
+                except Exception as ocr_err:
+                    log.warning("Vision OCR failed on PDF page %d: %s", idx + 1, ocr_err)
+                    if clean_txt:
+                        page_parts.append(clean_txt)
             else:
-                slide_texts.append(f"--- Slide {idx + 1} dari {total_pages} ---\n[Slide Visual / Gambar Diagram]")
+                page_parts.append(clean_txt)
+                # Check for embedded diagrams / pictures on this slide
+                try:
+                    img_list = page.get_images(full=True)
+                    if img_list:
+                        for img_info in img_list[:2]:
+                            xref = img_info[0]
+                            base_img = doc.extract_image(xref)
+                            w, h = base_img.get("width", 0), base_img.get("height", 0)
+                            img_data = base_img.get("image", b"")
+                            if w >= 80 and h >= 80 and len(img_data) >= 200:
+                                ocr_sub = perform_vision_ocr(
+                                    img_data,
+                                    "image/png",
+                                    prompt_hint="Extract all readable text, formulas, diagrams, labels, and table data from this diagram image.",
+                                )
+                                if ocr_sub and ocr_sub.strip():
+                                    page_parts.append(f"*(Hasil Vision OCR Diagram/Gambar Slide {idx+1})*:\n{ocr_sub.strip()}")
+                except Exception:
+                    pass
+
+            if page_parts:
+                slide_texts.append(f"--- Slide/Halaman {idx + 1} dari {total_pages} ---\n" + "\n\n".join(page_parts))
 
         return "\n\n".join(slide_texts)
     except Exception as e:
-        log.warning("PDF slide extraction error: %s", e)
-        return "[Gagal mengekstrak teks dari presentasi PDF]"
+        log.warning("PDF slide extraction error: %s, falling back to pypdf", e)
+        try:
+            import pypdf
+
+            reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+            total = len(reader.pages)
+            return "\n\n".join(
+                f"--- Slide {i+1} dari {total} ---\n{(p.extract_text() or '').strip()}"
+                for i, p in enumerate(reader.pages)
+            )
+        except Exception as pypdf_err:
+            log.warning("Pypdf fallback failed: %s", pypdf_err)
+            return "[Gagal mengekstrak teks dari presentasi/dokumen PDF]"
 
 
 def extract_clean_html_text(html_text: str) -> str:
@@ -304,6 +376,7 @@ async def read_url_content(
     url: str,
     force_refresh: bool = False,
     query: str = "",
+    force_ocr: bool = False,
 ) -> dict[str, Any]:
     """
     Read and parse content from Google Docs, Google Sheets, Google Slides, Drive, or Web URLs.
@@ -520,7 +593,10 @@ async def read_url_content(
                 }
 
             parsed_text = ""
-            if export_format_label == "google_sheets":
+            if raw_bytes.startswith(b"%PDF") or export_format_label == "google_slides":
+                parsed_text = extract_pdf_slides_text(raw_bytes, force_ocr=force_ocr)
+
+            elif export_format_label == "google_sheets":
                 try:
                     csv_text = raw_bytes.decode("utf-8")
                 except UnicodeDecodeError:
@@ -534,9 +610,6 @@ async def read_url_content(
                     parsed_text = raw_bytes.decode("latin-1", errors="replace")
                 if len(parsed_text) > 15000:
                     parsed_text = parsed_text[:15000] + "\n\n... (Dipotong karena melebihi batas 15.000 karakter)"
-
-            elif export_format_label == "google_slides":
-                parsed_text = extract_pdf_slides_text(raw_bytes)
 
             elif export_format_label == "generic_web":
                 try:

@@ -27,9 +27,11 @@ async def handle_read_url(args: dict[str, Any]) -> dict[str, Any]:
     if not url:
         return {"status": "error", "error": "Parameter url wajib diisi."}
     force_refresh = bool(args.get("force_refresh", False))
+    force_ocr = bool(args.get("force_ocr", False))
     query = str(args.get("query", "")).strip()
     return await google_reader.read_url_content(
         url=url,
         force_refresh=force_refresh,
         query=query,
+        force_ocr=force_ocr,
     )
