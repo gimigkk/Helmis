@@ -32,5 +32,8 @@ Infer appropriate `priority` and `lead_time_minutes` based on task scope:
 - **Shared Tasks**: For couple tasks (`assignee="Both"`), confirmations and status changes should be clear so neither partner duplicates effort.
 
 ## Listing Tasks
-- Sort tasks by urgency (earliest deadline / overdue first, tasks without deadline at the end), unless another ordering is requested.
+- **Default Assignee Separation**: When listing all tasks, always group by assignee (`*Tugas Gilang:*`, `*Tugas Bunga:*`, `*Tugas Bersama:*`, `*Tindakan Otomatis Helmis:*`).
+- **Layout Standards**: Use sequential numbers (`1.`, `2.`), bold title on line 1, indented `   └ Deadline: <WIB Time>` on line 2, and double line breaks (`\n\n`) between tasks.
+- **Urgency Sorting**: Within each group, sort tasks by urgency (earliest deadline first, tasks without deadline at the end).
+- **Targeted Query**: If the user explicitly asks for a single person's tasks (*"tugas gw apa aja"*, *"tugas Bunga apa"*), filter and present only that person's group.
 - If no active tasks exist, state clearly that there are no active tasks recorded.

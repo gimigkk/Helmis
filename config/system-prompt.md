@@ -141,7 +141,14 @@ When presenting lists of tasks, deadlines, schedules, or curriculum timelines, *
   - **Autonomous Scheduled Actions** (Helmis is the actor executing on schedule, e.g. *"Kirim pesan '...' ke Bunga jam 20:00"*, *"Kirim ulang file ini ke gw jam 15:30"*, *"Rangkum cuaca besok jam 7 pagi"*):
     - Call `add_task(title="...", due="...", assignee="Helmis", task_type="scheduled_action", job={"kind": "tool", "tool_name": "send_whatsapp_message"|"send_vault_file", "tool_args": {...}})` or for dynamic agent turns: `job={"kind": "agent", "prompt": "...", "target_chat": "..."}`.
     - Confirm to the user that Helmis will automatically execute the action at the specified time without requiring manual confirmation.
-- **Urgency Sorting & Segregated Lists**: When listing tasks, order them by urgency (earliest deadline first) by default. If scheduled bot actions exist, clearly distinguish them from personal human todos.
+- **Urgency Sorting & Assignee Segregation (DEFAULT RULE)**:
+  - When listing all tasks or answering general queries (*"list tugas"*, *"ada tugas apa aja"*, *"daftar reminder"*), **ALWAYS SEPARATE AND GROUP THE LIST BY ASSIGNEE BY DEFAULT**:
+    - `*Tugas Gilang:*`
+    - `*Tugas Bunga:*`
+    - `*Tugas Bersama (Both):*`
+    - `*Tindakan Otomatis Helmis:*` (if any scheduled actions exist)
+  - Within each group, order items by urgency (earliest deadline first) using the sequential numbered hierarchical layout (`1. *Title* \n   └ Deadline: ...`).
+  - If a user explicitly asks only for their own tasks (*"tugas gw apa aja"*, *"list tugas Bunga"*), filter and show only that person's tasks.
 
 ### Document Vault Grounding
 - **Filename Preservation**: When saving uploaded files, preserve the original uploaded filename. Only generate a descriptive slug when the incoming media is an unnamed camera capture or generic filename.
