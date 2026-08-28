@@ -228,3 +228,15 @@ async def test_execute_tool_call_read_url(httpx_mock: pytest_httpx.HTTPXMock, tm
         assert res["status"] == "success"
         assert "Tugas kelompok Soft Skill 1" in res["content"]
         assert "_model_directive" in res
+
+
+def test_format_tool_chips_google_types():
+    from src.agent.guardrails import format_tool_chips
+
+    chips = format_tool_chips([
+        {"name": "read_url", "result": {"status": "success", "source_type": "google_sheets"}},
+        {"name": "read_url", "result": {"status": "success", "source_type": "google_docs"}},
+        {"name": "read_url", "result": {"status": "success", "source_type": "google_slides"}},
+        {"name": "read_url", "result": {"status": "success", "source_type": "generic_web"}},
+    ])
+    assert chips == "↳ `read_google_sheet`, `read_google_doc`, `read_google_slides`, `read_web_page`"

@@ -34,15 +34,42 @@ def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, A
 def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
     """
     Format executed tool names into a sleek, inline monospace chips footnote.
-    Example: ↳ `search_vault_files`, `read_vault_file`
+    Resolves generic read_url into precise contextual chips like `read_google_sheet`, `read_google_doc`, `read_google_slides`.
+    Example: ↳ `read_google_sheet`, `read_vault_file`
     """
     if not executed_tools:
         return None
-    tool_names = [t.get("name") for t in executed_tools if t.get("name")]
-    if not tool_names:
+
+    chips_list: list[str] = []
+    for t in executed_tools:
+        name = t.get("name")
+        if not name:
+            continue
+        res = t.get("result") or {}
+        if name in ("read_url", "read_web_page"):
+            src_type = res.get("source_type") if isinstance(res, dict) else None
+            if src_type == "google_sheets":
+                chips_list.append("read_google_sheet")
+            elif src_type == "google_docs":
+                chips_list.append("read_google_doc")
+            elif src_type == "google_slides":
+                chips_list.append("read_google_slides")
+            elif src_type == "google_drive":
+                chips_list.append("read_google_drive")
+            elif src_type == "google_forms":
+                chips_list.append("read_google_form")
+            elif src_type == "generic_web":
+                chips_list.append("read_web_page")
+            else:
+                chips_list.append(name)
+        else:
+            chips_list.append(name)
+
+    if not chips_list:
         return None
+
     # Deduplicate while preserving order of execution
-    unique_tools = list(dict.fromkeys(tool_names))
+    unique_tools = list(dict.fromkeys(chips_list))
     chips = ", ".join(f"`{name}`" for name in unique_tools)
     return f"↳ {chips}"
 

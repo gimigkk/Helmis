@@ -17,6 +17,10 @@ async def handle_web_search(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @register_tool("read_url")
+@register_tool("read_google_sheet")
+@register_tool("read_google_doc")
+@register_tool("read_google_slides")
+@register_tool("read_web_page")
 async def handle_read_url(args: dict[str, Any]) -> dict[str, Any]:
     """Read content from Google Docs, Google Sheets, Google Slides, Google Drive, or Web URLs."""
     url = str(args.get("url", "")).strip()
