@@ -16,9 +16,8 @@ docs/
 ├── PROACTIVE_ENGINE.md              # Scheduler Cron Triggers, Lead-Time Buffering, & Nag Loops
 ├── CONFIGURATION_AND_SKILLS.md      # Single Source of Truth Prompt & Skill Playbooks
 ├── DEPLOYMENT_AND_OPERATIONS.md     # VPS Deployment, Healthchecks, Zero-Downtime, & Backups
-├── DEVELOPMENT_AND_TESTING.md       # Pytest Suites (20 Modules, 167 Tests), Fixtures, & Contribution Guide
-├── SCENARIOS_AND_PLAYBOOKS.md       # Operational Real-World Scenarios & Failure Playbooks
-└── BACKLOG.md                       # Issues, Root Causes, Production Audit, & Task Status
+├── DEVELOPMENT_AND_TESTING.md       # Pytest Suites (21 Modules, 177 Tests), Fixtures, & Contribution Guide
+└── SCENARIOS_AND_PLAYBOOKS.md       # Operational Real-World Scenarios & Failure Playbooks
 ```
 
 ---
@@ -36,4 +35,3 @@ docs/
 | **Configuration** | 100% Single Source of Truth `config/system-prompt.md`, modular skills in `config/skills/`, default assignee separation & hierarchical WhatsApp formatting | [CONFIGURATION_AND_SKILLS.md](CONFIGURATION_AND_SKILLS.md) |
 | **Operations** | Zero-downtime container updates, auto-restarting services, automated backup scripts | [DEPLOYMENT_AND_OPERATIONS.md](DEPLOYMENT_AND_OPERATIONS.md) |
 | **Testing** | 21 test suites covering 177 test cases with comprehensive mocking of external APIs | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md) |
-| **Quality & Tracking** | Production issue tracking, root-cause audits, & completed features | [BACKLOG.md](BACKLOG.md) |
