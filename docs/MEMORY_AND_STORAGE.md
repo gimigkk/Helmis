@@ -58,13 +58,17 @@ A secure, structured document management system for PDFs, documents, images, and
 - **Generic Media**: Unnamed camera captures (`IMG-...`, `image.jpeg`) receive clean descriptive slugs based on visual content (e.g. `scan_bpjs_kesehatan_gilang.jpg`).
 
 ### Inspection & Extraction
-- **Hybrid PDF Reader**: Utilizes `pymupdf` to extract digital text layers instantly. For scanned/raster image pages (≤ 30 characters), automatically renders page pixmaps and invokes Gemini Multimodal Vision OCR.
+- **Hybrid PDF Reader & `force_ocr`**: Utilizes `pymupdf` to extract digital text layers instantly. For scanned/raster image pages (≤ 30 characters) or when `force_ocr=true` is requested (*"process by image"*, *"cek visualnya"*), automatically renders 150 DPI page pixmaps and invokes Gemini Multimodal Vision OCR.
 - **Microsoft Office Parsers**:
   - `.docx` via `python-docx`: Extracts structured headings, paragraphs, and markdown tables.
   - `.pptx` via `python-pptx`: Extracts slide boundaries (`--- Slide N dari Total ---`), slide titles, bullet points, speaker notes, and embedded picture OCR.
   - `.xlsx` via `openpyxl`: Converts worksheets and column headers into clean tabular Markdown.
 - **Image OCR**: Automatically runs Gemini Vision OCR on standalone images (`.png`, `.jpg`, `.jpeg`, `.webp`) and caches results into `ocr_summary`.
 - **Search & Dispatch**: Supports keyword search (`search_vault_files`), text inspection (`read_vault_file`), and direct dispatch over WhatsApp (`send_vault_file`).
+- **Google Workspace Reader (`src/tools/google_reader.py`)**:
+  - **Published Google Sheets (`pubhtml`)**: Multi-tab extraction across all worksheet tabs (`[FS]`, `[DS]`, `[AE]`), resolving individual tab sub-sheets.
+  - **Google Slides & PDF Downloads**: Renders visual presentation slides to 150 DPI images with multimodal diagram OCR.
+  - **Link/Bookmark Routing**: URLs stored in shared notes automatically trigger `read_url` upon user inquiry.
 
 ---
 

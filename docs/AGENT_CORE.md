@@ -120,9 +120,14 @@ To eliminate false confirmations where the model claims an action was performed 
 3. **Fallback Fidelity Overrides**:
    - If the step limit is reached without tool execution, the hallucinated claim is overwritten with an honest message:
      `Mohon maaf, tindakan tersebut belum berhasil diproses di sistem database. Silakan ulangi perintah secara spesifik.`
-4. **Contextual Footnote Chips (`format_tool_chips`)**:
-   - Dynamic footnote generation resolves generic tools into transparent chips (`↳ read_google_sheet`, `↳ complete_task`, `↳ save_vault_file`).
-   - Strips synthetic or mimicked footnote chips produced by the LLM.
+4. **Transparent Engine Footnote Chips (`format_tool_chips`)**:
+   - Dynamic footnote generation resolves generic tools into transparent, engine-annotated chips:
+     - **Vision OCR**: `↳ read_vault_file:vision_ocr`, `↳ read_google_slides:vision_ocr`
+     - **PubHTML Multi-Tab Parser**: `↳ read_google_sheet:pubhtml_parser`
+     - **Digital PDF Text**: `↳ read_vault_file:digital_text`
+     - **Office Native Parsers**: `↳ read_vault_file:pptx_parser`, `↳ read_vault_file:xlsx_parser`, `↳ read_vault_file:docx_parser`
+     - **Direct Text / CSV**: `↳ read_google_sheet:csv_export`, `↳ read_google_doc:direct_text`
+   - Strips synthetic or mimicked footnote chips produced hallucinated by the LLM.
 
 ---
 
