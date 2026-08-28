@@ -3,9 +3,59 @@ guardrails.py — State Fidelity Guardrails and Tool Footnote Formatting for Hel
 """
 
 import logging
+import re
 from typing import Any
 
 log = logging.getLogger("helmis-guardrails")
+
+SUPERSCRIPTS = {
+    "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+    "n": "ⁿ", "k": "ᵏ", "x": "ˣ", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾"
+}
+SUBSCRIPTS = {
+    "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄", "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+    "a": "ₐ", "e": "ₑ", "i": "ᵢ", "j": "ⱼ", "k": "ₖ", "m": "ₘ", "n": "ₙ", "o": "ₒ", "p": "ₚ", "r": "ᵣ",
+    "s": "ₛ", "t": "ₜ", "u": "ᵤ", "v": "ᵥ", "x": "ₓ"
+}
+
+
+def sanitize_latex_for_whatsapp(text: str) -> str:
+    """Convert raw LaTeX math expressions ($...$, $$...$$) into clean WhatsApp-compatible Unicode math."""
+    if not text or "$" not in text:
+        return text
+
+    def replace_math(match: re.Match) -> str:
+        expr = match.group(1).strip()
+        expr = expr.replace(r"\log_2", "log₂").replace(r"\log", "log").replace(r"\ln", "ln")
+        expr = expr.replace(r"\cdot", "·").replace(r"\times", "×").replace(r"\approx", "≈")
+        expr = expr.replace(r"\leq", "≤").replace(r"\geq", "≥").replace(r"\neq", "≠")
+        expr = expr.replace(r"\sqrt", "√").replace(r"\pm", "±").replace(r"\infty", "∞")
+        expr = expr.replace(r"\sum", "Σ").replace(r"\prod", "Π").replace(r"\int", "∫")
+        expr = expr.replace(r"\theta", "θ").replace(r"\lambda", "λ").replace(r"\pi", "π")
+        expr = expr.replace(r"\alpha", "α").replace(r"\beta", "β").replace(r"\gamma", "γ")
+        expr = expr.replace(r"\Omega", "Ω").replace(r"\Theta", "Θ").replace(r"\mathcal{O}", "O")
+
+        # Replace superscripts like ^{3} or ^3 or ^n
+        def sub_sup(m_sup: re.Match) -> str:
+            val = m_sup.group(1) or m_sup.group(2)
+            return "".join(SUPERSCRIPTS.get(c, c) for c in val)
+
+        expr = re.sub(r"\^\{([^}]+)\}|\^([0-9a-zA-Z\+\-]+)", sub_sup, expr)
+
+        # Replace subscripts like _{2} or _2
+        def sub_sub(m_sub: re.Match) -> str:
+            val = m_sub.group(1) or m_sub.group(2)
+            return "".join(SUBSCRIPTS.get(c, c) for c in val)
+
+        expr = re.sub(r"_\{([^}]+)\}|_([0-9a-zA-Z])", sub_sub, expr)
+
+        # Remove remaining lone braces or backslashes
+        expr = expr.replace("{", "").replace("}", "").replace("\\", "")
+        return expr
+
+    text = re.sub(r"\$\$([^\$]+)\$\$", replace_math, text)
+    text = re.sub(r"\$([^\$]+)\$", replace_math, text)
+    return text
 
 
 def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, Any]:
@@ -180,8 +230,8 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
     if not text or text.strip() in ("[NO_REPLY]", "NO_REPLY", "None"):
         return text
 
-    # Strip any synthetic/hallucinated tool chips emitted by the model
-    cleaned_text = strip_hallucinated_tool_chips(text)
+    # Strip any synthetic/hallucinated tool chips emitted by the model & sanitize raw LaTeX to clean WhatsApp Unicode math
+    cleaned_text = sanitize_latex_for_whatsapp(strip_hallucinated_tool_chips(text))
 
     # If an unexecuted mutation claim was made without running the tool, block the fake confirmation
     unexecuted_claim = detect_unexecuted_mutation_claims(cleaned_text, executed_tools)

@@ -183,3 +183,17 @@ async def test_loop_intercepts_unexecuted_mutation_claim():
         assert final_reply is not None
         assert "berhasil ditandai selesai" in final_reply
         assert "complete_task" in final_reply
+
+
+def test_sanitize_latex_for_whatsapp():
+    from src.agent.guardrails import sanitize_latex_for_whatsapp
+
+    raw = "Penentuan dominant term seperti $O(n^3)$, $O(n^{1.5})$, $O(n^2)$, $O(n \\log_2 n)$, $F(n)$, dan $O(n)$."
+    cleaned = sanitize_latex_for_whatsapp(raw)
+    assert "$" not in cleaned
+    assert "O(n³)" in cleaned
+    assert "O(n¹.⁵)" in cleaned
+    assert "O(n²)" in cleaned
+    assert "O(n log₂ n)" in cleaned
+    assert "F(n)" in cleaned
+    assert "O(n)" in cleaned
