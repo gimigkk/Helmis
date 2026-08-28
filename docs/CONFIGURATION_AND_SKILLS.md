@@ -42,10 +42,12 @@ To prevent prompt bloat and preserve sub-second response times, specialized tool
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `GILANG_PHONE` | Yes | - | E.164 phone number for Gilang (e.g. `6281234567890`) |
-| `BUNGA_PHONE` | Yes | - | E.164 phone number for Bunga (e.g. `6289876543210`) |
+| `OWNER_PHONE` / `GILANG_PHONE` | Yes | - | E.164 phone number for primary owner (e.g. `6281234567890`) |
+| `OWNER_NAME` | No | `Gilang` | Name of the primary owner (e.g. `Alex`) |
+| `PARTNER_PHONE` / `BUNGA_PHONE` | No | - | E.164 phone number for partner (for Duo mode; leave empty if Solo) |
+| `PARTNER_NAME` | No | `Bunga` | Name of partner (for Duo mode; leave empty if Solo) |
 | `BOT_PHONE` | Yes | - | E.164 phone number for the Helmis bot WhatsApp account |
-| `TRIO_GROUP_JID` | No | - | JID for the shared couple group chat (e.g. `120363...@g.us`) |
+| `TRIO_GROUP_JID` | No | - | JID for shared group chat (optional for Duo mode) |
 | `GEMINI_KEY_1` | Yes | - | Primary Google Gemini API key |
 | `GEMINI_KEY_2..N` | No | - | Secondary API keys for round-robin rotation & fallback |
 | `WAHA_BASE_URL` | No | `http://waha:3000` | Internal WAHA REST API endpoint |
@@ -54,7 +56,6 @@ To prevent prompt bloat and preserve sub-second response times, specialized tool
 | `AGENT_WEBHOOK_PORT` | No | `8644` | Internal port for Starlette webhook listener |
 | `MCP_WAHA_PORT` | No | `8765` | Internal port for FastMCP SSE server |
 | `TZ` | No | `Asia/Jakarta` | Local timezone (defaults to WIB / UTC+7) |
-| `OWNER_NAME` | No | `Gilang` | Optional custom name for primary owner (e.g. `Alex`) |
 
 ---
 
@@ -70,11 +71,11 @@ cp .env.example .env
 In `.env`, set:
 ```ini
 OWNER_NAME="YourName"
-GILANG_PHONE="628123456789"    # Your WhatsApp phone number in E.164 format
-BOT_PHONE="628987654321"       # The WhatsApp number used by your WAHA bot
-GEMINI_KEY_1="AIzaSy..."       # Your Google Gemini API key
+OWNER_PHONE="628123456789"    # Your WhatsApp phone number in E.164 format
+BOT_PHONE="628987654321"      # The WhatsApp number used by your WAHA bot
+GEMINI_KEY_1="AIzaSy..."      # Your Google Gemini API key
 ```
-*(Leave `BUNGA_PHONE` and `TRIO_GROUP_JID` empty or commented out).*
+*(Leave `PARTNER_NAME`, `PARTNER_PHONE` and `TRIO_GROUP_JID` empty or commented out).*
 
 ---
 

@@ -10,39 +10,50 @@ from typing import Any
 
 log = logging.getLogger("helmis-whatsapp-parser")
 
-GILANG_PHONE = (
-    os.environ.get("GILANG_PHONE", "")
+OWNER_NAME = os.environ.get("OWNER_NAME", "Gilang").strip() or "Gilang"
+PARTNER_NAME = os.environ.get("PARTNER_NAME", "Bunga").strip() or "Bunga"
+
+OWNER_PHONE = (
+    (os.environ.get("OWNER_PHONE") or os.environ.get("GILANG_PHONE", ""))
     .replace("+", "")
     .replace(" ", "")
     .replace("-", "")
 )
-BUNGA_PHONE = (
-    os.environ.get("BUNGA_PHONE", "")
+GILANG_PHONE = OWNER_PHONE
+
+PARTNER_PHONE = (
+    (os.environ.get("PARTNER_PHONE") or os.environ.get("BUNGA_PHONE", ""))
     .replace("+", "")
     .replace(" ", "")
     .replace("-", "")
 )
+BUNGA_PHONE = PARTNER_PHONE
+
 BOT_PHONE = (
     os.environ.get("BOT_PHONE", "").replace("+", "").replace(" ", "").replace("-", "")
 )
-GILANG_LID = (
-    os.environ.get("GILANG_LID") or "217188174717173"
-).replace("+", "").replace(" ", "").replace("-", "").split("@")[0].split(":")[0]
+OWNER_LID = (
+    (os.environ.get("OWNER_LID") or os.environ.get("GILANG_LID") or "217188174717173")
+    .replace("+", "").replace(" ", "").replace("-", "").split("@")[0].split(":")[0]
+)
+GILANG_LID = OWNER_LID
 
-BUNGA_LID = (
-    os.environ.get("BUNGA_LID") or "279821464654020"
-).replace("+", "").replace(" ", "").replace("-", "").split("@")[0].split(":")[0]
+PARTNER_LID = (
+    (os.environ.get("PARTNER_LID") or os.environ.get("BUNGA_LID") or "279821464654020")
+    .replace("+", "").replace(" ", "").replace("-", "").split("@")[0].split(":")[0]
+)
+BUNGA_LID = PARTNER_LID
 
 TRIO_GROUP_JID = os.environ.get("TRIO_GROUP_JID", "")
 ALLOWED_CHATS = set(
     filter(
         None,
         [
-            f"{GILANG_PHONE}@c.us" if GILANG_PHONE else None,
-            f"{BUNGA_PHONE}@c.us" if BUNGA_PHONE else None,
+            f"{OWNER_PHONE}@c.us" if OWNER_PHONE else None,
+            f"{PARTNER_PHONE}@c.us" if PARTNER_PHONE else None,
             TRIO_GROUP_JID if TRIO_GROUP_JID else None,
-            f"{GILANG_LID}@lid" if GILANG_LID else None,
-            f"{BUNGA_LID}@lid" if BUNGA_LID else None,
+            f"{OWNER_LID}@lid" if OWNER_LID else None,
+            f"{PARTNER_LID}@lid" if PARTNER_LID else None,
             "217188174717173@lid",
             "279821464654020@lid",
         ],
@@ -51,23 +62,25 @@ ALLOWED_CHATS = set(
 
 
 def resolve_sender_identity(from_user: str, author: str = "", notify_name: str = "") -> str | None:
-    """Resolve whether sender is Gilang or Bunga based on phone number, LID, or notifyName."""
+    """Resolve whether sender is Owner or Partner based on phone number, LID, or notifyName."""
     clean_author = author.split("@")[0].split(":")[0].replace("+", "").replace(" ", "").replace("-", "")
     clean_from = from_user.split("@")[0].split(":")[0].replace("+", "").replace(" ", "").replace("-", "")
 
     import sys
-    g_phone = globals().get("GILANG_PHONE") or os.environ.get("GILANG_PHONE", "")
-    b_phone = globals().get("BUNGA_PHONE") or os.environ.get("BUNGA_PHONE", "")
-    g_lid = globals().get("GILANG_LID") or os.environ.get("GILANG_LID", "217188174717173")
-    b_lid = globals().get("BUNGA_LID") or os.environ.get("BUNGA_LID", "279821464654020")
+    g_phone = globals().get("OWNER_PHONE") or globals().get("GILANG_PHONE") or os.environ.get("OWNER_PHONE") or os.environ.get("GILANG_PHONE", "")
+    b_phone = globals().get("PARTNER_PHONE") or globals().get("BUNGA_PHONE") or os.environ.get("PARTNER_PHONE") or os.environ.get("BUNGA_PHONE", "")
+    g_lid = globals().get("OWNER_LID") or globals().get("GILANG_LID") or os.environ.get("OWNER_LID") or os.environ.get("GILANG_LID", "217188174717173")
+    b_lid = globals().get("PARTNER_LID") or globals().get("BUNGA_LID") or os.environ.get("PARTNER_LID") or os.environ.get("BUNGA_LID", "279821464654020")
+    g_name = globals().get("OWNER_NAME") or os.environ.get("OWNER_NAME", "Gilang")
+    b_name = globals().get("PARTNER_NAME") or os.environ.get("PARTNER_NAME", "Bunga")
 
     for mod_name in ("src.webhook", "src.whatsapp.webhook", "src.whatsapp.parser"):
         if mod_name in sys.modules:
             mod = sys.modules[mod_name]
-            g_phone = getattr(mod, "GILANG_PHONE", g_phone) or g_phone
-            b_phone = getattr(mod, "BUNGA_PHONE", b_phone) or b_phone
-            g_lid = getattr(mod, "GILANG_LID", g_lid) or g_lid
-            b_lid = getattr(mod, "BUNGA_LID", b_lid) or b_lid
+            g_phone = getattr(mod, "OWNER_PHONE", None) or getattr(mod, "GILANG_PHONE", g_phone) or g_phone
+            b_phone = getattr(mod, "PARTNER_PHONE", None) or getattr(mod, "BUNGA_PHONE", b_phone) or b_phone
+            g_lid = getattr(mod, "OWNER_LID", None) or getattr(mod, "GILANG_LID", g_lid) or g_lid
+            b_lid = getattr(mod, "PARTNER_LID", None) or getattr(mod, "BUNGA_LID", b_lid) or b_lid
 
     g_clean = str(g_phone).replace("+", "").replace(" ", "").replace("-", "")
     b_clean = str(b_phone).replace("+", "").replace(" ", "").replace("-", "")
@@ -77,15 +90,17 @@ def resolve_sender_identity(from_user: str, author: str = "", notify_name: str =
     if (
         (bool(g_clean) and (clean_from == g_clean or clean_author == g_clean))
         or (bool(g_lid_clean) and (clean_from.startswith(g_lid_clean) or clean_author.startswith(g_lid_clean)))
+        or g_name.lower() in notify_name.lower()
         or "gilang" in notify_name.lower()
     ):
-        return "Gilang"
+        return g_name
     elif (
         (bool(b_clean) and (clean_from == b_clean or clean_author == b_clean))
         or (bool(b_lid_clean) and (clean_from.startswith(b_lid_clean) or clean_author.startswith(b_lid_clean)))
+        or b_name.lower() in notify_name.lower()
         or "bunga" in notify_name.lower()
     ):
-        return "Bunga"
+        return b_name
 
     return None
 
