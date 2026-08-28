@@ -388,6 +388,28 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                 },
             },
             {
+                "name": "read_url",
+                "description": "Read, inspect, and parse live point-in-time snapshot content from Google Docs, Google Sheets (spreadsheets / tables with multi-tab gid support), Google Slides (presentation decks), Google Drive files, or general public web URLs. Automatically saves snapshots in Temp Sandbox Workspace without polluting vault catalog.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "url": {
+                            "type": "STRING",
+                            "description": "The full HTTP/HTTPS URL to read (e.g. 'https://docs.google.com/spreadsheets/d/1ABC.../edit?gid=123', 'https://docs.google.com/document/d/...', 'https://docs.google.com/presentation/d/...', or standard web link)",
+                        },
+                        "force_refresh": {
+                            "type": "BOOLEAN",
+                            "description": "Set to true if user mentions they just edited or updated the document, forcing a fresh download instead of reading cached sandbox snapshot.",
+                        },
+                        "query": {
+                            "type": "STRING",
+                            "description": "Optional search keyword to filter rows in huge spreadsheets or find specific sections.",
+                        },
+                    },
+                    "required": ["url"],
+                },
+            },
+            {
                 "name": "read_vault_file",
                 "description": "Read and inspect the full text or content of a file from the Document Vault. Supports reading text/markdown/code/json/csv files, extracting text from PDF documents, and viewing image OCR summaries.",
                 "parameters": {

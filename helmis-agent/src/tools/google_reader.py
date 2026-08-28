@@ -1,0 +1,446 @@
+"""
+google_reader.py — Google Workspace & Web URL Direct Snapshot Reader.
+
+Supports:
+- Google Spreadsheets (CSV export with tab/gid support -> Markdown Table)
+- Google Docs (Clean UTF-8 plain text export)
+- Google Slides (PDF export -> Slide-by-slide text extraction)
+- Google Drive Files (Direct download -> Content extraction)
+- General Web Pages (Clean HTML text scraper with SSRF protection)
+
+Employs Ephemeral Sandbox Caching and Epistemic Non-Realtime Snapshot Awareness.
+"""
+
+import csv
+import io
+import ipaddress
+import logging
+import re
+import socket
+from datetime import datetime
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
+
+import httpx
+
+from ..memory.sandbox import get_cached_url_snapshot, save_to_sandbox
+
+log = logging.getLogger("helmis-google-reader")
+TZ = ZoneInfo("Asia/Jakarta")
+
+# SSRF Protection: Deny private, loopback, and cloud metadata ranges
+BLOCKED_IP_NETWORKS = [
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
+
+def is_ssrf_safe_url(url: str) -> bool:
+    """Verify that URL does not resolve to localhost, private LAN, or cloud metadata."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False
+
+        hostname = parsed.hostname
+        if not hostname:
+            return False
+
+        hostname_clean = hostname.strip().lower()
+        if hostname_clean in ("localhost", "agent", "waha", "scheduler", "host.docker.internal"):
+            return False
+
+        # Resolve IP to check against blocked ranges
+        addr_info = socket.getaddrinfo(hostname_clean, None)
+        for item in addr_info:
+            ip_str = item[4][0]
+            ip_obj = ipaddress.ip_address(ip_str)
+            for blocked in BLOCKED_IP_NETWORKS:
+                if ip_obj in blocked:
+                    return False
+        return True
+    except Exception:
+        return False
+
+
+def normalize_url(raw_url: str) -> str:
+    """Normalize user-provided link by adding missing scheme if needed."""
+    url = raw_url.strip()
+    if url.startswith(("http://", "https://")):
+        return url
+    if url.startswith(("docs.google.com", "drive.google.com", "sheets.google.com")):
+        return f"https://{url}"
+    if "." in url and not url.startswith("/"):
+        return f"https://{url}"
+    return url
+
+
+def parse_google_url_type(url: str) -> tuple[str, str | None, dict[str, Any]]:
+    """
+    Identify Google Workspace service type, Document ID, and relevant parameters (e.g. gid).
+    Returns (doc_type, doc_id, extra_params).
+    """
+    clean_url = normalize_url(url)
+    parsed = urlparse(clean_url)
+    path = parsed.path
+    query_params = parse_qs(parsed.query)
+
+    # 1. Google Sheets
+    if "/spreadsheets/d/" in path or "sheets.google.com" in parsed.netloc:
+        match = re.search(r"/spreadsheets/d/([a-zA-Z0-9_-]+)", path)
+        doc_id = match.group(1) if match else None
+        gid = query_params.get("gid", [None])[0]
+        if not gid and parsed.fragment:
+            frag_match = re.search(r"gid=([0-9]+)", parsed.fragment)
+            if frag_match:
+                gid = frag_match.group(1)
+        return "sheets", doc_id, {"gid": gid}
+
+    # 2. Google Docs
+    if "/document/d/" in path or "docs.google.com/document" in clean_url:
+        match = re.search(r"/document/d/([a-zA-Z0-9_-]+)", path)
+        doc_id = match.group(1) if match else None
+        return "docs", doc_id, {}
+
+    # 3. Google Slides / Presentations
+    if "/presentation/d/" in path or "docs.google.com/presentation" in clean_url:
+        match = re.search(r"/presentation/d/([a-zA-Z0-9_-]+)", path)
+        doc_id = match.group(1) if match else None
+        return "slides", doc_id, {}
+
+    # 4. Google Forms
+    if "/forms/d/" in path or "docs.google.com/forms" in clean_url:
+        match = re.search(r"/forms/d/([a-zA-Z0-9_-]+)", path)
+        doc_id = match.group(1) if match else None
+        return "forms", doc_id, {}
+
+    # 5. Google Drive File
+    if "/file/d/" in path:
+        match = re.search(r"/file/d/([a-zA-Z0-9_-]+)", path)
+        doc_id = match.group(1) if match else None
+        return "drive_file", doc_id, {}
+
+    if "drive.google.com" in parsed.netloc and "id" in query_params:
+        return "drive_file", query_params["id"][0], {}
+
+    return "generic_web", None, {}
+
+
+def format_csv_to_markdown_table(csv_text: str, query: str = "", max_rows: int = 100) -> str:
+    """Format raw CSV string into clean Markdown table or key-value list."""
+    if not csv_text or not csv_text.strip():
+        return "[Spreadsheet kosong / tidak ada data baris]"
+
+    try:
+        reader = csv.reader(io.StringIO(csv_text.strip()))
+        rows = list(reader)
+        if not rows:
+            return "[Spreadsheet kosong]"
+
+        header = rows[0]
+        data_rows = rows[1:]
+
+        # Filter rows by query if search keyword provided
+        if query:
+            q_lower = query.lower().strip()
+            data_rows = [
+                r for r in data_rows if any(q_lower in str(cell).lower() for cell in r)
+            ]
+
+        total_matching = len(data_rows)
+        displayed_rows = data_rows[:max_rows]
+
+        # For very wide sheets (>10 columns), render structured record blocks
+        if len(header) > 10:
+            lines = [f"> *Tabel Data Spreadsheet* (Total {total_matching} baris)"]
+            for idx, r in enumerate(displayed_rows):
+                lines.append(f"\n--- Baris {idx + 1} ---")
+                for col_idx, col_name in enumerate(header):
+                    val = r[col_idx] if col_idx < len(r) else ""
+                    if val.strip():
+                        lines.append(f"• *{col_name.strip()}*: {val.strip()}")
+            if total_matching > max_rows:
+                lines.append(f"\n_... (Dipotong {total_matching - max_rows} baris tambahan karena batasan panjang)_")
+            return "\n".join(lines)
+
+        # Standard Markdown Pipe Table
+        lines = []
+        clean_header = [re.sub(r"[\r\n|]+", " ", str(h)).strip() or f"Kolom_{i+1}" for i, h in enumerate(header)]
+        lines.append("| " + " | ".join(clean_header) + " |")
+        lines.append("| " + " | ".join(["---"] * len(clean_header)) + " |")
+
+        for r in displayed_rows:
+            padded_row = [re.sub(r"[\r\n|]+", " ", str(r[i])).strip() if i < len(r) else "" for i in range(len(clean_header))]
+            lines.append("| " + " | ".join(padded_row) + " |")
+
+        if total_matching > max_rows:
+            lines.append(f"\n_Menampilkan {max_rows} dari total {total_matching} baris data._")
+
+        return "\n".join(lines)
+    except Exception as e:
+        log.warning("CSV table formatting error: %s", e)
+        return csv_text[:4000]
+
+
+def extract_pdf_slides_text(pdf_bytes: bytes) -> str:
+    """Extract slide-by-slide text from Google Slides exported PDF."""
+    try:
+        import pypdf
+
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        if reader.is_encrypted:
+            return "[Dokumen PDF terenkripsi / ber-password.]"
+
+        total_pages = len(reader.pages)
+        if total_pages == 0:
+            return "[Presentasi kosong tanpa slide]"
+
+        slide_texts: list[str] = []
+        for idx, page in enumerate(reader.pages):
+            txt = page.extract_text() or ""
+            clean_txt = txt.strip()
+            if clean_txt:
+                slide_texts.append(f"--- Slide {idx + 1} dari {total_pages} ---\n{clean_txt}")
+            else:
+                slide_texts.append(f"--- Slide {idx + 1} dari {total_pages} ---\n[Slide Visual / Gambar Diagram]")
+
+        return "\n\n".join(slide_texts)
+    except Exception as e:
+        log.warning("PDF slide extraction error: %s", e)
+        return "[Gagal mengekstrak teks dari presentasi PDF]"
+
+
+def extract_clean_html_text(html_text: str) -> str:
+    """Extract readable clean text from HTML markup, removing script and style tags."""
+    # Strip script and style blocks
+    cleaned = re.sub(r"<(script|style|nav|header|footer|noscript)[^>]*>.*?</\1>", "", html_text, flags=re.DOTALL | re.IGNORECASE)
+    # Convert breaks and paragraphs to newlines
+    cleaned = re.sub(r"<(p|br|div|h1|h2|h3|h4|h5|h6|li)[^>]*>", "\n", cleaned, flags=re.IGNORECASE)
+    # Strip all remaining tags
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    # Decode HTML entities
+    import html
+    cleaned = html.unescape(cleaned)
+    # Clean whitespace
+    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    return "\n".join(lines[:300])
+
+
+async def read_url_content(
+    url: str,
+    force_refresh: bool = False,
+    query: str = "",
+) -> dict[str, Any]:
+    """
+    Read and parse content from Google Docs, Google Sheets, Google Slides, Drive, or Web URLs.
+    Saves snapshot to Temp Sandbox Workspace.
+    """
+    raw_url = normalize_url(url)
+    if not raw_url:
+        return {"status": "error", "error": "URL tidak boleh kosong."}
+
+    # 1. Check cached snapshot in Sandbox if force_refresh is False
+    if not force_refresh:
+        cached = get_cached_url_snapshot(raw_url)
+        if cached:
+            meta, raw_bytes = cached
+            source_type = meta.get("metadata", {}).get("source_type", "url")
+            parsed_content = meta.get("metadata", {}).get("parsed_content", "")
+            if parsed_content:
+                log.debug("Returning cached sandbox snapshot for %s", raw_url)
+                return {
+                    "status": "success",
+                    "url": raw_url,
+                    "source_type": source_type,
+                    "is_snapshot": True,
+                    "snapshot_at": meta.get("created_at"),
+                    "cached": True,
+                    "content": parsed_content,
+                    "_model_directive": "Snapshot data from sandbox cache. Base your factual answers solely on this verified content.",
+                }
+
+    # 2. Parse URL structure
+    doc_type, doc_id, extra_params = parse_google_url_type(raw_url)
+
+    # 3. Handle Google Forms notice
+    if doc_type == "forms":
+        return {
+            "status": "success",
+            "url": raw_url,
+            "source_type": "google_forms",
+            "is_snapshot": True,
+            "content": f"[Google Form Online]: Link pengisian formulir Google Form ({raw_url}). Untuk mengisi form ini, silakan buka link langsung di browser.",
+            "_model_directive": "This is a Google Form link for survey/response submission.",
+        }
+
+    # 4. Construct direct export/download URL
+    target_download_url = raw_url
+    export_format_label = "web"
+    expected_filename = "document.bin"
+
+    if doc_type == "sheets" and doc_id:
+        gid = extra_params.get("gid")
+        gid_param = f"&gid={gid}" if gid else ""
+        target_download_url = f"https://docs.google.com/spreadsheets/d/{doc_id}/export?format=csv{gid_param}"
+        export_format_label = "google_sheets"
+        expected_filename = f"spreadsheet_{doc_id}.csv"
+    elif doc_type == "docs" and doc_id:
+        target_download_url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
+        export_format_label = "google_docs"
+        expected_filename = f"doc_{doc_id}.txt"
+    elif doc_type == "slides" and doc_id:
+        target_download_url = f"https://docs.google.com/presentation/d/{doc_id}/export/pdf"
+        export_format_label = "google_slides"
+        expected_filename = f"presentation_{doc_id}.pdf"
+    elif doc_type == "drive_file" and doc_id:
+        target_download_url = f"https://drive.google.com/uc?export=download&id={doc_id}"
+        export_format_label = "google_drive"
+        expected_filename = f"drive_file_{doc_id}.bin"
+    else:
+        # SSRF Verification for arbitrary web URLs
+        if not is_ssrf_safe_url(raw_url):
+            return {
+                "status": "error",
+                "error": "Akses ke URL diblokir demi keamanan (keamanan jaringan internal / private IP).",
+            }
+        export_format_label = "generic_web"
+        expected_filename = "web_page.html"
+
+    # 5. Fetch content via HTTP with strict timeouts and redirect tracking
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "*/*",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True, headers=headers) as client:
+            resp = await client.get(target_download_url)
+            final_url = str(resp.url)
+
+            # Detect Google Login Redirect / Permission Denied
+            if (
+                "accounts.google.com/ServiceLogin" in final_url
+                or "accounts.google.com/v3/signin" in final_url
+                or resp.status_code in (401, 403)
+                or (resp.status_code == 200 and "ServiceLogin" in resp.text and "Sign in" in resp.text and doc_type != "generic_web")
+            ):
+                return {
+                    "status": "permission_denied",
+                    "url": raw_url,
+                    "error": "Dokumen Google ini berstatus privat.",
+                    "message": (
+                        "Dokumen Google ini masih berstatus privat (memerlukan izin login). "
+                        "Tolong ubah akses sharing menjadi 'Siapa saja yang memiliki link / Anyone with the link' (Viewer), "
+                        "lalu kirimkan linknya lagi ya."
+                    ),
+                    "_model_directive": "The Google document is private and cannot be read without permission. Inform the user directly to change sharing access to Anyone with the link (Viewer).",
+                }
+
+            if resp.status_code != 200:
+                return {
+                    "status": "error",
+                    "status_code": resp.status_code,
+                    "url": raw_url,
+                    "error": f"Server web mengembalikan status HTTP {resp.status_code}.",
+                    "message": f"Halaman atau dokumen tidak dapat diakses (HTTP {resp.status_code}).",
+                }
+
+            raw_bytes = resp.content
+            if len(raw_bytes) == 0:
+                return {
+                    "status": "success",
+                    "url": raw_url,
+                    "source_type": export_format_label,
+                    "content": "[Dokumen/Halaman ini kosong (0 bytes)]",
+                }
+
+            # 6. Parse and extract readable content based on format
+            parsed_text = ""
+            if export_format_label == "google_sheets":
+                try:
+                    csv_text = raw_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    csv_text = raw_bytes.decode("latin-1", errors="replace")
+                parsed_text = format_csv_to_markdown_table(csv_text, query=query)
+
+            elif export_format_label == "google_docs":
+                try:
+                    parsed_text = raw_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    parsed_text = raw_bytes.decode("latin-1", errors="replace")
+                if len(parsed_text) > 15000:
+                    parsed_text = parsed_text[:15000] + "\n\n... (Dipotong karena melebihi batas 15.000 karakter)"
+
+            elif export_format_label == "google_slides":
+                parsed_text = extract_pdf_slides_text(raw_bytes)
+
+            elif export_format_label == "generic_web":
+                try:
+                    html_text = raw_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    html_text = raw_bytes.decode("latin-1", errors="replace")
+                parsed_text = extract_clean_html_text(html_text)
+
+            else:
+                # Google Drive generic file
+                try:
+                    parsed_text = raw_bytes.decode("utf-8")[:10000]
+                except Exception:
+                    parsed_text = f"[File biner Google Drive: {len(raw_bytes)} bytes]"
+
+            # 7. Save snapshot to sandbox with metadata
+            now_dt = datetime.now(TZ)
+            now_str = now_dt.strftime("%A, %d %B %Y - %H:%M WIB")
+
+            sandbox_meta = {
+                "source_url": raw_url,
+                "source_type": export_format_label,
+                "doc_id": doc_id,
+                "snapshot_at": now_str,
+                "parsed_content": parsed_text,
+            }
+            save_to_sandbox(
+                data=raw_bytes,
+                filename=expected_filename,
+                metadata=sandbox_meta,
+                ttl_seconds=1800,  # 30 minutes cache
+            )
+
+            log.info("Successfully fetched and parsed snapshot for %s (%s, %d bytes)", raw_url, export_format_label, len(raw_bytes))
+
+            return {
+                "status": "success",
+                "url": raw_url,
+                "source_type": export_format_label,
+                "is_snapshot": True,
+                "snapshot_at": now_str,
+                "content": parsed_text,
+                "_model_directive": (
+                    f"Point-in-time snapshot captured at {now_str}. "
+                    "This is a downloaded export snapshot (not live-streamed cursor). "
+                    "Answer user questions factually and directly based exclusively on this extracted content."
+                ),
+            }
+
+    except httpx.TimeoutException:
+        log.warning("Timeout fetching URL %s", raw_url)
+        return {
+            "status": "error",
+            "error": "Koneksi ke dokumen/halaman web melebihi batas waktu (timeout 10s).",
+        }
+    except Exception as e:
+        log.exception("Error fetching URL %s: %s", raw_url, e)
+        return {
+            "status": "error",
+            "error": f"Gagal membaca URL: {e}",
+        }
