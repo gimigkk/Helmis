@@ -299,8 +299,8 @@ def extract_pdf_slides_text(pdf_bytes: bytes, force_ocr: bool = False) -> str:
 
         slide_texts: list[str] = []
         for idx, page in enumerate(doc):
-            txt = page.get_text("text") or ""
-            clean_txt = txt.strip()
+            raw_txt = page.get_text("text")
+            clean_txt = str(raw_txt).strip() if raw_txt else ""
             page_parts: list[str] = []
 
             if force_ocr or not clean_txt:
