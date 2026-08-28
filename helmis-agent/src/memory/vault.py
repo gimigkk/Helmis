@@ -549,6 +549,7 @@ def read_vault_file(
 
     content_type = "binary"
     extracted_text = ""
+    scanned_page_count = 0
 
     # 1. Plain text / Markdown / JSON / CSV / Code / Configs
     if (
@@ -892,6 +893,17 @@ def read_vault_file(
         desc = record.get("description", "")
         extracted_text = f"[File Biner {mime}]: {desc}"
 
+    # Determine extraction engine badge (vision_ocr vs digital/parser)
+    extraction_mode = "plain_text"
+    if content_type == "image" or scanned_page_count > 0 or force_ocr or "[Hasil Vision OCR" in extracted_text or "*(Hasil Vision OCR" in extracted_text:
+        extraction_mode = "vision_ocr"
+    elif content_type == "pdf":
+        extraction_mode = "digital_text"
+    elif content_type in ("docx", "pptx", "xlsx"):
+        extraction_mode = f"{content_type}_parser"
+    elif content_type == "binary":
+        extraction_mode = "binary"
+
     # Apply length clipping if exceeded
     effective_max = max(100, max_chars)
     is_truncated = False
@@ -906,6 +918,7 @@ def read_vault_file(
         "status": "success",
         "file": record,
         "content_type": content_type,
+        "extraction_mode": extraction_mode,
         "content": extracted_text,
         "is_truncated": is_truncated,
         "size_bytes": len(raw_bytes),

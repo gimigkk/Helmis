@@ -45,7 +45,7 @@ pytest --cov=src tests/
 
 ---
 
-## 3. Test Suite Breakdown (21 Modules, 178 Tests)
+## 3. Test Suite Breakdown (21 Modules, 179 Tests)
 
 The test suite consists of 21 comprehensive test modules covering edge cases, adversarial inputs, data integrity, and multimodal integrations:
 
@@ -58,7 +58,7 @@ The test suite consists of 21 comprehensive test modules covering edge cases, ad
 | `test_data_integrity.py` | 5 | Concurrent file writes, JSON corruption resilience, atomic locking |
 | `test_fuzz_vault.py` | 5 | Random fuzzing of filenames, paths, and document uploads |
 | `test_google_reader.py` | 13 | Google Workspace reader (Docs, Sheets, Slides, Drive), published sheets (`pubhtml`) multi-tab parser, SSRF protection & sandbox caching |
-| `test_guardrails_fidelity.py` | 11 | Two-step anti-hallucination guardrail, mutation claim detection, WhatsApp LaTeX to Unicode math conversion, turn interception, tool chips formatting |
+| `test_guardrails_fidelity.py` | 12 | Two-step anti-hallucination guardrail, mutation claim detection, WhatsApp LaTeX to Unicode math conversion, extraction_mode badges, turn interception |
 | `test_history.py` | 3 | Message deduplication, multi-turn history formatting |
 | `test_memory.py` | 9 | Task creation, updating, completion, note storage, temporal context isolation |
 | `test_mid_turn_steering_matrix.py` | 9 | Dynamic mid-turn user steering, binary media synchronization & multimodal inlineData |

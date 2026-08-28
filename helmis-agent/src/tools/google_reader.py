@@ -502,6 +502,7 @@ async def read_url_content(
                 "status": "success",
                 "url": raw_url,
                 "source_type": "google_sheets",
+                "extraction_mode": "pubhtml_parser",
                 "is_snapshot": True,
                 "snapshot_at": now_str,
                 "content": parsed_text,
@@ -643,10 +644,25 @@ async def read_url_content(
 
             log.info("Successfully fetched and parsed snapshot for %s (%s, %d bytes)", raw_url, export_format_label, len(raw_bytes))
 
+            # Determine extraction mode badge
+            extraction_mode = "plain_text"
+            if raw_bytes.startswith(b"%PDF") or export_format_label == "google_slides":
+                if "[Hasil Vision OCR" in parsed_text or "*(Hasil Vision OCR" in parsed_text or force_ocr:
+                    extraction_mode = "vision_ocr"
+                else:
+                    extraction_mode = "pdf_text"
+            elif export_format_label == "google_sheets":
+                extraction_mode = "csv_export"
+            elif export_format_label == "google_docs":
+                extraction_mode = "direct_text"
+            elif export_format_label == "generic_web":
+                extraction_mode = "html_scraper"
+
             return {
                 "status": "success",
                 "url": raw_url,
                 "source_type": export_format_label,
+                "extraction_mode": extraction_mode,
                 "is_snapshot": True,
                 "snapshot_at": now_str,
                 "content": parsed_text,

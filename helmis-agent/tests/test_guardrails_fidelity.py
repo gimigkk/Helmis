@@ -197,3 +197,34 @@ def test_sanitize_latex_for_whatsapp():
     assert "O(n log₂ n)" in cleaned
     assert "F(n)" in cleaned
     assert "O(n)" in cleaned
+
+
+def test_format_tool_chips_with_extraction_mode_badges():
+    tools = [
+        {
+            "name": "read_url",
+            "result": {
+                "status": "success",
+                "source_type": "google_sheets",
+                "extraction_mode": "pubhtml_parser",
+            },
+        },
+        {
+            "name": "read_vault_file",
+            "result": {
+                "status": "success",
+                "content_type": "image",
+                "extraction_mode": "vision_ocr",
+            },
+        },
+        {
+            "name": "read_vault_file",
+            "result": {
+                "status": "success",
+                "content_type": "pdf",
+                "extraction_mode": "digital_text",
+            },
+        },
+    ]
+    chips = format_tool_chips(tools)
+    assert chips == "↳ `read_google_sheet:pubhtml_parser`, `read_vault_file:vision_ocr`, `read_vault_file:digital_text`"

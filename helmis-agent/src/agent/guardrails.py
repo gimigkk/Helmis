@@ -83,9 +83,8 @@ def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, A
 
 def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
     """
-    Format executed tool names into a sleek, inline monospace chips footnote.
-    Resolves generic read_url into precise contextual chips like `read_google_sheet`, `read_google_doc`, `read_google_slides`.
-    Example: ↳ `read_google_sheet`, `read_vault_file`
+    Format executed tool names into a sleek, inline monospace chips footnote with extraction engine badges.
+    Example: ↳ `read_google_sheet:pubhtml_parser`, `read_vault_file:vision_ocr`
     """
     if not executed_tools:
         return None
@@ -96,22 +95,27 @@ def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
         if not name:
             continue
         res = t.get("result") or {}
-        if name in ("read_url", "read_web_page"):
+        ext_mode = res.get("extraction_mode") if isinstance(res, dict) else None
+
+        if name in ("read_url", "read_web_page", "read_google_sheet", "read_google_doc", "read_google_slides"):
             src_type = res.get("source_type") if isinstance(res, dict) else None
-            if src_type == "google_sheets":
-                chips_list.append("read_google_sheet")
-            elif src_type == "google_docs":
-                chips_list.append("read_google_doc")
-            elif src_type == "google_slides":
-                chips_list.append("read_google_slides")
-            elif src_type == "google_drive":
-                chips_list.append("read_google_drive")
-            elif src_type == "google_forms":
-                chips_list.append("read_google_form")
-            elif src_type == "generic_web":
-                chips_list.append("read_web_page")
+            base_name = {
+                "google_sheets": "read_google_sheet",
+                "google_docs": "read_google_doc",
+                "google_slides": "read_google_slides",
+                "google_drive": "read_google_drive",
+                "google_forms": "read_google_form",
+                "generic_web": "read_web_page",
+            }.get(src_type, name)
+            if ext_mode:
+                chips_list.append(f"{base_name}:{ext_mode}")
             else:
-                chips_list.append(name)
+                chips_list.append(base_name)
+        elif name == "read_vault_file":
+            if ext_mode:
+                chips_list.append(f"read_vault_file:{ext_mode}")
+            else:
+                chips_list.append("read_vault_file")
         else:
             chips_list.append(name)
 

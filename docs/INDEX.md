@@ -34,4 +34,4 @@ docs/
 | **Proactive Engine** | 1-minute cron evaluations, polymorphic job execution (`ToolJobExecutor` & `AgentLoopJobExecutor`), near-horizon exact-second timers, 2-stage lead buffers & nag loops | [PROACTIVE_ENGINE.md](PROACTIVE_ENGINE.md) |
 | **Configuration** | 100% Single Source of Truth `config/system-prompt.md`, modular skills in `config/skills/`, default assignee separation & hierarchical WhatsApp formatting | [CONFIGURATION_AND_SKILLS.md](CONFIGURATION_AND_SKILLS.md) |
 | **Operations** | Zero-downtime container updates, auto-restarting services, automated backup scripts | [DEPLOYMENT_AND_OPERATIONS.md](DEPLOYMENT_AND_OPERATIONS.md) |
-| **Testing** | 21 test suites covering 178 test cases with comprehensive mocking of external APIs | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md) |
+| **Testing** | 21 test suites covering 179 test cases with comprehensive mocking of external APIs | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md) |
