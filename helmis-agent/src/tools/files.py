@@ -2,9 +2,10 @@ import base64
 import logging
 import mimetypes
 import os
+import re
 from typing import Any
 
-from ..memory.store import log_activity
+from ..memory.store import get_note, list_notes, log_activity, save_note
 from ..memory.vault import (
     create_vault_directory,
     delete_vault_directory,
@@ -73,6 +74,26 @@ async def handle_save_vault_file(
     ocr_summary = str(args.get("ocr_summary", "")).strip()
 
     content_text = args.get("content_text")
+
+    # If no physical media attachment exists and user is saving a web/docs URL:
+    if not (media_data and media_data.get("data")):
+        combined_text = f"{content_text or ''} {description}".strip()
+        found_urls = re.findall(r"https?://[^\s\)]+", combined_text)
+        if found_urls and (filename.endswith((".md", ".txt")) or not os.path.splitext(filename)[1]):
+            # Auto-route to shared notes for bookmark links to prevent creating dummy empty vault files
+            note_title = filename if not filename.endswith((".md", ".txt")) else os.path.splitext(filename)[0]
+            if not note_title.lower().startswith("link") and "link" not in note_title.lower():
+                note_title = f"Link {note_title}"
+            clean_content = f"URL: {found_urls[0]}\nDeskripsi: {description or content_text or ''}".strip()
+            note_rec = save_note(title=note_title, content=clean_content)
+            log_activity(f"Saved bookmark link to notes: {note_title}")
+            return {
+                "status": "success",
+                "is_link": True,
+                "note": note_rec,
+                "message": f"Link *{note_title}* ({found_urls[0]}) berhasil disimpan ke Catatan Bersama agar mudah dibuka dan dibagikan via WhatsApp.",
+            }
+
     if media_data and media_data.get("data"):
         try:
             raw_bytes = base64.b64decode(str(media_data["data"]))
@@ -167,8 +188,32 @@ async def handle_send_vault_file(
     res = get_vault_file_by_id(file_id_or_name)
     if not res:
         res = get_vault_file_by_name(file_id_or_name)
+
+    # If not found in vault, check if user is referencing a saved note/bookmark containing a URL
     if not res:
-        return {"status": "error", "error": f"File '{file_id_or_name}' tidak ditemukan di brankas dokumen."}
+        note = get_note(file_id_or_name)
+        if not note:
+            # Fuzzy match notes
+            for n in list_notes():
+                if file_id_or_name.lower() in n.get("title", "").lower():
+                    note = n
+                    break
+        if note:
+            note_content = note.get("content", "")
+            found_urls = re.findall(r"https?://[^\s\)]+", note_content)
+            if found_urls:
+                target_jid = _resolve_target_jid(recipient, default_sender, chat_id=chat_id)
+                msg_text = caption or f"Berikut link *{note.get('title')}*:\n{note_content}"
+                await client.send_message(chat_id=target_jid, text=msg_text)
+                log_activity(f"Sent note link '{note.get('title')}' to {recipient} ({target_jid})")
+                return {
+                    "status": "success",
+                    "is_link": True,
+                    "url": found_urls[0],
+                    "recipient": recipient,
+                    "message": f"Link *{note.get('title')}* ({found_urls[0]}) berhasil dikirimkan sebagai pesan teks ke WhatsApp {recipient}.",
+                }
+        return {"status": "error", "error": f"File atau link '{file_id_or_name}' tidak ditemukan di brankas maupun catatan."}
 
     record, raw_bytes = res
     file_id = record["id"]
@@ -176,7 +221,24 @@ async def handle_send_vault_file(
     orig_filename = record.get("original_filename") or filename
     mime = record.get("mime_type", "application/octet-stream")
 
-    # For files under 10MB, use self-contained base64 data URI to avoid any bridge networking hiccups
+    # If vault record is a text/markdown stub containing a URL, deliver as a clickable WhatsApp text message
+    if (filename.endswith((".md", ".txt")) or mime.startswith("text/")) and len(raw_bytes) < 2048:
+        raw_str = raw_bytes.decode("utf-8", errors="ignore").strip()
+        found_urls = re.findall(r"https?://[^\s\)]+", raw_str)
+        if found_urls:
+            target_jid = _resolve_target_jid(recipient, default_sender, chat_id=chat_id)
+            msg_text = caption or f"Berikut link *{orig_filename}*:\n{raw_str}"
+            await client.send_message(chat_id=target_jid, text=msg_text)
+            log_activity(f"Sent bookmark link '{orig_filename}' to {recipient} ({target_jid})")
+            return {
+                "status": "success",
+                "is_link": True,
+                "url": found_urls[0],
+                "recipient": recipient,
+                "message": f"Link *{orig_filename}* ({found_urls[0]}) berhasil dikirimkan sebagai pesan teks ke WhatsApp {recipient}.",
+            }
+
+    # For physical binary files under 10MB, use self-contained base64 data URI
     if len(raw_bytes) <= 10 * 1024 * 1024:
         b64_data = base64.b64encode(raw_bytes).decode("ascii")
         media_url = f"data:{mime};base64,{b64_data}"

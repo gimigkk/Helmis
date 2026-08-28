@@ -11,7 +11,7 @@ Dokumen ini mencatat seluruh backlog masalah, temuan root-cause dari runtime log
 | **[BACKLOG-01]** | Web & Tools | Pembaca Google Docs, Spreadsheets, Slides, & Web URL Publik | `P0 - High` | ✅ Completed |
 | **[BACKLOG-02]** | Architecture | Temp Sandbox Workspace untuk File Sementara & URL Cache | `P0 - High` | ✅ Completed |
 | **[BACKLOG-03]** | Agent & Guardrails | Eliminasi Halusinasi Konfirmasi Aksi (Two-Step & Strict State Guardrail) | `P0 - High` | ✅ Completed |
-| **[BACKLOG-04]** | Vault & Files | Penanganan Bookmark Link vs Dokumen Fisik Brankas | `P1 - Medium` | 📋 Planned |
+| **[BACKLOG-04]** | Vault & Files | Penanganan Bookmark Link vs Dokumen Fisik Brankas | `P1 - Medium` | ✅ Completed |
 | **[BACKLOG-05]** | Memory & Vault | Parser Dokumen Microsoft Office (`.pptx`, `.docx`, `.xlsx`) di `read_vault_file` | `P1 - Medium` | ✅ Completed |
 | **[BACKLOG-06]** | WhatsApp Engine | Sinkronisasi `media_data` Biner pada Mid-Turn Steering | `P2 - Low` | ✅ Completed |
 | **[BACKLOG-07]** | Typography & UX | Standarisasi Format Task List, Timeline & Pemisahan Default Per Assignee | `P1 - Medium` | ✅ Completed |
@@ -58,11 +58,11 @@ Dokumen ini mencatat seluruh backlog masalah, temuan root-cause dari runtime log
 ---
 
 ### [BACKLOG-04] Penanganan Bookmark Link vs Dokumen Fisik Brankas
-* **Masalah:**
-  Ketika user mengirim link (misal link presentasi), agen menyimpannya sebagai file dummy `Link_Presentasi.md` (158 bytes) tanpa isi konten URL di dalamnya. Saat user meminta filenya dikirim kembali (`send_vault_file`), Helmis mengirim file `.md` mentah sebagai lampiran dokumen WhatsApp, bukan teks link.
-* **Solusi Rencana:**
-  1. Bedakan penyimpanan **Notes / Bookmark** dengan **File Dokumen**.
-  2. Jika user meminta link dikirim ulang, kirimkan sebagai pesan teks bubble WhatsApp beserta keterangannya, bukan file attachment markdown kosong.
+* **Status:** `✅ Completed (Deployed)`
+* **Implementasi:**
+  1. **Auto-Route Bookmark Link ke Catatan (`handle_save_vault_file`):** Jika `save_vault_file` dipanggil tanpa lampiran media biner fisik dan memuat URL (`https://...`), sistem otomatis mengalihkannya ke **Catatan Bersama (`save_note`)** berkategori link, mencegah pembuatan file `.md` kosong buatan di brankas.
+  2. **Clickable WhatsApp Bubble Dispatch (`handle_send_vault_file`):** Jika target pengiriman adalah stub bookmark link atau catatan link, `send_vault_file` otomatis mengirimkannya sebagai **balon pesan teks biasa via `client.send_message()`** berisi tautan yang bisa langsung diklik, bukannya lampiran file `.md` mentah.
+  3. **Fuzzy Note Link Search Fallback:** Jika target file tidak ditemukan di katalog brankas, sistem otomatis mencari di daftar catatan tersimpan untuk menemukan link terkait.
 
 ---
 

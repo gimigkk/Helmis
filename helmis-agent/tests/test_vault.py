@@ -628,3 +628,66 @@ def test_read_vault_file_office_parsers() -> None:
     assert "Server VPS" in res_xlsx["content"]
     assert "150000" in res_xlsx["content"]
 
+
+@pytest.mark.asyncio
+async def test_save_vault_file_link_auto_routes_to_notes() -> None:
+    """Verify saving a URL without binary attachment automatically routes to shared notes."""
+    from src.tools.files import handle_save_vault_file
+    from src.memory.store import get_note
+
+    args = {
+        "filename": "Presentasi Algoritma.md",
+        "description": "Link slides tugas: https://docs.google.com/presentation/d/12345/edit",
+    }
+    res = await handle_save_vault_file(args=args, default_sender="Gilang")
+    assert res["status"] == "success"
+    assert res.get("is_link") is True
+    assert "https://docs.google.com/presentation/d/12345/edit" in res["message"]
+
+    # Verify saved in notes
+    note = get_note("Link Presentasi Algoritma")
+    assert note is not None
+    assert "https://docs.google.com/presentation/d/12345/edit" in note["content"]
+
+
+@pytest.mark.asyncio
+async def test_send_vault_file_link_stub_and_note_fallback() -> None:
+    """Verify send_vault_file delivers clickable text message when target is a link stub or note."""
+    from unittest.mock import AsyncMock
+    from src.tools.files import handle_send_vault_file
+    from src.memory.store import save_note
+
+    mock_client = AsyncMock()
+
+    # 1. Test sending a note link fallback
+    save_note("Link Referensi AI", "URL: https://arxiv.org/abs/2401.12345\nDeskripsi: Paper referensi")
+    res_note = await handle_send_vault_file(
+        args={"file_id_or_name": "Link Referensi AI", "recipient": "current"},
+        default_sender="Gilang",
+        client=mock_client,
+        chat_id="120363411261097957@g.us",
+    )
+    assert res_note["status"] == "success"
+    assert res_note.get("is_link") is True
+    mock_client.send_message.assert_called_once()
+    assert "https://arxiv.org/abs/2401.12345" in mock_client.send_message.call_args[1]["text"]
+
+    # 2. Test sending a vault file that contains a link stub
+    mock_client.reset_mock()
+    rec_stub = save_file_to_vault(
+        data=b"https://figma.com/file/abcdef123/UI-Design",
+        filename="Link_Figma.md",
+        category="documents",
+        owner="Gilang",
+    )
+    res_stub = await handle_send_vault_file(
+        args={"file_id_or_name": rec_stub["id"], "recipient": "current"},
+        default_sender="Gilang",
+        client=mock_client,
+        chat_id="120363411261097957@g.us",
+    )
+    assert res_stub["status"] == "success"
+    assert res_stub.get("is_link") is True
+    mock_client.send_message.assert_called_once()
+    assert "https://figma.com/file/abcdef123/UI-Design" in mock_client.send_message.call_args[1]["text"]
+
