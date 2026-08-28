@@ -395,10 +395,14 @@ async def read_url_content(
             parsed_content = meta.get("metadata", {}).get("parsed_content", "")
             if parsed_content:
                 log.debug("Returning cached sandbox snapshot for %s", raw_url)
+                cached_ext_mode = meta.get("metadata", {}).get("extraction_mode")
+                if not cached_ext_mode:
+                    cached_ext_mode = "pubhtml_parser" if source_type == "google_sheets" else "cached_snapshot"
                 return {
                     "status": "success",
                     "url": raw_url,
                     "source_type": source_type,
+                    "extraction_mode": cached_ext_mode,
                     "is_snapshot": True,
                     "snapshot_at": meta.get("created_at"),
                     "cached": True,
@@ -486,6 +490,7 @@ async def read_url_content(
             sandbox_meta = {
                 "source_url": raw_url,
                 "source_type": "google_sheets",
+                "extraction_mode": "pubhtml_parser",
                 "doc_id": doc_id,
                 "snapshot_at": now_str,
                 "parsed_content": parsed_text,
@@ -625,25 +630,6 @@ async def read_url_content(
                 except Exception:
                     parsed_text = f"[File biner Google Drive: {len(raw_bytes)} bytes]"
 
-            now_dt = datetime.now(TZ)
-            now_str = now_dt.strftime("%A, %d %B %Y - %H:%M WIB")
-
-            sandbox_meta = {
-                "source_url": raw_url,
-                "source_type": export_format_label,
-                "doc_id": doc_id,
-                "snapshot_at": now_str,
-                "parsed_content": parsed_text,
-            }
-            save_to_sandbox(
-                data=raw_bytes,
-                filename=expected_filename,
-                metadata=sandbox_meta,
-                ttl_seconds=1800,
-            )
-
-            log.info("Successfully fetched and parsed snapshot for %s (%s, %d bytes)", raw_url, export_format_label, len(raw_bytes))
-
             # Determine extraction mode badge
             extraction_mode = "plain_text"
             if raw_bytes.startswith(b"%PDF") or export_format_label == "google_slides":
@@ -657,6 +643,26 @@ async def read_url_content(
                 extraction_mode = "direct_text"
             elif export_format_label == "generic_web":
                 extraction_mode = "html_scraper"
+
+            now_dt = datetime.now(TZ)
+            now_str = now_dt.strftime("%A, %d %B %Y - %H:%M WIB")
+
+            sandbox_meta = {
+                "source_url": raw_url,
+                "source_type": export_format_label,
+                "extraction_mode": extraction_mode,
+                "doc_id": doc_id,
+                "snapshot_at": now_str,
+                "parsed_content": parsed_text,
+            }
+            save_to_sandbox(
+                data=raw_bytes,
+                filename=expected_filename,
+                metadata=sandbox_meta,
+                ttl_seconds=1800,
+            )
+
+            log.info("Successfully fetched and parsed snapshot for %s (%s, %d bytes)", raw_url, export_format_label, len(raw_bytes))
 
             return {
                 "status": "success",
