@@ -47,6 +47,8 @@ async def drain_and_inject_mid_turn_mailbox(
         transcribe_func = transcribe_audio_base64
 
     injected_texts: list[str] = []
+    inline_media_parts: list[dict[str, Any]] = []
+
     while not mailbox.empty():
         evt = mailbox.get_nowait()
         t = str(getattr(evt, "text", "") or "").strip()
@@ -55,34 +57,53 @@ async def drain_and_inject_mid_turn_mailbox(
                 m_res = await client.download_media_base64(evt.media_url)
                 if m_res:
                     m_mime, m_b64 = m_res
+                    fn_label = getattr(evt, "media_filename", None) or m_mime
+                    new_media_data = {
+                        "mimeType": m_mime,
+                        "data": m_b64,
+                        "filename": fn_label,
+                    }
+                    if turn_state is not None:
+                        turn_state["media_data"] = new_media_data
+
                     if m_mime.startswith("audio/"):
                         vn_t = await transcribe_func(m_b64, m_mime)
                         if vn_t:
                             t = f'{t} (Pesan Suara: "{vn_t}")' if t else f'Pesan Suara: "{vn_t}"'
                     else:
-                        fn_label = getattr(evt, "media_filename", None) or m_mime
                         t = f'{t} [Lampiran Media: {fn_label}]' if t else f'[Lampiran Media: {fn_label}]'
+                        # For images and PDFs, provide native inlineData part directly to Gemini
+                        if m_mime.startswith("image/") or m_mime == "application/pdf":
+                            inline_media_parts.append({
+                                "inlineData": {
+                                    "mimeType": m_mime,
+                                    "data": m_b64,
+                                }
+                            })
             except Exception as e:
                 log.warning("Could not download/transcribe mid-turn media: %s", e)
 
         if t:
             injected_texts.append(t)
 
-    if not injected_texts:
+    if not injected_texts and not inline_media_parts:
         return False
 
-    combined_injection = "\n".join(injected_texts)
+    combined_injection = "\n".join(injected_texts) if injected_texts else "[Lampiran Media Baru]"
     banner = f'[Pesan Tambahan dari {sender_name} saat kamu sedang memproses]: "{combined_injection}"'
     log.info("Mid-turn steering injected into active ReAct turn for [%s]: %s", sender_name, combined_injection[:60])
 
     if turn_state is not None:
         turn_state["has_mid_turn_update"] = True
 
-    # Inject into contents adhering to Gemini API schema
+    # Inject banner text and any native inlineData parts into contents adhering to Gemini API schema
+    new_parts: list[dict[str, Any]] = [{"text": banner}]
+    new_parts.extend(inline_media_parts)
+
     if contents and contents[-1].get("role") == "user":
-        contents[-1]["parts"].append({"text": banner})
+        contents[-1]["parts"].extend(new_parts)
     else:
-        contents.append({"role": "user", "parts": [{"text": banner}]})
+        contents.append({"role": "user", "parts": new_parts})
 
     return True
 
@@ -236,9 +257,10 @@ async def run_agentic_react_loop(
                 turn_state["current_tool"] = func_name
                 turn_state["tool_args"] = func_args
 
-            # Execute tool locally
+            # Execute tool locally with dynamically synchronized media_data
+            current_exec_media = (turn_state.get("media_data") if turn_state else None) or media_data
             tool_result = await execute_tool_call(
-                func_name, func_args, sender_name, client=client, media_data=media_data, chat_id=chat_id
+                func_name, func_args, sender_name, client=client, media_data=current_exec_media, chat_id=chat_id
             )
             executed_tools.append({"name": func_name, "args": func_args, "result": tool_result})
 

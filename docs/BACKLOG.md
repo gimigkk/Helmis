@@ -13,7 +13,7 @@ Dokumen ini mencatat seluruh backlog masalah, temuan root-cause dari runtime log
 | **[BACKLOG-03]** | Agent & Guardrails | Eliminasi Halusinasi Konfirmasi Aksi (Two-Step & Strict State Guardrail) | `P0 - High` | ✅ Completed |
 | **[BACKLOG-04]** | Vault & Files | Penanganan Bookmark Link vs Dokumen Fisik Brankas | `P1 - Medium` | 📋 Planned |
 | **[BACKLOG-05]** | Memory & Vault | Parser Dokumen Microsoft Office (`.pptx`, `.docx`, `.xlsx`) di `read_vault_file` | `P1 - Medium` | 📋 Planned |
-| **[BACKLOG-06]** | WhatsApp Engine | Sinkronisasi `media_data` Biner pada Mid-Turn Steering | `P2 - Low` | 📋 Planned |
+| **[BACKLOG-06]** | WhatsApp Engine | Sinkronisasi `media_data` Biner pada Mid-Turn Steering | `P2 - Low` | ✅ Completed |
 | **[BACKLOG-07]** | Typography & UX | Standarisasi Format Task List, Timeline & Pemisahan Default Per Assignee | `P1 - Medium` | ✅ Completed |
 
 ---
@@ -77,10 +77,11 @@ Dokumen ini mencatat seluruh backlog masalah, temuan root-cause dari runtime log
 ---
 
 ### [BACKLOG-06] Sinkronisasi `media_data` Biner pada Mid-Turn Steering
-* **Masalah:**
-  Jika user mengirim teks lalu 2 detik kemudian mengirim file media saat turn sedang berlangsung, label teks disuntikkan ke prompt (`[Lampiran Media: file.pptx]`), tetapi payload biner `media_data` tidak diperbarui pada argumen `execute_tool_call`. Akibatnya, `save_vault_file` menganggap `media_data` bernilai `None` dan menyimpan file stub 122 bytes.
-* **Solusi Rencana:**
-  Perbarui objek `media_data` di dalam context loop saat mailbox mid-turn di-drain, sehingga eksekusi tool berikutnya mendapatkan byte biner file yang baru masuk.
+* **Status:** `✅ Completed (Deployed)`
+* **Implementasi:**
+  1. **Sinkronisasi Biner:** Saat user mengirim lampiran media mid-turn (misal file dikirim 2 detik setelah teks awal), `drain_and_inject_mid_turn_mailbox()` mengunduh payload biner dan menyimpannya ke `turn_state["media_data"]`.
+  2. **Multimodal Inline Data untuk Gemini:** Jika media berupa gambar atau PDF, selain banner teks, sistem juga menyuntikkan part `inlineData: {"mimeType": ..., "data": ...}` sehingga model Gemini langsung dapat memproses visual dokumen/gambar tersebut.
+  3. **Eksekusi Tool dengan Payload Terbaru:** `execute_tool_call()` di `src/agent/loop.py` otomatis menggunakan payload `media_data` terbaru, memastikan tool seperti `save_vault_file` menyimpan file biner utuh (misal file 500KB) dan bukan lagi stub 122 bytes.
 
 ---
 

@@ -189,9 +189,10 @@ async def test_document_attachment_mid_turn_injection() -> None:
     )
 
     assert injected is True
-    injected_text = contents[-1]["parts"][-1]["text"]
-    assert "Simpan ke folder kuliah" in injected_text
-    assert "[Lampiran Media: Tugas_Analgor_P2.pdf]" in injected_text
+    user_parts = contents[-1]["parts"]
+    assert any("Simpan ke folder kuliah" in p.get("text", "") for p in user_parts)
+    assert any("Tugas_Analgor_P2.pdf" in p.get("text", "") for p in user_parts)
+    assert any("inlineData" in p for p in user_parts)
 
 
 @pytest.mark.asyncio
@@ -408,3 +409,49 @@ async def test_cross_chat_mailbox_isolation() -> None:
     # Verify complete isolation
     assert gilang_mailbox_items == ["Gilang mid-turn correction"]
     assert bunga_mailbox_items == []
+
+
+@pytest.mark.asyncio
+async def test_mid_turn_binary_media_synchronization() -> None:
+    """Validate that media arriving mid-turn synchronizes binary payload and inlineData."""
+    mailbox: asyncio.Queue[IncomingMessageEvent] = asyncio.Queue()
+    mock_client = AsyncMock(spec=WahaClient)
+    mock_client.download_media_base64 = AsyncMock(return_value=("application/pdf", "JVBERi0xLjQKJeLjz9MKMSAwIG9iag=="))
+
+    contents: list[dict[str, Any]] = [
+        {"role": "user", "parts": [{"text": "Simpan file ini ke brankas"}]}
+    ]
+
+    mailbox.put_nowait(
+        IncomingMessageEvent(
+            sender_name="Gilang",
+            from_user="gilang@c.us",
+            reply_id="m99",
+            text="Ini filenya",
+            has_media=True,
+            media_url="http://waha:3000/media/doc123.pdf",
+            media_type="application/pdf",
+            media_filename="silabus_ekonomi.pdf",
+            timestamp=2.0,
+        )
+    )
+
+    turn_state: dict[str, Any] = {}
+    injected = await drain_and_inject_mid_turn_mailbox(
+        contents=contents,
+        mailbox=mailbox,
+        client=mock_client,
+        sender_name="Gilang",
+        turn_state=turn_state,
+    )
+
+    assert injected is True
+    assert turn_state.get("media_data") is not None
+    assert turn_state["media_data"]["mimeType"] == "application/pdf"
+    assert turn_state["media_data"]["filename"] == "silabus_ekonomi.pdf"
+    assert turn_state["media_data"]["data"] == "JVBERi0xLjQKJeLjz9MKMSAwIG9iag=="
+
+    # Verify Gemini contents received inlineData part
+    user_parts = contents[-1]["parts"]
+    assert any("inlineData" in p for p in user_parts)
+    assert any("silabus_ekonomi.pdf" in p.get("text", "") for p in user_parts)
