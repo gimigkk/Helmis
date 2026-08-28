@@ -1,7 +1,9 @@
 # ============================================================
-# Secrets — never commit
+# Secrets & Local Overrides — never commit
 # ============================================================
 .env
+config/*.local.md
+config/system-prompt.local.md
 
 # ============================================================
 # Persistent runtime data — stays on the VPS, not in git

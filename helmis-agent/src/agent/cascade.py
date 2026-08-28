@@ -143,10 +143,13 @@ def get_next_gemini_key() -> str:
 
 
 def load_system_prompt() -> str:
-    """Load system prompt from config."""
+    """Load system prompt from config, supporting local overrides (e.g. system-prompt.local.md)."""
     prompt_path = os.environ.get("SYSTEM_PROMPT_PATH", "")
     candidates = [
         prompt_path,
+        "/app/config/system-prompt.local.md",
+        "config/system-prompt.local.md",
+        "../config/system-prompt.local.md",
         "/app/config/system-prompt.md",
         "/hermes-config/system-prompt.md",
         "config/system-prompt.md",

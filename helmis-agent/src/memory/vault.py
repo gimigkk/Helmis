@@ -28,7 +28,9 @@ VAULT_DIR = os.path.join(DATA_DIR, "vault")
 CATALOG_FILE = os.path.join(DATA_DIR, "file_catalog.json")
 
 DEFAULT_CATEGORIES = ["health", "id_cards", "travel", "receipts", "documents", "media", "projects"]
-DEFAULT_OWNERS = ["gilang", "bunga", "shared"]
+_env_owner1 = os.environ.get("OWNER_NAME", "").strip().lower()
+_env_owner2 = os.environ.get("PARTNER_NAME", "").strip().lower()
+DEFAULT_OWNERS = [o for o in set(["gilang", "bunga", "shared", _env_owner1, _env_owner2]) if o]
 
 
 def _get_vault_dir() -> str:
