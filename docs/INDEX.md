@@ -18,8 +18,7 @@ docs/
 ├── DEPLOYMENT_AND_OPERATIONS.md     # VPS Deployment, Healthchecks, Zero-Downtime, & Backups
 ├── DEVELOPMENT_AND_TESTING.md       # Pytest Suites (20 Modules, 167 Tests), Fixtures, & Contribution Guide
 ├── SCENARIOS_AND_PLAYBOOKS.md       # Operational Real-World Scenarios & Failure Playbooks
-├── BACKLOG.md                       # Issues, Root Causes, Production Audit, & Task Status
-└── EDGE_CASES_AND_SCENARIOS.md      # Master 100 Edge Cases & Tested Technical Solutions
+└── BACKLOG.md                       # Issues, Root Causes, Production Audit, & Task Status
 ```
 
 ---
@@ -37,4 +36,4 @@ docs/
 | **Configuration** | 100% Single Source of Truth `config/system-prompt.md`, modular skills in `config/skills/`, default assignee separation & hierarchical WhatsApp formatting | [CONFIGURATION_AND_SKILLS.md](CONFIGURATION_AND_SKILLS.md) |
 | **Operations** | Zero-downtime container updates, auto-restarting services, automated backup scripts | [DEPLOYMENT_AND_OPERATIONS.md](DEPLOYMENT_AND_OPERATIONS.md) |
 | **Testing** | 20 test suites covering 167 test cases with comprehensive mocking of external APIs | [DEVELOPMENT_AND_TESTING.md](DEVELOPMENT_AND_TESTING.md) |
-| **Quality & Resilience** | Master catalog of 100 edge cases across 10 domains, root-cause production issue tracking | [EDGE_CASES_AND_SCENARIOS.md](EDGE_CASES_AND_SCENARIOS.md) / [BACKLOG.md](BACKLOG.md) |
+| **Quality & Tracking** | Production issue tracking, root-cause audits, & completed features | [BACKLOG.md](BACKLOG.md) |
