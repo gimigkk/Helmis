@@ -57,8 +57,12 @@ Tools are registered declaratively using the `@register_tool` decorator and disp
   - `load_skill`: Dynamically loads domain playbooks (e.g. `pdf-toolkit`) into working memory on-demand.
 - **Memory & Notes (`notes.py`, `memory.py`)**:
   - Persistent JSON and semantic vector memories.
-- **Live Search & External Context (`web.py`)**:
-  - Real-time search integration.
+- **Web & Google Workspace Reader Engine (`google_reader.py`, `web.py`)**:
+  - `read_url`: Unified reader for public Google Docs, Sheets, Slides, Drive files, and generic web pages.
+  - Contextual Aliases: `read_google_sheet`, `read_google_doc`, `read_google_slides`, `read_web_page`.
+  - **Multi-Tab Published Sheets (`pubhtml`) Parser**: Standard `html.parser.HTMLParser` engine discovering JavaScript tabs and extracting tabular HTML into clean Markdown without external dependencies.
+  - **Epistemic Humility**: Metadata `snapshot_at` WIB, `force_refresh=True` flag, and private document redirect detection (`accounts.google.com/ServiceLogin`).
+  - **SSRF Safety**: Validates IPs against private/local ranges (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, etc.).
 
 ---
 
@@ -79,39 +83,60 @@ To ensure 24/7 high availability, zero quota downtime, and rapid recovery from r
 
 ---
 
-## 4. Mid-Turn Mailbox Steering
+## 4. Mid-Turn Mailbox Steering & Binary Media Sync
 
-Users frequently send rapid follow-up messages or corrections while the agent is actively executing long-running tools (e.g. *"Wait, cancel that"*, *"Also include Bunga"*, *"Actually make it 7 PM instead"*).
+Users frequently send rapid follow-up messages or corrections while the agent is actively executing long-running tools (e.g. *"Wait, cancel that"*, *"Also include Bunga"*, *"Actually make it 7 PM instead"*), or send file attachments 2–3 seconds after their initial text prompt.
 
 ### Mechanism
 1. The `ChatQueueManager` maintains an active per-chat mailbox queue.
-2. After each tool execution step, `agent_loop` queries `mailbox.get_pending_messages()`.
-3. If new messages arrived during tool execution, they are injected into the active prompt as mid-turn user steering context:
-   ```text
-   [SYSTEM: While you were processing, the user sent an additional follow-up:
-   "<new message content>"
-   Incorporate this new instruction immediately into your ongoing action plan.]
-   ```
-4. The agent dynamically adjusts its remaining steps without restarting the turn from scratch.
+2. After each tool execution step (and before model calls), `agent_loop` invokes `drain_and_inject_mid_turn_mailbox()`.
+3. **Binary Media Synchronization**: When a media attachment arrives mid-turn:
+   - The binary bytes are downloaded and stored in `turn_state["media_data"]`.
+   - Native `inlineData: {"mimeType": ..., "data": ...}` parts are injected into Gemini contents for images/PDFs.
+   - Subsequent tool executions (such as `save_vault_file`) receive the updated binary payload directly.
+4. **Voice Note Transcriptions**: Audio notes sent mid-turn are transcribed via Whisper/Gemini and injected into the prompt.
+5. **Step Rewind Adaptif**: If mid-turn input is received, the step counter rewinds (`step = max(0, step - 3)`), granting up to 3 extra steps to fulfill the updated plan.
 
 ---
 
-## 5. State Fidelity Guardrails (`src/agent/guardrails.py`)
+## 5. Two-Step Anti-Hallucination & State Mutation Guardrails (`src/agent/guardrails.py`)
 
-To prevent hallucinations, Helmis enforces strict fidelity checking between tool execution results and final generated responses.
+To eliminate false confirmations where the model claims an action was performed without executing database tools, Helmis enforces a multi-layer state fidelity architecture:
 
-### Verification Invariants
-1. **State Mutation Fidelity**: If the assistant response claims a task was added or completed, the turn must have successfully executed `add_task` or `complete_task`.
-2. **Document Vault Fidelity**: If the assistant quotes line items from a vault document, `read_vault_file` or `search_vault_files` must have been called.
-3. **↳ Footnote Generation**: When tools are executed, clean visual footnote chips are generated for transparency:
-   ```text
-   Sip Gilang, tiket pesawat udah disimpan di vault ya.
-   ↳ `save_vault_file`, `add_task`
-   ```
+### Invariants & Protection Layers
+1. **Mutation Claim Detector (`detect_unexecuted_mutation_claims`)**:
+   - Inspects model outputs for active mutation claims:
+     - Task Completion (`complete_task`): *"sudah ditandai selesai"*, *"berhasil diselesaikan"*, etc.
+     - Deletion (`delete_task`, `delete_note`, `delete_memory`): *"sudah dihapus"*, *"berhasil dihilangkan"*, etc.
+     - Task Creation (`add_task`): *"sudah dicatat"*, *"berhasil dijadwalkan"*, etc.
+     - Vault Saving (`save_vault_file`): *"tersimpan di brankas"*, *"sudah disimpan"*, etc.
+     - Dispatch (`send_whatsapp_message`, `send_vault_file`): *"sudah dikirimkan ke"*, etc.
+2. **Dynamic Turn Interception (`loop.py`)**:
+   - If the model emits a mutation claim in Step 1 without calling the required tool, the text is **intercepted and rejected**.
+   - A strict steering instruction is injected:
+     `SYSTEM INTEGRITY FAULT: Kamu mengklaim telah melakukan tindakan, tetapi BELUM memanggil functionCall ke tool terkait! Eksekusi functionCall sekarang.`
+   - The loop continues to Step 2 to force the `functionCall`.
+3. **Fallback Fidelity Overrides**:
+   - If the step limit is reached without tool execution, the hallucinated claim is overwritten with an honest message:
+     `Mohon maaf, tindakan tersebut belum berhasil diproses di sistem database. Silakan ulangi perintah secara spesifik.`
+4. **Contextual Footnote Chips (`format_tool_chips`)**:
+   - Dynamic footnote generation resolves generic tools into transparent chips (`↳ read_google_sheet`, `↳ complete_task`, `↳ save_vault_file`).
+   - Strips synthetic or mimicked footnote chips produced by the LLM.
 
 ---
 
-## 6. Execution Tracer (`src/agent/tracer.py`)
+## 6. Task & Timeline Layout Standards
+
+All multi-item listings and timelines generated by Helmis follow strict WhatsApp scannability standards:
+1. **Sequential Numbering**: Clear numbered items (`1.`, `2.`, `3.`).
+2. **Hierarchical Sub-lines**: Indented sub-lines (`   └ Deadline: ...`, `   └ Keterangan: ...`).
+3. **Double Spacing**: Blank lines (`\n\n`) between distinct items to prevent walls of text.
+4. **Default Assignee Separation**: Automatic grouping into `*Tugas Gilang:*`, `*Tugas Bunga:*`, `*Tugas Bersama:*`, and `*Tindakan Otomatis Helmis:*`.
+5. **Header Blockquote Consistency**: Only the single main document title uses `>`, while section headers use clean bold text.
+
+---
+
+## 7. Execution Tracer (`src/agent/tracer.py`)
 
 Every turn produces structured trace logs recorded to `data/agent_traces.jsonl` and formatted with color-coded ANSI output in the server console:
 

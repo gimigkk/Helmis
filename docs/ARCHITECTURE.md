@@ -85,13 +85,14 @@ The agent codebase is organized into 4 distinct domain packages under `helmis-ag
 helmis-agent/src/
 ├── agent/                  # Brain, ReAct Loop & Cascade Orchestration
 │   ├── cascade.py          # Gemini model fallback cascade & multi-key rotation
-│   ├── guardrails.py       # State fidelity verification & footnote chips
-│   ├── loop.py             # Autonomous multi-step ReAct agent loop & mailbox steering
+│   ├── guardrails.py       # Two-step state mutation guardrails & footnote chips
+│   ├── loop.py             # Autonomous ReAct loop, binary media sync & mailbox steering
 │   ├── proactive.py        # Proactive reminder evaluator, 2-stage lead buffer & nag loops
 │   ├── tracer.py           # Structured execution tracer & ANSI debugging
 │   └── __init__.py
-├── memory/                 # Storage, Episodic Memory & Vault
+├── memory/                 # Storage, Episodic Memory, Vault & Sandbox
 │   ├── pdf_engine.py       # High-performance PDF & Document conversion engine
+│   ├── sandbox.py          # Temp Sandbox Workspace (TTL cache 30m, auto-cleanup LRU)
 │   ├── semantic.py         # Vector embeddings & semantic memory search
 │   ├── store.py            # JSON-backed tasks, people, schedules & notes
 │   ├── vault.py            # Document vault, catalog, categorization & PDF extractor
@@ -109,6 +110,7 @@ helmis-agent/src/
 ├── tools/                  # Function Tool Declarations & Handlers
 │   ├── contacts.py         # Contact lookup & storage tool
 │   ├── files.py            # Document vault tool handlers
+│   ├── google_reader.py    # Google Workspace (Sheets, Docs, Slides, Drive) & Web engine
 │   ├── mcp_export.py       # FastMCP SSE tool registration
 │   ├── memory.py           # Semantic memory tool handlers
 │   ├── notes.py            # Quick notes tool handlers
@@ -118,7 +120,7 @@ helmis-agent/src/
 │   ├── search.py           # Live DuckDuckGo / Tavily web search engine
 │   ├── skills.py           # Dynamic on-demand skill loader (load_skill)
 │   ├── tasks.py            # Task & reminder tool handlers
-│   ├── web.py              # Web search tool handler
+│   ├── web.py              # Web & Google reader tool handlers (read_url & aliases)
 │   ├── whatsapp.py         # WhatsApp message sending tool handlers
 │   └── __init__.py
 ├── server.py               # Main runtime entry point (FastMCP SSE & Webhook runner)

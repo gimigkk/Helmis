@@ -45,9 +45,9 @@ pytest --cov=src tests/
 
 ---
 
-## 3. Test Suite Breakdown (142 Tests)
+## 3. Test Suite Breakdown (20 Modules, 167 Tests)
 
-The test suite consists of 18 comprehensive test modules:
+The test suite consists of 20 comprehensive test modules covering edge cases, adversarial inputs, data integrity, and multimodal integrations:
 
 | Test File | Cases | Focus Area |
 |---|---|---|
@@ -57,10 +57,12 @@ The test suite consists of 18 comprehensive test modules:
 | `test_client.py` | 12 | WAHA HTTP client, retries, rate limiting, error responses |
 | `test_data_integrity.py` | 5 | Concurrent file writes, JSON corruption resilience, atomic locking |
 | `test_fuzz_vault.py` | 5 | Random fuzzing of filenames, paths, and document uploads |
+| `test_google_reader.py` | 13 | Google Workspace reader (Docs, Sheets, Slides, Drive), published sheets (`pubhtml`) multi-tab parser, SSRF protection & sandbox caching |
+| `test_guardrails_fidelity.py` | 10 | Two-step anti-hallucination guardrail, mutation claim detection, turn interception, tool chips formatting |
 | `test_history.py` | 3 | Message deduplication, multi-turn history formatting |
 | `test_memory.py` | 9 | Task creation, updating, completion, note storage, temporal context isolation |
-| `test_mid_turn_steering_matrix.py` | 8 | Dynamic mid-turn user steering during active tool execution |
-| `test_pdf_tools.py` | 14 | PDF merge (zero-margin/A4), split, render image (PNG/JPG), images to PDF, PDF ⇄ DOCX, compression |
+| `test_mid_turn_steering_matrix.py` | 9 | Dynamic mid-turn user steering, binary media synchronization & multimodal inlineData |
+| `test_pdf_tools.py` | 15 | PDF merge (zero-margin/A4), split, render image (PNG/JPG), images to PDF, PDF ⇄ DOCX, compression |
 | `test_proactive_engine.py` | 6 | Scheduler evaluations, 2-stage lead-time buffers, nag loops |
 | `test_queue.py` | 7 | FIFO per-chat debounce queue, 1.0s window burst batching |
 | `test_quoted_messages.py` | 5 | Quoted message extraction across GOWS, NOWEB, and WEBJS |

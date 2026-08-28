@@ -13,6 +13,7 @@ data/
 ├── helmis_memory.json        # Atomic JSON Store: tasks, contacts, shared notes, schedules
 ├── file_catalog.json         # Document Vault metadata catalog
 ├── semantic_memories.json    # Vector Memory: episodic facts with Gemini 3072-dim embeddings
+├── sandbox/                  # Ephemeral Temp Sandbox: downloaded URL snapshots, converted sheets (TTL 30m)
 ├── vault/                    # Binary storage for PDFs, scans, receipts, and project files
 │   ├── health/               # Medical records, prescriptions, lab results
 │   ├── id_cards/             # Identity cards, passports, SIM, family cards
@@ -60,3 +61,16 @@ A secure, structured document management system for PDFs, documents, images, and
 - **PDF Text Layer Extraction**: Utilizes `pypdf` to extract text from digital PDF pages without needing expensive vision tokens.
 - **Image OCR**: Inspects scanned receipts, tickets, and photos.
 - **Search & Dispatch**: Supports keyword search (`search_vault_files`), text inspection (`read_vault_file`), and direct dispatch over WhatsApp (`send_vault_file`).
+
+---
+
+## 5. Temp Sandbox Workspace (`src/memory/sandbox.py`)
+
+An isolated ephemeral workspace (`data/sandbox/` or `/app/data/sandbox/`) dedicated to temporary downloads, Google Workspace snapshot caches, and intermediate conversion files.
+
+### Key Capabilities & Safeguards
+- **Zero Vault Pollution**: Prevents temporary web snapshots from cluttering `file_catalog.json` and permanent vault directories.
+- **TTL Cache (30 Minutes)**: Downloaded URLs and parsed tables are cached with a 30-minute Time-To-Live, reducing repeated network requests.
+- **Auto-Cleanup Engine**: Automatically prunes files older than 1 hour or purges the oldest files (LRU) when sandbox directory size exceeds 250MB.
+- **Path Traversal Protection**: Uses `is_safe_sandbox_path()` to ensure all read/write operations remain strictly confined to the sandbox folder.
+- **Atomic Operations**: Employs atomic write mechanisms (`.tmp` write followed by atomic rename) to avoid corrupted files if the process is terminated mid-write.
