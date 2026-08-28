@@ -140,7 +140,9 @@ def test_sandbox_storage_and_cleanup(tmp_path):
         assert os.path.exists(rec["filepath"])
 
         # Retrieve file
-        meta, data = get_from_sandbox(rec["file_id"])
+        res = get_from_sandbox(rec["file_id"])
+        assert res is not None
+        meta, data = res
         assert data == b"hello temporary sandbox"
         assert meta["metadata"]["source_url"] == "https://example.com/test"
 

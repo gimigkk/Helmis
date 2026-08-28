@@ -151,7 +151,7 @@ def format_csv_to_markdown_table(csv_text: str, query: str = "", max_rows: int =
         if query:
             q_lower = query.lower().strip()
             data_rows = [
-                r for r in data_rows if any(q_lower in str(cell).lower() for cell in r)
+                r for r in data_rows if any(q_lower in cell.lower() for cell in r)
             ]
 
         total_matching = len(data_rows)
@@ -172,12 +172,12 @@ def format_csv_to_markdown_table(csv_text: str, query: str = "", max_rows: int =
 
         # Standard Markdown Pipe Table
         lines = []
-        clean_header = [re.sub(r"[\r\n|]+", " ", str(h)).strip() or f"Kolom_{i+1}" for i, h in enumerate(header)]
+        clean_header = [re.sub(r"[\r\n|]+", " ", h).strip() or f"Kolom_{i+1}" for i, h in enumerate(header)]
         lines.append("| " + " | ".join(clean_header) + " |")
         lines.append("| " + " | ".join(["---"] * len(clean_header)) + " |")
 
         for r in displayed_rows:
-            padded_row = [re.sub(r"[\r\n|]+", " ", str(r[i])).strip() if i < len(r) else "" for i in range(len(clean_header))]
+            padded_row = [re.sub(r"[\r\n|]+", " ", r[i]).strip() if i < len(r) else "" for i in range(len(clean_header))]
             lines.append("| " + " | ".join(padded_row) + " |")
 
         if total_matching > max_rows:
