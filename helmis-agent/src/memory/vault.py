@@ -600,11 +600,47 @@ def read_vault_file(
                 for i, page in enumerate(doc):
                     raw_txt = page.get_text("text")
                     p_txt = str(raw_txt).strip() if raw_txt else ""
-                    # If page has digital text (> 30 non-whitespace chars), use it directly
-                    if len(p_txt) > 30:
-                        pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt}")
-                    else:
-                        # Raster scan or diagram page -> perform Vision OCR!
+                    page_parts: list[str] = []
+
+                    if p_txt:
+                        page_parts.append(p_txt)
+
+                    # Inspect embedded images on this page
+                    try:
+                        img_list = page.get_images(full=True)
+                    except Exception:
+                        img_list = []
+
+                    # If page has digital text AND embedded meaningful diagram/chart image(s):
+                    if p_txt and img_list:
+                        processed_imgs = 0
+                        for img_info in img_list:
+                            if processed_imgs >= 2:
+                                break
+                            xref = img_info[0]
+                            try:
+                                base_img = doc.extract_image(xref)
+                                width = base_img.get("width", 0)
+                                height = base_img.get("height", 0)
+                                img_data = base_img.get("image", b"")
+                                img_ext = base_img.get("ext", "png")
+                                # Filter out tiny decorative icons (only process meaningful diagrams >= 50x50 and >= 100 bytes)
+                                if width >= 50 and height >= 50 and len(img_data) >= 100:
+                                    img_mime = f"image/{img_ext}" if img_ext != "jpg" else "image/jpeg"
+                                    ocr_sub = perform_vision_ocr(
+                                        img_data,
+                                        img_mime,
+                                        prompt_hint="Extract all readable text, mathematical formulas ($...$), graphs, labels, numbers, flowchart nodes, and data from this diagram/chart image on the page into clean Markdown.",
+                                    )
+                                    if ocr_sub and ocr_sub.strip():
+                                        page_parts.append(f"*(Hasil Vision OCR Diagram/Gambar Halaman {i+1})*:\n{ocr_sub.strip()}")
+                                        scanned_page_count += 1
+                                        processed_imgs += 1
+                            except Exception as img_ex:
+                                log.warning("Failed to extract embedded image %d on page %d: %s", xref, i + 1, img_ex)
+
+                    # If page has NO digital text (raster scan), render whole page:
+                    elif not p_txt:
                         scanned_page_count += 1
                         try:
                             pix = page.get_pixmap(dpi=150)
@@ -615,13 +651,12 @@ def read_vault_file(
                                 prompt_hint="Extract all readable text, tabular data, forms, signatures, and stamps from this scanned document page image into clean Markdown.",
                             )
                             if ocr_txt and ocr_txt.strip():
-                                pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} [Hasil Vision OCR] ---\n{ocr_txt.strip()}")
-                            elif p_txt:
-                                pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt}")
+                                page_parts.append(f"[Hasil Vision OCR]\n{ocr_txt.strip()}")
                         except Exception as ocr_err:
                             log.warning("Vision OCR failed on PDF page %d of %s: %s", i + 1, filename, ocr_err)
-                            if p_txt:
-                                pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt}")
+
+                    if page_parts:
+                        pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n" + "\n\n".join(page_parts))
 
                 doc.close()
                 if pdf_pages_text:
@@ -736,20 +771,24 @@ def read_vault_file(
                     if ntxt:
                         slide_parts.append(f"*(Catatan Presenter: {ntxt})*")
 
-                # If slide has very little text (< 20 chars) and contains picture/diagram shapes, run Vision OCR!
-                combined_txt = " ".join(slide_parts)
-                if len(combined_txt) < 20 and picture_shapes:
-                    for p_shape in picture_shapes[:2]:
+                # If slide contains meaningful picture/diagram shapes, run Vision OCR on images!
+                if picture_shapes:
+                    processed_shapes = 0
+                    for p_shape in picture_shapes:
+                        if processed_shapes >= 2:
+                            break
                         try:
                             img_blob = p_shape.image.blob
                             img_mime = getattr(p_shape.image, "content_type", None) or "image/png"
-                            img_ocr = perform_vision_ocr(
-                                img_blob,
-                                img_mime,
-                                prompt_hint="Extract all readable text, flowchart nodes, diagram labels, and tables from this slide picture into clean Markdown.",
-                            )
-                            if img_ocr and img_ocr.strip():
-                                slide_parts.append(f"*(Hasil Vision OCR Gambar Slide)*:\n{img_ocr.strip()}")
+                            if len(img_blob) >= 100:  # Process valid image blobs
+                                img_ocr = perform_vision_ocr(
+                                    img_blob,
+                                    img_mime,
+                                    prompt_hint="Extract all readable text, mathematical formulas ($...$), graphs, flowchart nodes, diagram labels, and tables from this slide picture into clean Markdown.",
+                                )
+                                if img_ocr and img_ocr.strip():
+                                    slide_parts.append(f"*(Hasil Vision OCR Gambar/Diagram Slide)*:\n{img_ocr.strip()}")
+                                    processed_shapes += 1
                         except Exception as img_err:
                             log.warning("Vision OCR failed on slide picture %d of %s: %s", idx, filename, img_err)
 

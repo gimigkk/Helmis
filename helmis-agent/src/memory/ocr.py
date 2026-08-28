@@ -13,11 +13,16 @@ from ..agent.cascade import GEMINI_KEYS, GEMINI_MODELS, get_next_gemini_key
 log = logging.getLogger("helmis-vision-ocr")
 
 DEFAULT_OCR_PROMPT = (
-    "You are an expert high-precision document OCR and visual analyzer. "
-    "Extract all readable text, tabular data, headers, form fields, stamps, signatures, and diagram structures "
-    "from this document page image verbatim and accurately. "
-    "Format the output cleanly in standard Markdown (use Markdown tables for tabular data). "
-    "Do not include conversational preamble, pleasantries, or commentary—output only the extracted structured content."
+    "You are an expert high-precision document OCR and visual analyzer.\n"
+    "Extract and transcribe all content from this document/page image verbatim into clean Markdown:\n"
+    "1. Text & Headers: Transcribe verbatim preserving hierarchy.\n"
+    "2. Mathematical Formulas & Equations: Format using standard LaTeX notation ($...$ or $$...$$).\n"
+    "3. Graphs & Plots: Transcribe title, axis labels, legends, key data points, trends, and min/max values.\n"
+    "4. Diagrams, Flowcharts & Architectures: Describe all nodes, connections, labels, and relationships in structured bullet points.\n"
+    "5. Tables & Matrices: Format in standard Markdown tables.\n"
+    "6. Screenshots of Code / Functions: Output in fenced code blocks with appropriate language tags.\n"
+    "7. Forms & Receipts: Transcribe all line items, dates, prices, stamps, and signatures.\n"
+    "Output ONLY the extracted structured content without pleasantries, conversational filler, or preamble."
 )
 
 

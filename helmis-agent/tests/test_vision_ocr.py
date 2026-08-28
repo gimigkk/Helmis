@@ -179,7 +179,7 @@ def test_read_pptx_picture_slide_triggers_vision_ocr() -> None:
         assert res["status"] == "success"
         assert res["content_type"] == "pptx"
         mock_ocr.assert_called_once()
-        assert "*(Hasil Vision OCR Gambar Slide)*" in res["content"]
+        assert "*(Hasil Vision OCR Gambar/Diagram Slide)*" in res["content"]
         assert "Diagram Alur:" in res["content"]
 
 
