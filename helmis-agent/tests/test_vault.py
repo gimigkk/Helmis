@@ -581,12 +581,14 @@ def test_read_vault_file_office_parsers() -> None:
     # 2. Test PPTX
     prs = pptx.Presentation()
     slide1 = prs.slides.add_slide(prs.slide_layouts[0])
-    slide1.shapes.title.text = "Presentasi Bisnis"
-    slide1.placeholders[1].text = "Latar Belakang\nStrategi Eksekusi"
+    if slide1.shapes.title:
+        slide1.shapes.title.text = "Presentasi Bisnis"
+    slide1.placeholders[1].text = "Latar Belakang\nStrategi Eksekusi"  # type: ignore[attr-defined]
 
     slide2 = prs.slides.add_slide(prs.slide_layouts[1])
-    slide2.shapes.title.text = "Slide Terakhir: Penutup"
-    slide2.placeholders[1].text = "Rencana Target Q4 2026"
+    if slide2.shapes.title:
+        slide2.shapes.title.text = "Slide Terakhir: Penutup"
+    slide2.placeholders[1].text = "Rencana Target Q4 2026"  # type: ignore[attr-defined]
     buf_pptx = io.BytesIO()
     prs.save(buf_pptx)
 
@@ -608,6 +610,7 @@ def test_read_vault_file_office_parsers() -> None:
     # 3. Test XLSX
     wb = openpyxl.Workbook()
     ws = wb.active
+    assert ws is not None
     ws.title = "Rekap Anggaran"
     ws.append(["Item", "Jumlah", "Harga"])
     ws.append(["Server VPS", "1", "150000"])
