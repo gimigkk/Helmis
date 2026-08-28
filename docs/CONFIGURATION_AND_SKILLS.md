@@ -54,3 +54,45 @@ To prevent prompt bloat and preserve sub-second response times, specialized tool
 | `AGENT_WEBHOOK_PORT` | No | `8644` | Internal port for Starlette webhook listener |
 | `MCP_WAHA_PORT` | No | `8765` | Internal port for FastMCP SSE server |
 | `TZ` | No | `Asia/Jakarta` | Local timezone (defaults to WIB / UTC+7) |
+| `OWNER_NAME` | No | `Gilang` | Optional custom name for primary owner (e.g. `Alex`) |
+
+---
+
+## 4. Solo / Single-User Mode Setup (Clone & Upstream Sync Guide)
+
+If you clone Helmis to run as a **personal solo AI executive secretary** (for 1 user rather than a duo/couple), follow this 2-minute zero-conflict setup:
+
+### Step 1: Configure `.env`
+Copy the environment template and configure your WhatsApp number and API keys:
+```bash
+cp .env.example .env
+```
+In `.env`, set:
+```ini
+OWNER_NAME="YourName"
+GILANG_PHONE="628123456789"    # Your WhatsApp phone number in E.164 format
+BOT_PHONE="628987654321"       # The WhatsApp number used by your WAHA bot
+GEMINI_KEY_1="AIzaSy..."       # Your Google Gemini API key
+```
+*(Leave `BUNGA_PHONE` and `TRIO_GROUP_JID` empty or commented out).*
+
+---
+
+### Step 2: Set Up Local System Prompt (`system-prompt.local.md`)
+To customize your assistant persona without causing git merge conflicts when pulling updates:
+```bash
+cp config/system-prompt.solo.example.md config/system-prompt.local.md
+```
+Edit `config/system-prompt.local.md` to specify your preferred assistant name, tasks, and persona.
+
+> [!NOTE]
+> The engine automatically prioritizes `config/system-prompt.local.md` over `config/system-prompt.md`. Because `*.local.md` is in `.gitignore`, you can run `git pull origin main` anytime without merge conflicts!
+
+---
+
+### Step 3: Launch Services
+```bash
+docker compose build
+docker compose up -d
+```
+Open `http://localhost:3005` (or your VPS IP on port 3005) to scan the WhatsApp QR code via WAHA. Your personal executive secretary is now live!
