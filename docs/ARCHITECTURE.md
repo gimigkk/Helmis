@@ -91,11 +91,12 @@ helmis-agent/src/
 │   ├── tracer.py           # Structured execution tracer & ANSI debugging
 │   └── __init__.py
 ├── memory/                 # Storage, Episodic Memory, Vault & Sandbox
+│   ├── ocr.py              # Multimodal Gemini Vision OCR Engine (scanned PDFs, math, graphs, code)
 │   ├── pdf_engine.py       # High-performance PDF & Document conversion engine
 │   ├── sandbox.py          # Temp Sandbox Workspace (TTL cache 30m, auto-cleanup LRU)
 │   ├── semantic.py         # Vector embeddings & semantic memory search
 │   ├── store.py            # JSON-backed tasks, people, schedules & notes
-│   ├── vault.py            # Document vault, catalog, categorization & PDF extractor
+│   ├── vault.py            # Document vault, catalog, Office parsers (.docx, .pptx, .xlsx) & Vision OCR
 │   └── __init__.py
 ├── whatsapp/               # WhatsApp / WAHA Integration
 │   ├── client.py           # HTTP client with retry & rate limiting

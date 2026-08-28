@@ -48,7 +48,8 @@ Tools are registered declaratively using the `@register_tool` decorator and disp
   - `add_task`: Supports `task_type="reminder"` (human tasks with lead buffers & nags) and `task_type="scheduled_action"` (autonomous bot jobs with polymorphic `job` descriptors).
   - `list_tasks`: Urgency-sorted listing with filtering by `status` (`pending`, `completed`, `all`) and `task_type`.
   - `update_task` & `complete_task`: Full lifecycle updates, rescheduling, and status management.
-- **Document Vault & Media (`files.py`, `whatsapp.py`)**:
+- **Document Vault & Media (`files.py`, `vault.py`, `ocr.py`, `whatsapp.py`)**:
+  - `read_vault_file`: Hybrid intra-page document reader. Extracts digital text instantly, while automatically running Gemini Multimodal Vision OCR on scanned/raster PDF pages, diagram/chart images, LaTeX math formulas, code screenshots, and Office formats (`.docx`, `.pptx`, `.xlsx`).
   - `send_vault_file`: Dispatches files from the vault. Supports `as_document=False` (native inline photo preview bubble) and `as_document=True` (lossless uncompressed document file).
   - Clean Media Delivery: Zero redundant `Dokumen: <filename>` caption clutter; respects WhatsApp's native UI cards.
 - **PDF & Document Manipulation Toolkit (`pdf_ops.py`, `pdf_engine.py`)**:
