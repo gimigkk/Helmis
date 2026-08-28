@@ -16,6 +16,8 @@ from datetime import datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
+from .ocr import perform_vision_ocr
+
 log = logging.getLogger("helmis-vault")
 TZ = ZoneInfo("Asia/Jakarta")
 
@@ -506,16 +508,29 @@ def delete_vault_directory(dir_path: str, recursive: bool = False) -> tuple[bool
     return True, f"Direktori '{clean_path}' berhasil dihapus ({removed_count} file di-unregister)."
 
 
+def _update_vault_file_ocr(file_id: str, ocr_text: str) -> None:
+    """Update OCR summary metadata for a file in catalog."""
+    try:
+        catalog = _load_catalog()
+        for f in catalog.get("files", []):
+            if f.get("id") == file_id:
+                f["ocr_summary"] = ocr_text[:2000]
+                _save_catalog(catalog)
+                break
+    except Exception as ex:
+        log.warning("Failed to update vault file OCR for %s: %s", file_id, ex)
+
+
 def read_vault_file(
     file_id_or_name: str,
-    max_chars: int = 8000,
+    max_chars: int = 15000,
 ) -> dict[str, Any]:
     """
-    Read and extract the contents of a file stored in the Document Vault.
-    Supports:
-    - Text/Markdown/Code/JSON/CSV (decoded UTF-8 with latin-1 fallback)
-    - PDF documents (extracts text from all pages via pypdf, falls back to OCR summary if raster)
-    - Images/Binary (returns metadata, size, description, and OCR summary)
+    Read content of a file from the vault.
+    - Plain text / JSON / Markdown / CSV: Decoded as string.
+    - PDF: Page-by-page digital text layer, falling back to Gemini Vision OCR for raster scans.
+    - DOCX / PPTX / XLSX: Extracted to structured Markdown.
+    - Images: Extracted via dynamic Gemini Vision OCR and cached into catalog.
     """
     res = get_vault_file_by_id(file_id_or_name)
     if not res:
@@ -567,41 +582,75 @@ def read_vault_file(
         content_type = "pdf"
         pdf_pages_text: list[str] = []
         is_encrypted = False
+        scanned_page_count = 0
         try:
-            import io
+            import pymupdf
 
-            import pypdf
-
-            reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
-            if reader.is_encrypted:
+            doc = pymupdf.open(stream=raw_bytes, filetype="pdf")
+            if doc.is_encrypted:
                 try:
-                    reader.decrypt("")
+                    doc.authenticate("")
                 except Exception:
                     is_encrypted = True
 
             if is_encrypted:
                 extracted_text = "[Dokumen PDF terenkripsi / ber-password. Konten teks tidak dapat diekstrak tanpa kata sandi.]"
             else:
-                total_p = len(reader.pages)
-                for i, page in enumerate(reader.pages):
-                    try:
-                        p_txt = page.extract_text() or ""
-                        if p_txt.strip():
-                            pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt.strip()}")
-                    except Exception:
-                        continue
+                total_p = len(doc)
+                for i, page in enumerate(doc):
+                    p_txt = page.get_text().strip()
+                    # If page has digital text (> 30 non-whitespace chars), use it directly
+                    if len(p_txt) > 30:
+                        pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt}")
+                    else:
+                        # Raster scan or diagram page -> perform Vision OCR!
+                        scanned_page_count += 1
+                        try:
+                            pix = page.get_pixmap(dpi=150)
+                            rendered_png = pix.tobytes("png")
+                            ocr_txt = perform_vision_ocr(
+                                rendered_png,
+                                "image/png",
+                                prompt_hint="Extract all readable text, tabular data, forms, signatures, and stamps from this scanned document page image into clean Markdown.",
+                            )
+                            if ocr_txt and ocr_txt.strip():
+                                pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} [Hasil Vision OCR] ---\n{ocr_txt.strip()}")
+                            elif p_txt:
+                                pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt}")
+                        except Exception as ocr_err:
+                            log.warning("Vision OCR failed on PDF page %d of %s: %s", i + 1, filename, ocr_err)
+                            if p_txt:
+                                pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt}")
+
+                doc.close()
                 if pdf_pages_text:
                     extracted_text = "\n\n".join(pdf_pages_text)
         except Exception as ex:
-            log.warning("pypdf text extraction error on %s: %s", filename, ex)
+            log.warning("pymupdf text extraction error on %s: %s, falling back to pypdf", filename, ex)
+            try:
+                import io
+                import pypdf
 
-        # Fallback to OCR summary if PDF has no embedded text layer (scanned image)
+                reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
+                total_p = len(reader.pages)
+                for i, page in enumerate(reader.pages):
+                    p_txt = page.extract_text() or ""
+                    if p_txt.strip():
+                        pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt.strip()}")
+                if pdf_pages_text:
+                    extracted_text = "\n\n".join(pdf_pages_text)
+            except Exception as fb_ex:
+                log.warning("pypdf fallback error on %s: %s", filename, fb_ex)
+
+        # Fallback to OCR summary if PDF has no embedded text layer
         if not extracted_text.strip():
             ocr = record.get("ocr_summary", "")
             if ocr:
                 extracted_text = f"[Hasil OCR Dokumen Scan]:\n{ocr}"
             else:
                 extracted_text = "[Dokumen PDF raster scan tanpa teks digital. Tidak ada teks yang dapat diekstrak.]"
+        elif scanned_page_count > 0 and not record.get("ocr_summary"):
+            _update_vault_file_ocr(record.get("id", ""), extracted_text[:1000])
 
     # 3. Microsoft Word Documents (.docx, .doc)
     elif ext in (".docx", ".doc") or "wordprocessingml" in mime:
@@ -647,6 +696,7 @@ def read_vault_file(
             import io
 
             import pptx
+            from pptx.enum.shapes import MSO_SHAPE_TYPE
 
             prs = pptx.Presentation(io.BytesIO(raw_bytes))
             slides_text: list[str] = []
@@ -655,6 +705,8 @@ def read_vault_file(
                 slide_parts: list[str] = []
                 if getattr(slide.shapes, "title", None) and slide.shapes.title.text:
                     slide_parts.append(f"**Judul:** {slide.shapes.title.text.strip()}")
+
+                picture_shapes = []
                 for shape in slide.shapes:
                     if shape == getattr(slide.shapes, "title", None):
                         continue
@@ -673,10 +725,31 @@ def read_vault_file(
                                 tbl_rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
                         if tbl_rows:
                             slide_parts.append("\n" + "\n".join(tbl_rows))
+                    elif getattr(shape, "shape_type", None) == MSO_SHAPE_TYPE.PICTURE or hasattr(shape, "image"):
+                        picture_shapes.append(shape)
+
                 if getattr(slide, "has_notes_slide", False) and slide.notes_slide and slide.notes_slide.notes_text_frame:
                     ntxt = slide.notes_slide.notes_text_frame.text.strip()
                     if ntxt:
                         slide_parts.append(f"*(Catatan Presenter: {ntxt})*")
+
+                # If slide has very little text (< 20 chars) and contains picture/diagram shapes, run Vision OCR!
+                combined_txt = " ".join(slide_parts)
+                if len(combined_txt) < 20 and picture_shapes:
+                    for p_shape in picture_shapes[:2]:
+                        try:
+                            img_blob = p_shape.image.blob
+                            img_mime = getattr(p_shape.image, "content_type", None) or "image/png"
+                            img_ocr = perform_vision_ocr(
+                                img_blob,
+                                img_mime,
+                                prompt_hint="Extract all readable text, flowchart nodes, diagram labels, and tables from this slide picture into clean Markdown.",
+                            )
+                            if img_ocr and img_ocr.strip():
+                                slide_parts.append(f"*(Hasil Vision OCR Gambar Slide)*:\n{img_ocr.strip()}")
+                        except Exception as img_err:
+                            log.warning("Vision OCR failed on slide picture %d of %s: %s", idx, filename, img_err)
+
                 if slide_parts:
                     slides_text.append(f"--- Slide {idx} dari {total_slides} ---\n" + "\n".join(slide_parts))
                 else:
@@ -733,7 +806,23 @@ def read_vault_file(
         content_type = "image"
         ocr = record.get("ocr_summary", "")
         desc = record.get("description", "")
-        extracted_text = f"[File Gambar/Foto]: {desc}\n[Hasil OCR]: {ocr if ocr else 'Tidak ada ringkasan OCR.'}"
+
+        # Dynamic Vision OCR extraction if summary is missing
+        if not ocr or ocr.strip() in ("", "Tidak ada ringkasan OCR."):
+            try:
+                fresh_ocr = perform_vision_ocr(
+                    raw_bytes,
+                    mime,
+                    prompt_hint="Extract all text, receipt items, prices, dates, tabular numbers, and forms from this document image into clean Markdown.",
+                )
+                if fresh_ocr and fresh_ocr.strip():
+                    ocr = fresh_ocr.strip()
+                    record["ocr_summary"] = ocr
+                    _update_vault_file_ocr(record.get("id", ""), ocr)
+            except Exception as ocr_e:
+                log.warning("Vision OCR failed on image %s: %s", filename, ocr_e)
+
+        extracted_text = f"[File Gambar/Foto]: {desc}\n\n[Hasil Vision OCR]:\n{ocr if ocr else 'Tidak ada teks yang dapat diekstrak dari gambar ini.'}"
 
     else:
         content_type = "binary"

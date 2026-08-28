@@ -2,6 +2,10 @@
 src.memory — Persistent Memory, Semantic Vector Store & Document Vault.
 """
 
+from .ocr import (
+    async_perform_vision_ocr,
+    perform_vision_ocr,
+)
 from .semantic import (
     DATA_DIR as SEMANTIC_DATA_DIR,
     SEMANTIC_MEMORY_FILE,
@@ -120,6 +124,8 @@ __all__ = [
     "log_activity",
     "move_vault_files",
     "parse_due_timestamp",
+    "perform_vision_ocr",
+    "async_perform_vision_ocr",
     "read_vault_file",
     "sanitize_filename",
     "save_file_to_vault",

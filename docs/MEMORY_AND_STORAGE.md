@@ -58,8 +58,12 @@ A secure, structured document management system for PDFs, documents, images, and
 - **Generic Media**: Unnamed camera captures (`IMG-...`, `image.jpeg`) receive clean descriptive slugs based on visual content (e.g. `scan_bpjs_kesehatan_gilang.jpg`).
 
 ### Inspection & Extraction
-- **PDF Text Layer Extraction**: Utilizes `pypdf` to extract text from digital PDF pages without needing expensive vision tokens.
-- **Image OCR**: Inspects scanned receipts, tickets, and photos.
+- **Hybrid PDF Reader**: Utilizes `pymupdf` to extract digital text layers instantly. For scanned/raster image pages (≤ 30 characters), automatically renders page pixmaps and invokes Gemini Multimodal Vision OCR.
+- **Microsoft Office Parsers**:
+  - `.docx` via `python-docx`: Extracts structured headings, paragraphs, and markdown tables.
+  - `.pptx` via `python-pptx`: Extracts slide boundaries (`--- Slide N dari Total ---`), slide titles, bullet points, speaker notes, and embedded picture OCR.
+  - `.xlsx` via `openpyxl`: Converts worksheets and column headers into clean tabular Markdown.
+- **Image OCR**: Automatically runs Gemini Vision OCR on standalone images (`.png`, `.jpg`, `.jpeg`, `.webp`) and caches results into `ocr_summary`.
 - **Search & Dispatch**: Supports keyword search (`search_vault_files`), text inspection (`read_vault_file`), and direct dispatch over WhatsApp (`send_vault_file`).
 
 ---
@@ -74,3 +78,14 @@ An isolated ephemeral workspace (`data/sandbox/` or `/app/data/sandbox/`) dedica
 - **Auto-Cleanup Engine**: Automatically prunes files older than 1 hour or purges the oldest files (LRU) when sandbox directory size exceeds 250MB.
 - **Path Traversal Protection**: Uses `is_safe_sandbox_path()` to ensure all read/write operations remain strictly confined to the sandbox folder.
 - **Atomic Operations**: Employs atomic write mechanisms (`.tmp` write followed by atomic rename) to avoid corrupted files if the process is terminated mid-write.
+
+---
+
+## 6. Multimodal Vision OCR Engine (`src/memory/ocr.py`)
+
+A high-precision document and image OCR engine leveraging the Google Gemini Vision multimodal API with multi-key rotation and zero-hallucination structured markdown prompting.
+
+### Key Features
+- **Dynamic Key Failover**: Rotates across all available `GEMINI_KEY_*` environment keys with automatic rate-limit (429) backoff.
+- **Strict Markdown Schema**: Prompts the vision model to output tables, forms, signatures, and stamps directly as clean Markdown without conversational preamble.
+- **Automatic Caching**: Persists extracted text into `file_catalog.json` (`ocr_summary`), eliminating repeated API calls and ensuring 0ms retrieval on subsequent reads.
