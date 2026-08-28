@@ -12,7 +12,7 @@ Dokumen ini mencatat seluruh backlog masalah, temuan root-cause dari runtime log
 | **[BACKLOG-02]** | Architecture | Temp Sandbox Workspace untuk File Sementara & URL Cache | `P0 - High` | ✅ Completed |
 | **[BACKLOG-03]** | Agent & Guardrails | Eliminasi Halusinasi Konfirmasi Aksi (Two-Step & Strict State Guardrail) | `P0 - High` | ✅ Completed |
 | **[BACKLOG-04]** | Vault & Files | Penanganan Bookmark Link vs Dokumen Fisik Brankas | `P1 - Medium` | 📋 Planned |
-| **[BACKLOG-05]** | Memory & Vault | Parser Dokumen Microsoft Office (`.pptx`, `.docx`, `.xlsx`) di `read_vault_file` | `P1 - Medium` | 📋 Planned |
+| **[BACKLOG-05]** | Memory & Vault | Parser Dokumen Microsoft Office (`.pptx`, `.docx`, `.xlsx`) di `read_vault_file` | `P1 - Medium` | ✅ Completed |
 | **[BACKLOG-06]** | WhatsApp Engine | Sinkronisasi `media_data` Biner pada Mid-Turn Steering | `P2 - Low` | ✅ Completed |
 | **[BACKLOG-07]** | Typography & UX | Standarisasi Format Task List, Timeline & Pemisahan Default Per Assignee | `P1 - Medium` | ✅ Completed |
 
@@ -67,12 +67,11 @@ Dokumen ini mencatat seluruh backlog masalah, temuan root-cause dari runtime log
 ---
 
 ### [BACKLOG-05] Parser Dokumen Microsoft Office (`.pptx`, `.docx`, `.xlsx`) di `read_vault_file`
-* **Masalah:**
-  `read_vault_file()` di `src/memory/vault.py` hanya mendukung ekstraksi teks dari `.pdf` dan plain text. File `.pptx`, `.docx`, dan `.xlsx` diperlakukan sebagai binary mentah (`[File Biner ...]`), sehingga agen tidak bisa membaca teks atau slide di dalamnya saat diambil dari brankas.
-* **Solusi Rencana:**
-  1. Integrasikan `python-pptx` untuk membaca teks per slide, judul, dan bullet points dari file `.pptx`.
-  2. Integrasikan `python-docx` untuk membaca paragraf dan tabel dari file `.docx`.
-  3. Integrasikan `openpyxl` untuk membaca sheet, header, dan baris dari file `.xlsx`.
+* **Status:** `✅ Completed (Deployed)`
+* **Implementasi:**
+  1. **PowerPoint Presentation Parser (`python-pptx`):** Mengekstrak teks per slide terstruktur (`--- Slide 1 dari N ---`), judul slide, bullet point berindentasi, tabel di dalam slide, dan catatan presenter (*speaker notes*), memudahkan instruksi spesifik seperti *"baca slide terakhir"*.
+  2. **Word Document Parser (`python-docx`):** Mengekstrak heading terstruktur (`### Heading`), paragraf teks, serta tabel Word ke format Markdown table.
+  3. **Excel Spreadsheet Parser (`openpyxl`):** Mengekstrak seluruh sheet, header kolom, dan baris data ke format Markdown table bersih dengan proteksi pemotongan (max 100 baris per sheet) untuk mencegah *token overflow*.
 
 ---
 

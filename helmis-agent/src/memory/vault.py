@@ -603,7 +603,132 @@ def read_vault_file(
             else:
                 extracted_text = "[Dokumen PDF raster scan tanpa teks digital. Tidak ada teks yang dapat diekstrak.]"
 
-    # 3. Images / Other media
+    # 3. Microsoft Word Documents (.docx, .doc)
+    elif ext in (".docx", ".doc") or "wordprocessingml" in mime:
+        content_type = "docx"
+        try:
+            import io
+
+            import docx
+
+            doc = docx.Document(io.BytesIO(raw_bytes))
+            doc_parts: list[str] = []
+            for p in doc.paragraphs:
+                p_txt = p.text.strip()
+                if not p_txt:
+                    continue
+                if getattr(p, "style", None) and getattr(p.style, "name", "").startswith("Heading"):
+                    doc_parts.append(f"\n### {p_txt}\n")
+                else:
+                    doc_parts.append(p_txt)
+
+            for table in doc.tables:
+                tbl_rows: list[str] = []
+                for r_idx, row in enumerate(table.rows):
+                    cells = [c.text.strip().replace("\n", " ") for c in row.cells]
+                    tbl_rows.append("| " + " | ".join(cells) + " |")
+                    if r_idx == 0:
+                        tbl_rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
+                if tbl_rows:
+                    doc_parts.append("\n" + "\n".join(tbl_rows) + "\n")
+
+            extracted_text = "\n\n".join(doc_parts).strip()
+            if not extracted_text:
+                extracted_text = "[Dokumen Word kosong / tanpa teks terbaca]"
+        except Exception as ex:
+            log.warning("python-docx extraction error on %s: %s", filename, ex)
+            desc = record.get("description", "")
+            extracted_text = f"[Dokumen Word ({filename})]: {desc} (Gagal membaca teks dokumen: {ex})"
+
+    # 4. Microsoft PowerPoint Presentations (.pptx, .ppt)
+    elif ext in (".pptx", ".ppt") or "presentationml" in mime:
+        content_type = "pptx"
+        try:
+            import io
+
+            import pptx
+
+            prs = pptx.Presentation(io.BytesIO(raw_bytes))
+            slides_text: list[str] = []
+            total_slides = len(prs.slides)
+            for idx, slide in enumerate(prs.slides, start=1):
+                slide_parts: list[str] = []
+                if getattr(slide.shapes, "title", None) and slide.shapes.title.text:
+                    slide_parts.append(f"**Judul:** {slide.shapes.title.text.strip()}")
+                for shape in slide.shapes:
+                    if shape == getattr(slide.shapes, "title", None):
+                        continue
+                    if getattr(shape, "has_text_frame", False) and shape.text_frame:
+                        for para in shape.text_frame.paragraphs:
+                            ptxt = "".join(r.text for r in para.runs).strip()
+                            if ptxt:
+                                indent = "  " * (getattr(para, "level", 0) or 0)
+                                slide_parts.append(f"{indent}- {ptxt}")
+                    elif getattr(shape, "has_table", False) and shape.table:
+                        tbl_rows = []
+                        for r_idx, row in enumerate(shape.table.rows):
+                            cells = [c.text.strip().replace("\n", " ") for c in row.cells]
+                            tbl_rows.append("| " + " | ".join(cells) + " |")
+                            if r_idx == 0:
+                                tbl_rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
+                        if tbl_rows:
+                            slide_parts.append("\n" + "\n".join(tbl_rows))
+                if getattr(slide, "has_notes_slide", False) and slide.notes_slide and slide.notes_slide.notes_text_frame:
+                    ntxt = slide.notes_slide.notes_text_frame.text.strip()
+                    if ntxt:
+                        slide_parts.append(f"*(Catatan Presenter: {ntxt})*")
+                if slide_parts:
+                    slides_text.append(f"--- Slide {idx} dari {total_slides} ---\n" + "\n".join(slide_parts))
+                else:
+                    slides_text.append(f"--- Slide {idx} dari {total_slides} ---\n*(Slide tanpa teks/hanya gambar)*")
+
+            extracted_text = "\n\n".join(slides_text).strip()
+            if not extracted_text:
+                extracted_text = "[Presentasi PowerPoint kosong / tanpa teks terbaca]"
+        except Exception as ex:
+            log.warning("python-pptx extraction error on %s: %s", filename, ex)
+            desc = record.get("description", "")
+            extracted_text = f"[Presentasi PowerPoint ({filename})]: {desc} (Gagal membaca teks slide: {ex})"
+
+    # 5. Microsoft Excel Spreadsheets (.xlsx, .xls)
+    elif ext in (".xlsx", ".xls") or "spreadsheetml" in mime:
+        content_type = "xlsx"
+        try:
+            import io
+
+            import openpyxl
+
+            wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=True, read_only=True)
+            sheets_text: list[str] = []
+            for sname in wb.sheetnames:
+                ws = wb[sname]
+                rows_data: list[list[str]] = []
+                for r in ws.iter_rows(values_only=True):
+                    if any(c is not None and str(c).strip() != "" for c in r):
+                        rows_data.append([str(c) if c is not None else "" for c in r])
+                if not rows_data:
+                    sheets_text.append(f"### Sheet: {sname}\n*(Sheet kosong)*")
+                    continue
+                capped_rows = rows_data[:100]
+                headers = [str(h).strip().replace("\n", " ") for h in capped_rows[0]]
+                tbl_lines = [
+                    "| " + " | ".join(headers) + " |",
+                    "| " + " | ".join(["---"] * len(headers)) + " |",
+                ]
+                for row in capped_rows[1:]:
+                    tbl_lines.append("| " + " | ".join(str(c).strip().replace("\n", " ") for c in row) + " |")
+                extra = f"\n*(Menampilkan {len(capped_rows)} dari {len(rows_data)} baris total)*" if len(rows_data) > 100 else ""
+                sheets_text.append(f"### Sheet: {sname}\n" + "\n".join(tbl_lines) + extra)
+            wb.close()
+            extracted_text = "\n\n".join(sheets_text).strip()
+            if not extracted_text:
+                extracted_text = "[Spreadsheet Excel kosong / tanpa tabel terbaca]"
+        except Exception as ex:
+            log.warning("openpyxl extraction error on %s: %s", filename, ex)
+            desc = record.get("description", "")
+            extracted_text = f"[Spreadsheet Excel ({filename})]: {desc} (Gagal membaca tabel sheet: {ex})"
+
+    # 6. Images / Other media
     elif mime.startswith("image/"):
         content_type = "image"
         ocr = record.get("ocr_summary", "")

@@ -45,7 +45,7 @@ pytest --cov=src tests/
 
 ---
 
-## 3. Test Suite Breakdown (20 Modules, 167 Tests)
+## 3. Test Suite Breakdown (20 Modules, 168 Tests)
 
 The test suite consists of 20 comprehensive test modules covering edge cases, adversarial inputs, data integrity, and multimodal integrations:
 
@@ -70,7 +70,7 @@ The test suite consists of 20 comprehensive test modules covering edge cases, ad
 | `test_search.py` | 3 | DuckDuckGo and Tavily web search integration |
 | `test_semantic_memory.py` | 4 | Gemini vector embeddings, cosine search, temporal supersession |
 | `test_skills.py` | 6 | Dynamic on-demand skill discovery, playbook loading, prompt segregation |
-| `test_vault.py` | 17 | Document Vault catalog, categories, PDF text layer extraction |
+| `test_vault.py` | 18 | Document Vault catalog, categories, PDF text layer, & Office extractors (.docx, .pptx, .xlsx) |
 
 ---
 

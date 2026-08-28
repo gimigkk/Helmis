@@ -546,3 +546,85 @@ async def test_save_and_send_vault_file_tools_use_original_filename() -> None:
     assert kwargs["filename"] == orig_doc_name
     assert kwargs["chat_id"] == "120363123456789@g.us"
 
+
+def test_read_vault_file_office_parsers() -> None:
+    """Verify read_vault_file extracts clean structured text from DOCX, PPTX, and XLSX."""
+    import io
+    import docx
+    import pptx
+    import openpyxl
+
+    # 1. Test DOCX
+    doc = docx.Document()
+    doc.add_heading("Silabus AI", level=1)
+    doc.add_paragraph("Materi Pengantar Deep Learning")
+    tbl = doc.add_table(rows=2, cols=2)
+    tbl.cell(0, 0).text = "Minggu"
+    tbl.cell(0, 1).text = "Topik"
+    tbl.cell(1, 0).text = "1"
+    tbl.cell(1, 1).text = "Transformer Architecture"
+    buf_docx = io.BytesIO()
+    doc.save(buf_docx)
+
+    rec_docx = save_file_to_vault(
+        data=buf_docx.getvalue(),
+        filename="silabus_ai.docx",
+        category="documents",
+        owner="Gilang",
+    )
+    res_docx = read_vault_file(rec_docx["id"])
+    assert res_docx["status"] == "success"
+    assert res_docx["content_type"] == "docx"
+    assert "### Silabus AI" in res_docx["content"]
+    assert "Transformer Architecture" in res_docx["content"]
+
+    # 2. Test PPTX
+    prs = pptx.Presentation()
+    slide1 = prs.slides.add_slide(prs.slide_layouts[0])
+    slide1.shapes.title.text = "Presentasi Bisnis"
+    slide1.placeholders[1].text = "Latar Belakang\nStrategi Eksekusi"
+
+    slide2 = prs.slides.add_slide(prs.slide_layouts[1])
+    slide2.shapes.title.text = "Slide Terakhir: Penutup"
+    slide2.placeholders[1].text = "Rencana Target Q4 2026"
+    buf_pptx = io.BytesIO()
+    prs.save(buf_pptx)
+
+    rec_pptx = save_file_to_vault(
+        data=buf_pptx.getvalue(),
+        filename="pitch_deck.pptx",
+        category="documents",
+        owner="Gilang",
+    )
+    res_pptx = read_vault_file(rec_pptx["id"])
+    assert res_pptx["status"] == "success"
+    assert res_pptx["content_type"] == "pptx"
+    assert "--- Slide 1 dari 2 ---" in res_pptx["content"]
+    assert "**Judul:** Presentasi Bisnis" in res_pptx["content"]
+    assert "--- Slide 2 dari 2 ---" in res_pptx["content"]
+    assert "Slide Terakhir: Penutup" in res_pptx["content"]
+    assert "Rencana Target Q4 2026" in res_pptx["content"]
+
+    # 3. Test XLSX
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Rekap Anggaran"
+    ws.append(["Item", "Jumlah", "Harga"])
+    ws.append(["Server VPS", "1", "150000"])
+    ws.append(["Domain .id", "1", "250000"])
+    buf_xlsx = io.BytesIO()
+    wb.save(buf_xlsx)
+
+    rec_xlsx = save_file_to_vault(
+        data=buf_xlsx.getvalue(),
+        filename="anggaran.xlsx",
+        category="receipts",
+        owner="Gilang",
+    )
+    res_xlsx = read_vault_file(rec_xlsx["id"])
+    assert res_xlsx["status"] == "success"
+    assert res_xlsx["content_type"] == "xlsx"
+    assert "### Sheet: Rekap Anggaran" in res_xlsx["content"]
+    assert "Server VPS" in res_xlsx["content"]
+    assert "150000" in res_xlsx["content"]
+
