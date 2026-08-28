@@ -325,10 +325,10 @@ def _resolve_target_files(target: str | list[str], exact_only: bool = False) -> 
     catalog = _load_catalog()
     files = catalog.get("files", [])
     if isinstance(target, list):
-        ids_or_names = {str(t).lower().strip() for t in target}
+        ids_or_names = {t.lower().strip() for t in target}
         return [f for f in files if f.get("id", "").lower() in ids_or_names or f.get("filename", "").lower() in ids_or_names]
 
-    t_str = str(target).strip()
+    t_str = target.strip()
     if not t_str:
         return []
 
@@ -598,7 +598,8 @@ def read_vault_file(
             else:
                 total_p = len(doc)
                 for i, page in enumerate(doc):
-                    p_txt = page.get_text().strip()
+                    raw_txt = page.get_text("text")
+                    p_txt = str(raw_txt).strip() if raw_txt else ""
                     # If page has digital text (> 30 non-whitespace chars), use it directly
                     if len(p_txt) > 30:
                         pdf_pages_text.append(f"--- Halaman {i+1} dari {total_p} ---\n{p_txt}")
@@ -710,16 +711,18 @@ def read_vault_file(
                 for shape in slide.shapes:
                     if shape == getattr(slide.shapes, "title", None):
                         continue
-                    if getattr(shape, "has_text_frame", False) and shape.text_frame:
-                        for para in shape.text_frame.paragraphs:
-                            ptxt = "".join(r.text for r in para.runs).strip()
+                    tf = getattr(shape, "text_frame", None)
+                    tbl = getattr(shape, "table", None)
+                    if tf and hasattr(tf, "paragraphs"):
+                        for para in getattr(tf, "paragraphs", []):
+                            ptxt = "".join(getattr(r, "text", "") for r in getattr(para, "runs", [])).strip()
                             if ptxt:
                                 indent = "  " * (getattr(para, "level", 0) or 0)
                                 slide_parts.append(f"{indent}- {ptxt}")
-                    elif getattr(shape, "has_table", False) and shape.table:
+                    elif tbl and hasattr(tbl, "rows"):
                         tbl_rows = []
-                        for r_idx, row in enumerate(shape.table.rows):
-                            cells = [c.text.strip().replace("\n", " ") for c in row.cells]
+                        for r_idx, row in enumerate(getattr(tbl, "rows", [])):
+                            cells = [getattr(c, "text", "").strip().replace("\n", " ") for c in getattr(row, "cells", [])]
                             tbl_rows.append("| " + " | ".join(cells) + " |")
                             if r_idx == 0:
                                 tbl_rows.append("| " + " | ".join(["---"] * len(cells)) + " |")
@@ -783,13 +786,13 @@ def read_vault_file(
                     sheets_text.append(f"### Sheet: {sname}\n*(Sheet kosong)*")
                     continue
                 capped_rows = rows_data[:100]
-                headers = [str(h).strip().replace("\n", " ") for h in capped_rows[0]]
+                headers = [h.strip().replace("\n", " ") for h in capped_rows[0]]
                 tbl_lines = [
                     "| " + " | ".join(headers) + " |",
                     "| " + " | ".join(["---"] * len(headers)) + " |",
                 ]
                 for row in capped_rows[1:]:
-                    tbl_lines.append("| " + " | ".join(str(c).strip().replace("\n", " ") for c in row) + " |")
+                    tbl_lines.append("| " + " | ".join(c.strip().replace("\n", " ") for c in row) + " |")
                 extra = f"\n*(Menampilkan {len(capped_rows)} dari {len(rows_data)} baris total)*" if len(rows_data) > 100 else ""
                 sheets_text.append(f"### Sheet: {sname}\n" + "\n".join(tbl_lines) + extra)
             wb.close()

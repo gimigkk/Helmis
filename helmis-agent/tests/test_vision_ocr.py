@@ -155,11 +155,13 @@ def test_read_pptx_picture_slide_triggers_vision_ocr() -> None:
     prs = pptx.Presentation()
     slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
 
+    from pptx.util import Inches
+
     img = Image.new("RGB", (200, 100), color=(100, 150, 200))
     img_io = io.BytesIO()
     img.save(img_io, format="PNG")
     img_io.seek(0)
-    slide.shapes.add_picture(img_io, 50000, 50000)
+    slide.shapes.add_picture(img_io, Inches(1), Inches(1))
 
     buf = io.BytesIO()
     prs.save(buf)
