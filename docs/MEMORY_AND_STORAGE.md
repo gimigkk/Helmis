@@ -1,12 +1,18 @@
 # Memory Architecture & Persistent Storage
 
-This document details Helmis's 3-tier local storage architecture: the **Atomic JSON Store** (`helmis_memory.json`), **Semantic Vector Memory** (`semantic_memories.json`), and the **Document Vault** (`data/vault/`).
+This document details Helmis's 3-tier persistent memory and storage architecture: the **Working Memory & Chat Buffer**, **Episodic Vector Memory** (`semantic_memories.json`), **Procedural Skill Memory** (`config/skills/`), the **Atomic JSON Store** (`helmis_memory.json`), and the **Document Vault** (`data/vault/`).
 
 ---
 
-## 1. Multi-Tier Storage Overview
+## 1. Multi-Tier Memory & Storage Overview
 
-All user data is stored locally on the server volume (`./data`) with zero external database dependencies.
+Helmis operates a complete 3-layer cognitive memory model:
+1. **Working Memory**: Real-time conversation context and mid-turn mailbox buffer via WAHA.
+2. **Episodic Vector Memory**: Semantic vector embeddings of user facts, preferences, and personal routines.
+3. **Procedural Skill Memory**: Reusable, persistent operational playbooks (`SKILL.md`) that Helmis learns via explicit user teaching or autonomous auto-crystallization.
+
+All user data is stored locally on the server volume (`./data` and `./config`) with zero external database dependencies.
+
 
 ```
 data/

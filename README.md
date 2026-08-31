@@ -48,6 +48,10 @@ Helmis is a private, zero-latency **AI Executive Secretary** built for real-worl
 
 ## Key Highlights
 
+- **Forced Tool Calling & Anti-Promissory Guardrail**: Pre-emptive intent classification automatically sets `toolConfig.mode = "ANY"` on action turns, mathematically forcing Gemini to emit function calls instead of making unexecuted verbal promises (*"nanti gw geser"*).
+- **Procedural Memory & Self-Learning Skills**: Learns new operational playbooks taught by users in WhatsApp (`create_skill`, `update_skill`, `list_skills`) and persists them as portable `SKILL.md` files adhering to the `agentskills.io` standard.
+- **Autonomous Auto-Crystallization**: An asynchronous zero-latency background worker reflects on multi-step workflows and autonomously synthesizes reusable operational skills (Voyager & Hermes Agent pattern).
+- **Universal Code Execution Sandbox**: Executes Python 3 in an isolated subprocess (`execute_code`) for dynamic calculations, date/time manipulation in WIB, and data processing without rigid tool constraints.
 - **Autonomous ReAct Loop & Cascade**: Seamless round-robin failover across multiple Google Gemini API keys and tiers (`gemini-2.5-pro` → `gemini-2.5-flash` → `gemini-2.0-flash`).
 - **Mid-Turn Mailbox Steering**: If a user sends a follow-up or correction while the agent is executing tools, the turn immediately steers to incorporate the new guidance in real-time.
 - **Multimodal Intelligence & Vision OCR**: Extracts text from scanned PDFs, diagrams, spreadsheets, and presentation slides via Gemini Vision OCR (150 DPI page pixmaps).

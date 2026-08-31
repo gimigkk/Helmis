@@ -83,10 +83,11 @@ The agent codebase is organized into 4 distinct domain packages under `helmis-ag
 
 ```
 helmis-agent/src/
-├── agent/                  # Brain, ReAct Loop & Cascade Orchestration
+├── agent/                  # Brain, ReAct Loop, Crystallizer & Cascade Orchestration
 │   ├── cascade.py          # Gemini model fallback cascade & multi-key rotation
-│   ├── guardrails.py       # Two-step state mutation guardrails & footnote chips
-│   ├── loop.py             # Autonomous ReAct loop, binary media sync & mailbox steering
+│   ├── crystallize.py      # Autonomous Auto-Crystallization & Background Reflection Engine
+│   ├── guardrails.py       # Pre-emptive intent classification, anti-promissory guardrails & chips
+│   ├── loop.py             # Autonomous ReAct loop, forced tool calling (mode: ANY) & steering
 │   ├── proactive.py        # Proactive reminder evaluator, 2-stage lead buffer & nag loops
 │   ├── tracer.py           # Structured execution tracer & ANSI debugging
 │   └── __init__.py
@@ -109,6 +110,7 @@ helmis-agent/src/
 │   ├── webhook.py          # Starlette HTTP controller (< 120 LOC)
 │   └── __init__.py
 ├── tools/                  # Function Tool Declarations & Handlers
+│   ├── code_exec.py        # Sandboxed Python code execution engine (universal compute)
 │   ├── contacts.py         # Contact lookup & storage tool
 │   ├── files.py            # Document vault tool handlers
 │   ├── google_reader.py    # Google Workspace (Sheets, Docs, Slides, Drive) & Web engine
@@ -117,9 +119,9 @@ helmis-agent/src/
 │   ├── notes.py            # Quick notes tool handlers
 │   ├── pdf_ops.py          # Unified PDF & document manipulation tool (process_pdf)
 │   ├── registry.py         # Tool registry decorator & dispatcher
-│   ├── schema.py           # Gemini Tool function declarations
+│   ├── schema.py           # Gemini Tool function declarations (40 tools)
 │   ├── search.py           # Live DuckDuckGo / Tavily web search engine
-│   ├── skills.py           # Dynamic on-demand skill loader (load_skill)
+│   ├── skills.py           # Procedural skill manager (create_skill, update_skill, list_skills, load_skill)
 │   ├── tasks.py            # Task & reminder tool handlers
 │   ├── web.py              # Web & Google reader tool handlers (read_url & aliases)
 │   ├── whatsapp.py         # WhatsApp message sending tool handlers

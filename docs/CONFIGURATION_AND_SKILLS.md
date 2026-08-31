@@ -33,10 +33,17 @@ Skills provide specialized domain knowledge and procedures. Each skill is define
 | `skills/people-directory/` | Contacts & relationship directory | Tracking roles, phone numbers, emails, notes for actors |
 | `skills/schedule-manager/` | Calendar events & class routines | Daily agendas, weekly schedules, class timetables in unified cards |
 
+### Procedural Memory & Self-Learning Skills
+Helmis can learn new skills and behavioral playbooks during runtime:
+1. **Explicit Teaching (`create_skill`, `update_skill`)**: When a user explains a new procedure in chat (*"Helmis, kalau gw minta format X, prosedurnya begini..."*), Helmis calls `create_skill` to write a new `SKILL.md` file adhering to the `agentskills.io` standard.
+2. **Autonomous Auto-Crystallization (`crystallize.py`)**: When Helmis completes a novel multi-step workflow ($\ge 2$ non-trivial tools or custom `execute_code` logic), a background LLM Critic reflects on the trajectory and automatically writes `config/skills/auto-<name>/SKILL.md`.
+3. **Skill Discovery (`list_skills`)**: Helmis can query all installed and auto-created skills at any time.
+
 ### On-Demand Progressive Skill Loading (`load_skill`)
 To prevent prompt bloat and preserve sub-second response times, specialized toolkits (such as `pdf-toolkit`) are segregated into an **On-Demand Skills Index** in the base system prompt (~30 tokens). When Helmis encounters a complex domain task, it invokes `load_skill(name="<skill-name>")` to dynamically load the complete operational playbook into working memory.
 
 ---
+
 
 ## 3. Environment Variables (`.env`)
 

@@ -8,6 +8,80 @@ from typing import Any
 
 log = logging.getLogger("helmis-guardrails")
 
+# ---------------------------------------------------------------------------
+# Pre-Emptive Intent Classifier — determines Gemini toolConfig mode
+# ---------------------------------------------------------------------------
+
+# Patterns that indicate a clear QUERY intent (read-only inspection, questions, listings)
+_QUERY_PATTERNS = re.compile(
+    r"(?:"
+    r"^(?:cek|check|lihat|liat|show|tampil(?:kan|in)?|list|daftar|cari(?:in|kan)?|search|find|baca(?:in|kan)?|read|rangkum|summarize)\b"
+    r"|(?:ada\s+(?:tugas|jadwal|reminder|agenda|catatan|file)|apa\s+(?:aja|saja|jadwal|tugas|agenda|kegiatan))"
+    r"|(?:tugas|task|reminder|jadwal|catatan|note|file|dokumen)\s+(?:apa|mana|yang\s+mana)"
+    r"|(?:berapa|kapan|dimana|siapa|nomor|kontak|email)\b"
+    r"|\?$"
+    r")",
+    re.IGNORECASE,
+)
+
+# Patterns that indicate an ACTION intent (state mutation required)
+_ACTION_PATTERNS = re.compile(
+    r"(?:"
+    # Reschedule / snooze / postpone relative phrases
+    r"(?:\b(?:siangan|sorean|malaman|besokan|ntar|entar|nanti(?:\s+aja)?|tunda|mundur(?:in|kan)?|geser|pindah(?:in|kan)?)\b)"
+    r"|(?:ganti|ubah|update|reschedule|snooze|postpone)\s+(?:jadwal|waktu|jam|deadline|reminder|tugas)"
+    r"|\b(?:jam|pukul)\s+\d{1,2}(?:[:.]\d{2})?"
+    # Create / add / record (e.g. ingetin gw bayar kosan, remind me, catat tugas)
+    r"|(?:inget(?:in|kan)?|remind|catat(?:in|kan)?|jadwal(?:in|kan)?|bikin(?:in|kan)?|buat(?:in|kan)?|tambah(?:in|kan)?|set)\b"
+    r"|(?:tolong|coba|minta)\s+(?:kirim|hapus|simpan|save|delete|send|forward)"
+    # Delete / complete / mark
+    r"|(?:hapus|delete|buang|hilang(?:in|kan)?)\s+(?:tugas|task|reminder|catatan|note|memori|file)"
+    r"|(?:selesai(?:in|kan)?|done|complete|mark|tandai)\s+(?:tugas|task|reminder)"
+    r"|(?:tugas|task|reminder)\s+.*?\s+(?:selesai|done|beres|kelar)"
+    # File / vault operations
+    r"|(?:kirim(?:in|kan)?|send|forward)\s+(?:file|dokumen|foto|gambar|pdf)"
+    r"|(?:simpan|save)\s+(?:ini|file|dokumen|foto)"
+    # Explicit time-shift directives
+    r"|\b\d+\s*(?:jam|menit|minute|hour)\s+lagi\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def classify_turn_intent(text: str) -> str:
+    """
+    Classify user message intent to determine Gemini toolConfig mode.
+
+    Returns:
+        'action'  — State mutation required (force tool call via mode=ANY)
+        'query'   — Data retrieval likely (mode=AUTO, tools available)
+        'chat'    — Casual conversation (mode=AUTO)
+    """
+    if not text or not text.strip():
+        return "chat"
+
+    clean = text.strip()
+
+    # 1. Explicit query verbs / questions take precedence for read requests (e.g. 'cek jadwal besok')
+    if _QUERY_PATTERNS.search(clean) and not re.search(r"\b(?:ingetin|remind|catatin|buatkan|jadwalkan|hapus|geser|mundurin)\b", clean, re.IGNORECASE):
+        return "query"
+
+    # 2. Action patterns (reschedule, snooze, add_task, update_task, complete_task, save/send file)
+    if _ACTION_PATTERNS.search(clean):
+        return "action"
+
+    # 3. Secondary query check
+    if _QUERY_PATTERNS.search(clean):
+        return "query"
+
+    # 4. URLs or docs likely need read tools
+    if re.search(r"https?://|docs\.google|sheets\.google|drive\.google", clean, re.IGNORECASE):
+        return "query"
+
+    return "chat"
+
+
+
 SUPERSCRIPTS = {
     "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
     "n": "ⁿ", "k": "ᵏ", "x": "ˣ", "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾"
@@ -99,14 +173,16 @@ def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
 
         if name in ("read_url", "read_web_page", "read_google_sheet", "read_google_doc", "read_google_slides"):
             src_type = res.get("source_type") if isinstance(res, dict) else None
-            base_name = {
+            src_str = str(src_type).strip() if src_type else ""
+            base_map = {
                 "google_sheets": "read_google_sheet",
                 "google_docs": "read_google_doc",
                 "google_slides": "read_google_slides",
                 "google_drive": "read_google_drive",
                 "google_forms": "read_google_form",
                 "generic_web": "read_web_page",
-            }.get(src_type, name)
+            }
+            base_name = base_map.get(src_str, name)
             if ext_mode:
                 chips_list.append(f"{base_name}:{ext_mode}")
             else:
@@ -127,8 +203,6 @@ def format_tool_chips(executed_tools: list[dict[str, Any]]) -> str | None:
     chips = ", ".join(f"`{name}`" for name in unique_tools)
     return f"↳ {chips}"
 
-
-import re
 
 MUTATION_CLAIM_PATTERNS = [
     (
@@ -151,6 +225,19 @@ MUTATION_CLAIM_PATTERNS = [
             re.IGNORECASE,
         ),
         {"delete_task", "delete_note", "delete_memory", "delete_vault_files", "delete_vault_directory"},
+    ),
+    (
+        "promissory_reschedule",
+        re.compile(
+            r"(?:nanti|entar|ntar)\s+(?:gw|aku|ak|helmis)\s+(?:geser|pindah|ubah|ganti|inget|ingetin|kirim|set|atur)"
+            r"|(?:akan|bakal|mau)\s+(?:gw|aku|ak|helmis)\s+(?:geser|pindah|ubah|ganti|inget|ingetin|kirim|atur)"
+            r"|(?:gw|aku|ak|helmis)\s+(?:geser|pindah|ubah|ganti|inget|ingetin)\s+(?:nanti|lagi|ntar|entar)"
+            r"|(?:nanti|entar)\s+(?:di(?:geser|pindah|ubah|ganti|ingetin|kirim(?:in)?))"
+            r"|reminder-?nya\s+(?:gw|aku)\s+(?:geser|pindah|ubah)"
+            r"|(?:gw|aku)\s+(?:atur|set)\s+ulang\s+(?:nanti|lagi)",
+            re.IGNORECASE,
+        ),
+        {"update_task", "add_task"},
     ),
     (
         "add_task",

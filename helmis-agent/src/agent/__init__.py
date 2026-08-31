@@ -13,7 +13,9 @@ from .cascade import (
     load_all_skills,
     load_system_prompt,
 )
+from .crystallize import auto_crystallize_turn, should_attempt_crystallization
 from .guardrails import (
+    classify_turn_intent,
     detect_unexecuted_mutation_claims,
     format_tool_chips,
     inject_tool_directive,
@@ -28,6 +30,8 @@ __all__ = [
     "GEMINI_KEYS",
     "GEMINI_MODELS",
     "GEMINI_TOOLS",
+    "auto_crystallize_turn",
+    "classify_turn_intent",
     "detect_unexecuted_mutation_claims",
     "drain_and_inject_mid_turn_mailbox",
     "execute_tool_call",
@@ -40,6 +44,7 @@ __all__ = [
     "load_all_skills",
     "load_system_prompt",
     "run_agentic_react_loop",
+    "should_attempt_crystallization",
     "transcribe_audio_base64",
     "verify_action_fidelity",
 ]

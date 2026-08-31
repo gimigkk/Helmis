@@ -684,6 +684,76 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                     "required": ["action", "target_files"],
                 },
             },
+            {
+                "name": "create_skill",
+                "description": "Create a new operational skill playbook (procedural memory). Use this when the user teaches Helmis a new procedure, workflow, or behavioral rule that should persist across sessions. The agent can also auto-create skills after completing novel multi-step tasks.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "name": {
+                            "type": "STRING",
+                            "description": "Short kebab-case name for the skill (e.g. 'snooze-handler', 'grade-calculator', 'meeting-prep').",
+                        },
+                        "description": {
+                            "type": "STRING",
+                            "description": "One-line description of what this skill does.",
+                        },
+                        "content": {
+                            "type": "STRING",
+                            "description": "Full markdown content of the skill playbook with operational directives, procedures, and rules.",
+                        },
+                    },
+                    "required": ["name", "content"],
+                },
+            },
+            {
+                "name": "update_skill",
+                "description": "Update an existing skill playbook by replacing or appending content. Use when refining a learned procedure based on user feedback or new experience.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "name": {
+                            "type": "STRING",
+                            "description": "Name of the existing skill to update (e.g. 'reminder-engine').",
+                        },
+                        "content": {
+                            "type": "STRING",
+                            "description": "New content to replace or append to the skill.",
+                        },
+                        "append": {
+                            "type": "BOOLEAN",
+                            "description": "If true, append content to existing skill. If false (default), replace the body while preserving frontmatter.",
+                        },
+                    },
+                    "required": ["name", "content"],
+                },
+            },
+            {
+                "name": "list_skills",
+                "description": "List all available skill playbooks with their names and descriptions.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {},
+                },
+            },
+            {
+                "name": "execute_code",
+                "description": "Execute Python code in a sandboxed environment. Use for calculations, data processing, date/time arithmetic, unit conversions, text parsing, CSV/JSON manipulation, or any computation that doesn't have a dedicated tool. Returns stdout and stderr.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "code": {
+                            "type": "STRING",
+                            "description": "Python 3 code to execute. Use print() to output results. Available modules: math, json, datetime, re, collections, itertools, statistics, decimal, fractions, calendar, zoneinfo.",
+                        },
+                        "timeout": {
+                            "type": "INTEGER",
+                            "description": "Maximum execution time in seconds (default: 15, max: 30).",
+                        },
+                    },
+                    "required": ["code"],
+                },
+            },
         ]
     }
 ]

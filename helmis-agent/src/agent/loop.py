@@ -18,7 +18,9 @@ from .cascade import (
     load_all_skills,
     load_system_prompt,
 )
+from .crystallize import auto_crystallize_turn
 from .guardrails import (
+    classify_turn_intent,
     detect_unexecuted_mutation_claims,
     inject_tool_directive,
     verify_action_fidelity,
@@ -181,6 +183,10 @@ async def run_agentic_react_loop(
     executed_tools: list[dict[str, Any]] = []
     active_model = candidate_models[0] if candidate_models else "gemini-flash-lite-latest"
 
+    # Pre-emptive Intent Classification: detect if user intent requires forced tool calling
+    turn_intent = classify_turn_intent(message_text)
+    log.debug("Pre-emptive intent classification for [%s]: %s", sender_name, turn_intent)
+
     step = 0
     total_steps = 0
     while step < max_steps and total_steps < 18:
@@ -197,13 +203,25 @@ async def run_agentic_react_loop(
         )
         if has_new_input:
             step = max(0, step - 3)
+            # Re-classify intent on mid-turn steering (user may have changed direction)
+            last_user_parts = [p.get("text", "") for c in contents if c.get("role") == "user" for p in c.get("parts", []) if "text" in p]
+            if last_user_parts:
+                turn_intent = classify_turn_intent(last_user_parts[-1])
 
-        payload = {
+        payload: dict[str, Any] = {
             "systemInstruction": {"parts": [{"text": full_system_instruction}]},
             "contents": contents,
             "tools": GEMINI_TOOLS,
             "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2048},
         }
+
+        # Forced Tool Calling: On first step with action intent, force model to emit functionCall
+        # After step 0, revert to AUTO so model can synthesize final text response
+        if step == 0 and turn_intent == "action":
+            payload["toolConfig"] = {
+                "functionCallingConfig": {"mode": "ANY"}
+            }
+            log.debug("Forced tool calling (mode=ANY) for action intent on step 0")
 
         # Attempt call with Multi-Model & Multi-Key Cascade
         response_data: dict[str, Any] | None = None
@@ -352,6 +370,21 @@ async def run_agentic_react_loop(
             if cleaned in ("[NO_REPLY]", "NO_REPLY", "None"):
                 log.debug("Agent decided no reply is needed for this turn.")
                 return None
+
+            # Autonomous Auto-Crystallization: Spawn background reflection worker for novel multi-tool workflows
+            if executed_tools:
+                try:
+                    asyncio.create_task(
+                        auto_crystallize_turn(
+                            sender_name=sender_name,
+                            user_message=message_text,
+                            executed_tools=executed_tools,
+                            final_response=cleaned,
+                        )
+                    )
+                except Exception as ex:
+                    log.debug("Could not spawn background auto-crystallization: %s", ex)
+
             log.debug("Agent finalized response in %d steps: %s", step + 1, cleaned[:60])
             return cleaned
 

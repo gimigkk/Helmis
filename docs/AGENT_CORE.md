@@ -48,14 +48,19 @@ Tools are registered declaratively using the `@register_tool` decorator and disp
   - `add_task`: Supports `task_type="reminder"` (human tasks with lead buffers & nags) and `task_type="scheduled_action"` (autonomous bot jobs with polymorphic `job` descriptors).
   - `list_tasks`: Urgency-sorted listing with filtering by `status` (`pending`, `completed`, `all`) and `task_type`.
   - `update_task` & `complete_task`: Full lifecycle updates, rescheduling, and status management.
+- **Universal Code Execution Sandbox (`code_exec.py`)**:
+  - `execute_code`: Executes Python 3 in an isolated subprocess for arbitrary computation: date/time arithmetic in WIB, mathematical calculations, custom string/data parsing, and JSON/CSV processing without requiring bespoke tools.
+- **Procedural Memory & Dynamic Skills (`skills.py`, `crystallize.py`)**:
+  - `create_skill`: Allows user or agent to crystallize reusable procedures into persistent `SKILL.md` playbooks under `config/skills/`.
+  - `update_skill`: Refines or appends to existing skill playbooks.
+  - `list_skills`: Lists all operational skills available in the environment.
+  - `load_skill`: Dynamically loads specialized on-demand playbooks into working memory.
 - **Document Vault & Media (`files.py`, `vault.py`, `ocr.py`, `whatsapp.py`)**:
   - `read_vault_file`: Hybrid intra-page document reader. Extracts digital text instantly, while automatically running Gemini Multimodal Vision OCR on scanned/raster PDF pages, diagram/chart images, LaTeX math formulas, code screenshots, and Office formats (`.docx`, `.pptx`, `.xlsx`).
   - `send_vault_file`: Dispatches files from the vault. Supports `as_document=False` (native inline photo preview bubble) and `as_document=True` (lossless uncompressed document file).
   - Clean Media Delivery: Zero redundant `Dokumen: <filename>` caption clutter; respects WhatsApp's native UI cards.
 - **PDF & Document Manipulation Toolkit (`pdf_ops.py`, `pdf_engine.py`)**:
   - `process_pdf`: Unified polymorphic tool supporting `merge` (native zero-margin or uniform A4), `split` (page slicing & rotation), `render_image` (PNG/JPG photo preview), `images_to_pdf` (photos to PDF), `to_docx` (PDF ➔ Word), `from_docx` (Word ➔ PDF), and `compress` (stream optimization).
-- **On-Demand Skill Engine (`skills.py`)**:
-  - `load_skill`: Dynamically loads domain playbooks (e.g. `pdf-toolkit`) into working memory on-demand.
 - **Memory & Notes (`notes.py`, `memory.py`)**:
   - Persistent JSON and semantic vector memories.
 - **Web & Google Workspace Reader Engine (`google_reader.py`, `web.py`)**:
@@ -64,6 +69,7 @@ Tools are registered declaratively using the `@register_tool` decorator and disp
   - **Multi-Tab Published Sheets (`pubhtml`) Parser**: Standard `html.parser.HTMLParser` engine discovering JavaScript tabs and extracting tabular HTML into clean Markdown without external dependencies.
   - **Epistemic Humility**: Metadata `snapshot_at` WIB, `force_refresh=True` flag, and private document redirect detection (`accounts.google.com/ServiceLogin`).
   - **SSRF Safety**: Validates IPs against private/local ranges (`127.0.0.0/8`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `169.254.0.0/16`, etc.).
+
 
 ---
 
@@ -150,3 +156,31 @@ Every turn produces structured trace logs recorded to `data/agent_traces.jsonl` 
 - **Tool Invocations**: Tool name, arguments, execution duration (ms), return status.
 - **Cascade Fallbacks**: Model switches, key rotations, retry latencies.
 - **Final Outcome**: Generated text, bubble count, total execution time.
+
+---
+
+## 8. Pre-Emptive Intent Classification & Forced Tool Calling
+
+To completely eliminate **Promissory Hallucinations** (e.g. the agent replying *"Sip, nanti reminder-nya gw geser"* without invoking `update_task`), Helmis uses pre-emptive intent routing:
+
+1. **`classify_turn_intent(message_text)`**: Evaluates incoming message text before the first LLM call:
+   - `action`: State mutation detected (snooze, delay, reschedule, create task, delete, save file).
+   - `query`: Read-only inspection detected (list tasks, check schedule, search).
+   - `chat`: Casual banter.
+2. **Forced Function Calling (`mode: ANY`)**:
+   - On step 0 with `action` intent, Helmis injects `toolConfig.functionCallingConfig.mode = "ANY"` into the Gemini API payload.
+   - The LLM is **strictly prohibited from emitting text output** and must emit a valid tool call.
+   - On subsequent steps, `mode` reverts to `AUTO` so the model can synthesize a final verified confirmation.
+3. **Anti-Promissory Guardrail (`promissory_reschedule`)**:
+   - Patterns catching future promises (*"nanti gw geser"*, *"akan gw ingatkan"*) are intercepted if no mutation tool was executed.
+
+---
+
+## 9. Autonomous Auto-Crystallization Engine (`src/agent/crystallize.py`)
+
+Adopting the **Hermes Agent & Voyager pattern**, Helmis can autonomously synthesize new operational skill playbooks:
+
+1. **Zero-Latency Fire-and-Forget**: When a multi-step workflow completes ($\ge 2$ unique non-trivial tools or complex `execute_code` routines), `asyncio.create_task()` launches a background reflection worker without delaying the WhatsApp response.
+2. **Critic Reflection**: A lightweight LLM Critic reviews the trajectory against existing skills. If a novel, reusable procedure is identified, it generates a structured `SKILL.md` adhering to the `agentskills.io` standard.
+3. **Persistent Procedural Memory**: The skill is saved to `config/skills/auto-<name>/SKILL.md` and becomes an active operational playbook across all future turns.
+
