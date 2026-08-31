@@ -20,8 +20,8 @@ from typing import Any
 import httpx
 
 from ..memory.store import log_activity
-from ..tools.skills import handle_create_skill, list_available_skills
 from .cascade import GEMINI_KEYS, get_next_gemini_key
+
 
 log = logging.getLogger("helmis-crystallize")
 
@@ -99,8 +99,11 @@ async def auto_crystallize_turn(
 
         log.debug("Starting background auto-crystallization for [%s]...", sender_name)
 
+        from ..tools.skills import handle_create_skill, list_available_skills
+
         existing_skills = list_available_skills()
         existing_names = [s.get("name", "") for s in existing_skills]
+
 
         # Summarize execution trajectory for the critic LLM
         trajectory_steps = []

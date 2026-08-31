@@ -2,13 +2,17 @@
 registry.py — Clean Tool Registration and Dispatch Engine.
 """
 
+from __future__ import annotations
+
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from ..agent.guardrails import inject_tool_directive
-from ..whatsapp.client import WahaClient
+
+if TYPE_CHECKING:
+    from ..whatsapp.client import WahaClient
 
 log = logging.getLogger("helmis-tools")
 
@@ -31,10 +35,11 @@ async def execute_tool_call(
     func_name: str,
     args: dict[str, Any],
     default_sender: str,
-    client: WahaClient | None = None,
+    client: Any = None,
     media_data: dict[str, Any] | None = None,
     chat_id: str | None = None,
 ) -> dict[str, Any]:
+
     """Execute a registered tool and apply state fidelity / honesty directives."""
     log.debug("Agent executing tool: %s with args: %s", func_name, args)
     handler = TOOL_REGISTRY.get(func_name)

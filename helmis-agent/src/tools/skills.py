@@ -8,8 +8,8 @@ import re
 from typing import Any
 
 from ..memory.store import log_activity
-from ..whatsapp.client import WahaClient
 from .registry import register_tool
+
 
 log = logging.getLogger("helmis-tools-skills")
 
@@ -59,7 +59,7 @@ def list_available_skills() -> list[dict[str, str]]:
 async def handle_load_skill(
     args: dict[str, Any],
     default_sender: str,
-    client: WahaClient | None = None,
+    client: Any = None,
 ) -> dict[str, Any]:
     """
     Dynamically load the complete operational playbook for a specialized domain skill.
@@ -112,7 +112,7 @@ async def handle_load_skill(
 async def handle_create_skill(
     args: dict[str, Any],
     default_sender: str,
-    client: WahaClient | None = None,
+    client: Any = None,
 ) -> dict[str, Any]:
     """
     Create a new operational skill playbook on disk.
@@ -173,7 +173,7 @@ async def handle_create_skill(
 async def handle_update_skill(
     args: dict[str, Any],
     default_sender: str,
-    client: WahaClient | None = None,
+    client: Any = None,
 ) -> dict[str, Any]:
     """
     Update an existing skill playbook by appending or replacing content.
