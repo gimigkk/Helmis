@@ -10,7 +10,8 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 
 ## Current Position
 
-- **Branch:** `feat/dynamic-secretary-foundation` (uncommitted worktree)
+- **Branch:** `feat/dynamic-secretary-foundation` (committed through 2026-09-03)
+- **Last commit:** `4352074` — Phase 1+2 reliability rebuild, 73 files, `297 passed`
 - **Last updated:** 2026-09-03
 - **Last verified:** `297 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files, `git diff --check` clean
 - **Phase:** Phase 2 complete; Phase 3 next (safe memory and learning)
