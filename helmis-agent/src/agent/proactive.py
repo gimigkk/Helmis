@@ -30,13 +30,38 @@ from ..memory.store import (
     parse_due_timestamp,
     update_task_fields,
 )
-from ..tools.registry import execute_tool_call
+from ..tools.registry import TOOL_REGISTRY, execute_tool_call
+from ..tools.schema import GEMINI_TOOLS
 from ..whatsapp.client import WahaClient
 from .delivery import deliver_outbox_batch
 
 log = logging.getLogger("helmis-proactive")
 TZ = ZoneInfo("Asia/Jakarta")
 OCCURRENCE_LEASE_SECONDS = 300.0
+
+# Scheduled jobs may only execute tools that are both registered and declared
+# in the model-facing schema; anything else is quarantined, never guessed.
+_ALLOWED_JOB_KINDS = {"tool", "agent", "message"}
+
+
+def _declared_tool_names() -> set[str]:
+    names: set[str] = set()
+    for declaration in GEMINI_TOOLS[0]["function_declarations"]:
+        name = declaration.get("name")
+        if isinstance(name, str):
+            names.add(name)
+    return names
+
+
+def _quarantine_job(task: dict[str, Any], reason: str) -> bool:
+    """Mark a malformed or unknown scheduled job quarantined (durable, no send)."""
+    task["status"] = "quarantined"
+    task["execution_status"] = "quarantined"
+    task["error_message"] = reason
+    task["completed_at"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M")
+    log.error("Quarantined scheduled job for task %s: %s", task.get("task_id"), reason)
+    log_activity(f"Scheduled job quarantined: {reason}")
+    return False
 
 
 def _occurrence_id(task_id: str, scheduled_for: float, stage: str = "default") -> str:
@@ -252,15 +277,25 @@ async def dispatch_scheduled_action(
 ) -> bool:
     """
     Polymorphic executor for scheduled bot actions (Helmis tasks):
-    1. ToolJobExecutor: Calls any registered tool in TOOL_REGISTRY dynamically.
+    1. ToolJobExecutor: Calls any registered, schema-declared tool.
     2. AgentLoopJobExecutor: Runs autonomous ReAct reasoning turn for dynamic tasks.
-    3. Fallback Dispatcher: Extracts text from title or payload and dispatches to target.
+    3. Message fallback: extracts text from the title (plain scheduled message).
+
+    Malformed or unknown jobs are quarantined, never silently reinterpreted.
     """
     title = task.get("title", "")
     job = task.get("job") or {}
     kind = str(job.get("kind", "")).strip().lower()
     tool_name = str(job.get("tool_name") or job.get("name") or "").strip()
     tool_args = job.get("tool_args") or job.get("args") or {}
+
+    if job and kind and kind not in _ALLOWED_JOB_KINDS:
+        return _quarantine_job(task, f"Unknown scheduled job kind '{kind}'")
+    if job and kind == "message":
+        # 'message' jobs must carry text explicitly; no title-sniffing reinterpretation.
+        text_to_send = str(job.get("text") or "").strip()
+        if not text_to_send:
+            return _quarantine_job(task, "Scheduled 'message' job has no text")
 
     log.info("Executing scheduled action '%s' (kind: %s, tool: %s)...", title, kind, tool_name)
     task["execution_status"] = "running"
@@ -272,6 +307,10 @@ async def dispatch_scheduled_action(
         if kind == "tool" or tool_name:
             if not tool_name:
                 tool_name = "send_whatsapp_message"
+            if tool_name not in TOOL_REGISTRY or tool_name not in _declared_tool_names():
+                return _quarantine_job(
+                    task, f"Scheduled job references unregistered/undeclared tool '{tool_name}'"
+                )
 
             default_sender = task.get("requester") or "Gilang"
             result = await execute_tool_call(
@@ -304,10 +343,11 @@ async def dispatch_scheduled_action(
             from .loop import run_agentic_react_loop
 
             prompt = str(job.get("prompt") or title)
-            target_chat = job.get("target_chat") or job.get("chat_id")
+            target_chat = job.get("target_chat") or job.get("chat_id") or ""
             if not target_chat:
-                gilang_raw = os.environ.get("GILANG_PHONE", "").strip()
-                target_chat = normalize_chat_target(gilang_raw)
+                target_chat = _resolve_recipient_chat(str(task.get("requester") or "Gilang"))
+            if not target_chat:
+                return _quarantine_job(task, "Agent job has no resolvable target chat")
 
             synthetic_msg = f"[SCHEDULED AUTONOMOUS TASK EXECUTION]\n{prompt}"
             await run_agentic_react_loop(
@@ -324,20 +364,22 @@ async def dispatch_scheduled_action(
             return True
 
         # -------------------------------------------------------------------------
-        # Strategy 3: Fallback / Smart Message Extractor
+        # Strategy 3: Scheduled message (text from title extraction or job text)
         # -------------------------------------------------------------------------
         else:
-            text_to_send = ""
-            quotes = re.findall(r'"([^"]*)"', title)
-            if quotes:
-                text_to_send = quotes[0]
-            elif ":" in title:
-                text_to_send = title.split(":", 1)[1].strip()
-            else:
-                text_to_send = title
+            text_to_send = str(job.get("text") or "").strip() if job else ""
+            if not text_to_send:
+                quotes = re.findall(r'"([^"]*)"', title)
+                if quotes:
+                    text_to_send = quotes[0]
+                elif ":" in title:
+                    text_to_send = title.split(":", 1)[1].strip()
+                else:
+                    text_to_send = title
 
-            target_phone = os.environ.get("GILANG_PHONE", "").strip()
-            target_chat = normalize_chat_target(target_phone)
+            target_chat = _resolve_recipient_chat(str(task.get("requester") or "Gilang"))
+            if not target_chat:
+                return _quarantine_job(task, "Scheduled message has no resolvable recipient")
             prefix = "[Pesan Terjadwal Tertunda]: " if is_overdue_catchup else ""
             await client.send_message(chat_id=target_chat, text=f"{prefix}{text_to_send}")
 

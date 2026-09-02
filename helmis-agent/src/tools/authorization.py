@@ -3,7 +3,7 @@
 import os
 from typing import Any
 
-_INTERNAL_PREFIXES = ("helmis", "system", "scheduler")
+_INTERNAL_PREFIXES = ("helmis", "system", "scheduler", "mcp")
 
 
 def _names_from_env() -> set[str]:
