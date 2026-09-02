@@ -75,3 +75,25 @@ def handle_search_memory(args: dict[str, Any]) -> dict[str, Any]:
     keyword = str(args.get("keyword") or args.get("query") or "").strip()
     mem_results = search_memory(keyword)
     return {"status": "success", "results": mem_results}
+
+
+@register_tool("list_memory_candidates")
+def handle_list_memory_candidates(args: dict[str, Any], default_sender: str) -> dict[str, Any]:
+    candidates = semantic_memory.list_memory_candidates(user_id=default_sender)
+    return {"status": "success", "count": len(candidates), "candidates": candidates}
+
+
+@register_tool("confirm_memory_candidate")
+def handle_confirm_memory_candidate(args: dict[str, Any], default_sender: str) -> dict[str, Any]:
+    memory_id = str(args.get("memory_id") or args.get("id") or "").strip()
+    if not memory_id:
+        return {"status": "error", "error": "ID kandidat memori tidak boleh kosong."}
+    return semantic_memory.resolve_memory_candidate(memory_id, accept=True, user_id=default_sender)
+
+
+@register_tool("reject_memory_candidate")
+def handle_reject_memory_candidate(args: dict[str, Any], default_sender: str) -> dict[str, Any]:
+    memory_id = str(args.get("memory_id") or args.get("id") or "").strip()
+    if not memory_id:
+        return {"status": "error", "error": "ID kandidat memori tidak boleh kosong."}
+    return semantic_memory.resolve_memory_candidate(memory_id, accept=False, user_id=default_sender)

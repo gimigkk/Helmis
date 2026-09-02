@@ -127,30 +127,50 @@ async def add_memory(
     confidence: float = 1.0,
     scope: str = "private",
     authoritative: bool = True,
+    status: str = "active",
 ) -> dict[str, Any] | None:
     """
     Store a new episodic fact or preference in semantic memory with vector embedding.
-    Automatically supersedes/updates existing memories if the fact updates a previously recorded topic
-    (similarity >= 0.88), preventing memory rot across semesters or changing routines.
+
+    ``status``: ``active`` (trusted, retrievable) or ``candidate`` (uncertain,
+    awaiting explicit user confirmation; never retrieved, never overwrites an
+    active record).
+
+    Active facts automatically supersede/update existing active memories on the
+    same topic (similarity >= 0.88). Candidates only deduplicate against other
+    candidates of the same fact.
     """
     clean_fact = fact.strip()
     if not clean_fact:
         return None
 
+    is_candidate = status == "candidate"
+
     # Check for exact duplicate text
     memories = load_semantic_memories()
     for m in memories:
-        if m.get("fact", "").lower() == clean_fact.lower() and m.get("user_id") == user_id:
+        if (
+            m.get("fact", "").lower() == clean_fact.lower()
+            and m.get("user_id") == user_id
+            and m.get("status", "active") == status
+        ):
             log.debug("Memory already exists: %s", clean_fact)
             return m
 
     embedding = await get_embedding(clean_fact)
     now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M WIB")
 
-    # Semantic supersession check: If a memory on the same topic exists with high similarity >= 0.88
-    if embedding:
+    # Semantic supersession check: If an active memory on the same topic exists
+    # with high similarity >= 0.88. Candidates must never overwrite active
+    # records (or each other); they wait in the review queue instead.
+    if embedding and not is_candidate:
         for m in memories:
-            if m.get("user_id") == user_id and m.get("embedding"):
+            if (
+                m.get("user_id") == user_id
+                and m.get("embedding")
+                and m.get("status", "active") == "active"
+                and not m.get("superseded_by")
+            ):
                 sim = cosine_similarity(embedding, m["embedding"])
                 if sim >= 0.88:
                     old_fact = m.get("fact")
@@ -185,6 +205,7 @@ async def add_memory(
         "confidence": max(0.0, min(1.0, confidence)),
         "scope": scope,
         "authoritative": authoritative,
+        "status": "candidate" if is_candidate else "active",
     }
 
     memories.append(entry)
@@ -298,6 +319,74 @@ async def correct_memory(
     }
 
 
+def list_memory_candidates(user_id: str | None = None) -> list[dict[str, Any]]:
+    """Return uncertain memory candidates awaiting explicit user confirmation."""
+    memories = load_semantic_memories()
+    candidates = [
+        m
+        for m in memories
+        if m.get("status") == "candidate"
+        and (not user_id or m.get("user_id") in (user_id, "Both", "all"))
+    ]
+    return [
+        {
+            "id": m.get("id"),
+            "fact": m.get("fact"),
+            "user_id": m.get("user_id"),
+            "provenance": m.get("provenance"),
+            "confidence": m.get("confidence"),
+            "created_at": m.get("created_at"),
+        }
+        for m in candidates
+    ]
+
+
+def resolve_memory_candidate(memory_id: str, *, accept: bool, user_id: str | None = None) -> dict[str, Any]:
+    """Confirm or reject a candidate memory by stable ID.
+
+    Accepted candidates become active and authoritative (confidence 0.9);
+    rejected candidates stay on disk for audit but are never retrieved.
+    """
+    memories = load_semantic_memories()
+    for m in memories:
+        if m.get("id") != memory_id:
+            continue
+        if user_id and m.get("user_id") not in (user_id, "Both", "all"):
+            return {
+                "status": "error",
+                "outcome": "unauthorized",
+                "error": "Kandidat memori ini milik user lain.",
+            }
+        if m.get("status") != "candidate":
+            return {
+                "status": "error",
+                "outcome": "not_found",
+                "error": "Kandidat memori tidak ditemukan atau sudah diproses.",
+            }
+        m["status"] = "active" if accept else "rejected"
+        if accept:
+            m["authoritative"] = True
+            m["confidence"] = max(float(m.get("confidence", 0.7)), 0.9)
+        m["resolved_at"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M WIB")
+        save_semantic_memories(memories)
+        return {
+            "status": "success",
+            "outcome": "accepted" if accept else "rejected",
+            "memory_id": memory_id,
+            "fact": m.get("fact"),
+            "message": (
+                f"Memori '{m.get('fact')}' dikonfirmasi dan aktif."
+                if accept
+                else f"Memori '{m.get('fact')}' ditolak dan tidak akan diingat."
+            ),
+        }
+    return {
+        "status": "error",
+        "outcome": "not_found",
+        "error": "Kandidat memori tidak ditemukan.",
+    }
+
+
 async def search_memories(
     query: str,
     user_id: str | None = None,
@@ -323,6 +412,8 @@ async def search_memories(
         if user_id and m.get("user_id") not in (user_id, "Both", "all"):
             continue
         if not m.get("authoritative", True) or float(m.get("confidence", 1.0)) < 0.7:
+            continue
+        if m.get("status", "active") == "candidate":
             continue
         if m.get("superseded_by"):
             continue
@@ -476,10 +567,13 @@ Example output:
             break
 
     for fact in extracted_facts:
+        # Model-extracted claims are uncertain: queue as candidates for explicit
+        # user confirmation instead of silently becoming retrievable memory.
         await add_memory(
             fact=fact,
             user_id=sender_name,
             provenance="model_extracted_from_turn",
             confidence=0.7,
             authoritative=False,
+            status="candidate",
         )

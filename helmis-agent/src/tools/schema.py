@@ -393,6 +393,39 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                 },
             },
             {
+                "name": "list_memory_candidates",
+                "description": "List uncertain memory candidates (model-extracted claims) that are waiting for the user to confirm or reject before they become retrievable memory.",
+                "parameters": {"type": "OBJECT", "properties": {}},
+            },
+            {
+                "name": "confirm_memory_candidate",
+                "description": "Confirm a candidate memory by ID after the user explicitly acknowledges it. The candidate becomes active, authoritative memory.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "memory_id": {
+                            "type": "STRING",
+                            "description": "Stable ID of the candidate memory to confirm",
+                        }
+                    },
+                    "required": ["memory_id"],
+                },
+            },
+            {
+                "name": "reject_memory_candidate",
+                "description": "Reject a candidate memory by ID after the user says it is wrong or should not be remembered. The candidate stays on disk for audit but is never retrieved.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "memory_id": {
+                            "type": "STRING",
+                            "description": "Stable ID of the candidate memory to reject",
+                        }
+                    },
+                    "required": ["memory_id"],
+                },
+            },
+            {
                 "name": "send_status_update",
                 "description": "Send a brief 1-line intermediate progress update or acknowledgment to the user in the current chat while you continue processing a multi-step task (e.g. 'Siap Gilang, sedang saya kumpulkan 3 opsi venue di Bogor ya...'). Use this ONLY for multi-step research, heavy document analysis, or complex coordination. NEVER use for instant single-step queries.",
                 "parameters": {

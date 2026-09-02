@@ -216,3 +216,127 @@ async def test_correct_memory_embedding_fallback(monkeypatch: pytest.MonkeyPatch
     assert "kopi susu" in results[0]["fact"]
 
 
+
+
+@pytest.mark.asyncio
+async def test_candidates_not_retrievable_until_confirmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Model-extracted candidates stay invisible to search until explicitly confirmed."""
+    async def mock_embedding(text: str) -> list[float]:
+        return [1.0, 0.0, 0.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+
+    await sem_mem.add_memory(
+        "Gilang tidak suka kopi manis", user_id="Gilang",
+        provenance="model_extracted_from_turn", confidence=0.7,
+        authoritative=False, status="candidate",
+    )
+
+    # Candidate invisible in search
+    results = await sem_mem.search_memories("kopi", user_id="Gilang")
+    assert results == []
+
+    candidates = sem_mem.list_memory_candidates(user_id="Gilang")
+    assert len(candidates) == 1
+    memory_id = str(candidates[0]["id"])
+
+    # Resolve
+    accepted = sem_mem.resolve_memory_candidate(memory_id, accept=True, user_id="Gilang")
+    assert accepted["status"] == "success" and accepted["outcome"] == "accepted"
+
+    results = await sem_mem.search_memories("kopi", user_id="Gilang")
+    assert len(results) == 1 and "kopi" in results[0]["fact"]
+    assert results[0]["provenance"] == "model_extracted_from_turn"
+
+
+@pytest.mark.asyncio
+async def test_rejected_candidate_never_retrievable(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def mock_embedding(text: str) -> list[float]:
+        return [1.0, 0.0, 0.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+
+    saved = await sem_mem.add_memory(
+        "Gilang alergi kacang", user_id="Gilang",
+        provenance="model_extracted_from_turn", confidence=0.7,
+        authoritative=False, status="candidate",
+    )
+    memory_id = str(saved["id"])
+    rejected = sem_mem.resolve_memory_candidate(memory_id, accept=False, user_id="Gilang")
+    assert rejected["status"] == "success" and rejected["outcome"] == "rejected"
+
+    assert sem_mem.list_memory_candidates(user_id="Gilang") == []
+    results = await sem_mem.search_memories("alergi kacang", user_id="Gilang")
+    assert results == []
+
+    # Resolving again fails: already processed
+    again = sem_mem.resolve_memory_candidate(memory_id, accept=True, user_id="Gilang")
+    assert again["status"] == "error" and again.get("outcome") == "not_found"
+
+
+@pytest.mark.asyncio
+async def test_candidate_cannot_overwrite_active_memory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """High-similarity candidate must not supersede an active record."""
+    async def mock_embedding(text: str) -> list[float]:
+        return [1.0, 0.0, 0.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+
+    active = await sem_mem.add_memory("Gilang suka kopi hitam", user_id="Gilang")
+    assert active["status"] == "active"
+
+    await sem_mem.add_memory(
+        "Gilang suka kopi hitam pahit", user_id="Gilang",
+        provenance="model_extracted_from_turn", confidence=0.7,
+        authoritative=False, status="candidate",
+    )
+
+    memories = sem_mem.load_semantic_memories()
+    active_records = [m for m in memories if m.get("status", "active") == "active"]
+    assert len(active_records) == 1
+    assert active_records[0]["fact"] == "Gilang suka kopi hitam"  # untouched
+    assert len([m for m in memories if m.get("status") == "candidate"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_candidate_confirmation_requires_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def mock_embedding(text: str) -> list[float]:
+        return [1.0, 0.0, 0.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+
+    saved = await sem_mem.add_memory(
+        "Bunga punya kucing", user_id="Bunga",
+        provenance="model_extracted_from_turn", confidence=0.7,
+        authoritative=False, status="candidate",
+    )
+    result = sem_mem.resolve_memory_candidate(str(saved["id"]), accept=True, user_id="Gilang")
+    assert result["status"] == "error" and result.get("outcome") == "unauthorized"
+
+
+@pytest.mark.asyncio
+async def test_candidate_tools_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tool handlers expose list/confirm/reject with authorization."""
+    from src.tools.registry import execute_tool_call
+
+    async def mock_embedding(text: str) -> list[float]:
+        return [1.0, 0.0, 0.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+
+    saved = await sem_mem.add_memory(
+        "Gilang sedang belajar Syariah", user_id="Gilang",
+        provenance="model_extracted_from_turn", confidence=0.7,
+        authoritative=False, status="candidate",
+    )
+
+    listed = await execute_tool_call("list_memory_candidates", {}, default_sender="Gilang")
+    assert listed["count"] == 1
+
+    confirmed = await execute_tool_call(
+        "confirm_memory_candidate", {"memory_id": saved["id"]}, default_sender="Gilang"
+    )
+    assert confirmed["status"] == "success"
+
+    listed_after = await execute_tool_call("list_memory_candidates", {}, default_sender="Gilang")
+    assert listed_after["count"] == 0
