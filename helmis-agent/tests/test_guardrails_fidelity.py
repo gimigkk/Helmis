@@ -84,7 +84,7 @@ def test_verify_action_fidelity_passes_verified_mutation():
     tools = [{"name": "complete_task", "result": {"status": "success"}}]
     res = verify_action_fidelity(text, tools)
     assert "Sip, tugas Nge-chat anak murid" in res
-    assert "↳ `complete_task`" in res
+    assert "↳" not in res  # chips are opt-in (default off)
 
 
 def test_strip_hallucinated_tool_chips():
@@ -181,7 +181,7 @@ async def test_loop_intercepts_unexecuted_mutation_claim():
         assert call_count >= 2
         assert final_reply is not None
         assert "berhasil ditandai selesai" in final_reply
-        assert "complete_task" in final_reply
+        assert "complete_task" not in final_reply  # chips are opt-in (default off)
 
 
 def test_sanitize_latex_for_whatsapp():

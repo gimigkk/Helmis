@@ -3,6 +3,7 @@ guardrails.py — State Fidelity Guardrails and Tool Footnote Formatting for Hel
 """
 
 import logging
+import os
 import re
 from typing import Any
 
@@ -375,9 +376,12 @@ def verify_action_fidelity(
                 else:
                     final_text = err
 
-    # Append sleek bottom footnote for clean transparency based solely on executed tools
-    chips = format_tool_chips(executed_tools)
-    if chips and chips not in final_text:
-        final_text = f"{final_text}\n\n{chips}"
+    # Tool chips footnote: transparency opt-in. Default off — chips append on
+    # every mutating turn otherwise, which is noise for non-no-fluff requests.
+    chips_enabled = os.environ.get("HELMIS_TOOL_CHIPS_ENABLED", "0").lower() in {"1", "true", "yes"}
+    if chips_enabled and not no_fluff:
+        chips = format_tool_chips(executed_tools)
+        if chips and chips not in final_text:
+            final_text = f"{final_text}\n\n{chips}"
 
     return final_text

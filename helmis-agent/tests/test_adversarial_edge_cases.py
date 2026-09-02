@@ -232,8 +232,8 @@ def test_verify_action_fidelity_strips_fake_tool_chips() -> None:
     assert "↳" not in sanitized
     assert "add_task" not in sanitized
 
-    # If another tool actually ran, only the authentic tool is appended
+    # If another tool actually ran, authentic chips are opt-in (default off)
     real_tools = [{"name": "list_tasks", "args": {}, "result": {"status": "success"}}]
     sanitized_real = verify_action_fidelity(fake_response, executed_tools=real_tools)
-    assert "↳ `list_tasks`" in sanitized_real
+    assert "↳" not in sanitized_real
     assert "add_task" not in sanitized_real

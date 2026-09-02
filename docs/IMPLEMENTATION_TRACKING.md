@@ -13,9 +13,9 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 - **Branch:** `feat/dynamic-secretary-foundation` (committed through 2026-09-03)
 - **Last commit:** `6a4c674` — tracker records Phase 1+2 commit hash (`4352074`)
 - **Last updated:** 2026-09-03
-- **Last verified:** `301 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files, `git diff --check` clean
-- **Phase:** Phase 3 in progress (safe memory and learning)
-- **Step:** Skill proposal rollback/versioning + candidate workflow done; Phase 3 gate: uncertain-memory candidate flow decision (non-blocking, listed under Blockers) — next: Phase 4 remainder or guardrail chips opt-in
+- **Last verified:** `306 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files, `git diff --check` clean
+- **Phase:** Phase 3 build work complete (memory corrections, skill rollback/versioning, chips opt-in); remaining: uncertain-memory candidate flow decision (parked, non-blocking)
+- **Step:** Next: Phase 4 remainder (occurrence catch-up policy — needs weekly-recurrence decision) or Phase 5 CI
 
 ## Phase Roadmap
 
@@ -48,6 +48,7 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | Loop content-part handling | `loop.py` handles full Gemini part lists: parallel functionCalls all execute with one functionResponse turn, interleaved text preserved in history, text collected across all text parts, empty part lists no longer crash; regression tests in `tests/test_tool_validation.py` |
 | Deterministic schedule routing | New `list_schedules`/`create_schedule`/`list_reminder_policies` tools over repository records with model-facing schema descriptions directing schedule questions away from task lists; tests in `tests/test_schedule_routing.py` |
 | Guardrail mutation fidelity | `mutation_was_effective()`: read-only tool success and zero-count mutation results never authorize success claims; `ambiguous`/`conflict`/`failed`/`not_found` outcomes block success language; `is_no_fluff_request()` + `verify_action_fidelity(no_fluff=)` suppress tool chips and keep copy-only output exact; tests in `tests/test_guardrail_contracts.py` |
+| Guardrail chips opt-in | Tool chips footnote now opt-in via `HELMIS_TOOL_CHIPS_ENABLED` (default off; wired in `.env.example`); no-fluff turns never get chips even when enabled; 4 legacy tests updated to the opt-in contract + 3 new cases in `tests/test_guardrail_contracts.py` |
 | Burst media preservation | `process_batched_turn` labels every burst media attachment in turn context (primary = inlineData + document banner, others = explicit `[Lampiran Media: ...]` labels); media-download and history-fetch failures degrade safely with the turn still answered; tests in `tests/test_burst_media_preservation.py` |
 | Typed intent/action planning | New `src/agent/intent.py`: `TurnPlan` (intent/domain/action_type/selectors/side_effects/destructive/confirmation gate/source of truth), deterministic destructive-scope + ambiguous-selector confirmation gates with model-facing directives, entity pre-resolution against task store, `should_force_tools()` gates `mode=ANY` (confirmation-required plans no longer force tool calls); `guardrails.classify_turn_intent` delegates to the planner (legacy behavior preserved); tests in `tests/test_intent_planning.py` |
 | Group admission policy | New `src/whatsapp/policy.py`: pure decision functions for bot-mention detection (name/trigger prefix/@mention/phone mention/bot quote) and human-directed-message suppression; webhook group gate delegates to `decide_group_admission`; mention-list extraction normalized across WAHA engines; tests in `tests/test_group_policy.py` + webhook integration tests in `tests/test_ingestion_policy.py` |
@@ -65,7 +66,6 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 
 - Delivery duplicate-window: provider-side deduplication is not implemented (durable outbox + replay dedup suppress duplicates before send, but crash-after-provider-accept still relies on the provider)
 - Domain-specific authorization policy and outbound target allowlisting beyond the central caller/chat/private-memory boundary
-- Guardrail chips opt-in policy for non-no-fluff turns (chips currently append on every mutating turn)
 - Replay/A-B benchmark rerun with available stronger model/quota; current report is provider-inconclusive for arm B, so no model upgrade decision yet
 - CI pipeline (tests, lint, type check, compose validation, security contracts)
 - Phase 5 rollout: canary, synthetic scenarios, backup/restore verification, one-command rollback

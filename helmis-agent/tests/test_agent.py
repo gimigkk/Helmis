@@ -330,7 +330,7 @@ def test_verify_action_fidelity_enforces_not_found_message() -> None:
         }
     ]
     corrected = agent.verify_action_fidelity("Sip, sudah saya hapus.", tools_failed)
-    assert "↳ `delete_memory`" in corrected
+    assert "↳ `delete_memory`" not in corrected  # chips are opt-in (default off)
     assert "Tidak ditemukan memori yang cocok di database." in corrected
 
 
@@ -343,7 +343,7 @@ def test_verify_action_fidelity_passes_successful_turns() -> None:
         }
     ]
     verified = agent.verify_action_fidelity("Sip, sudah saya hapus ya.", tools_success)
-    assert verified == "Sip, sudah saya hapus ya.\n\n↳ `delete_memory`"
+    assert verified == "Sip, sudah saya hapus ya."  # chips opt-in: default off
 
 
 def test_format_tool_chips_deduplicates_and_orders() -> None:

@@ -89,15 +89,25 @@ def test_no_fluff_suppresses_tool_chips() -> None:
     assert "↳" not in out
 
 
-def test_no_fluff_keeps_exact_copy_output() -> None:
-    """Corpus 'no-fluff-copy' contract: final text identical, no chips appended."""
-    exact_output = "Halo, ini pesan yang harus bisa di-copy persis"
-    tools = [{"name": "read_vault_file", "result": {"status": "success", "content": "..."}}]
-    out = verify_action_fidelity(exact_output, tools, no_fluff=True)
-    assert out == exact_output
+def test_chips_opt_in_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default: chips off for all turns (opt-in policy)."""
+    monkeypatch.delenv("HELMIS_TOOL_CHIPS_ENABLED", raising=False)
+    tools = [{"name": "add_task", "result": {"status": "success"}}]
+    out = verify_action_fidelity("Tersimpan ya.", tools)
+    assert "↳" not in out
 
 
-def test_chips_still_appended_for_normal_turns() -> None:
+def test_chips_opt_in_enabled_for_normal_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HELMIS_TOOL_CHIPS_ENABLED", "1")
     tools = [{"name": "add_task", "result": {"status": "success"}}]
     out = verify_action_fidelity("Tersimpan ya.", tools)
     assert "↳ `add_task`" in out
+
+
+def test_chips_opt_in_never_applies_to_no_fluff(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Even when chips enabled, no-fluff turns stay exact."""
+    monkeypatch.setenv("HELMIS_TOOL_CHIPS_ENABLED", "1")
+    tools = [{"name": "add_task", "result": {"status": "success"}}]
+    out = verify_action_fidelity("Tersimpan: belanja susu", tools, no_fluff=True)
+    assert out == "Tersimpan: belanja susu"
+    assert "↳" not in out
