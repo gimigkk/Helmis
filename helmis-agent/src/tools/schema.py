@@ -325,6 +325,28 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                 },
             },
             {
+                "name": "correct_fact",
+                "description": "Apply an explicit user correction to memory. Use when the user corrects a previously stored fact about themselves (e.g. 'bukan, aku suka kopi manis'). Marks the old claim superseded and stores the corrected version.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "The old claim being corrected (text or topic description)",
+                        },
+                        "corrected_fact": {
+                            "type": "STRING",
+                            "description": "The corrected fact as stated by the user",
+                        },
+                        "user_id": {
+                            "type": "STRING",
+                            "description": "Optional: 'Gilang', 'Bunga', or 'Both'",
+                        },
+                    },
+                    "required": ["query", "corrected_fact"],
+                },
+            },
+            {
                 "name": "delete_memory",
                 "description": "Delete personal facts, preferences, habits, or context from semantic vector memory by keyword or description.",
                 "parameters": {

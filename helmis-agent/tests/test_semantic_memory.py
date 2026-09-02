@@ -119,3 +119,100 @@ async def test_supersede_memory_prevents_rot(monkeypatch: pytest.MonkeyPatch) ->
     assert "created_at" in results[0]
 
 
+@pytest.mark.asyncio
+async def test_correct_memory_supersedes_and_keeps_audit(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def mock_embedding(text: str) -> list[float]:
+        if "kopi" in text.lower():
+            return [1.0, 0.0, 0.0]
+        return [0.0, 0.0, 1.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+    await sem_mem.add_memory("Gilang suka kopi hitam tanpa gula", user_id="Gilang")
+
+    res = await sem_mem.correct_memory(
+        query="kopi hitam tanpa gula",
+        corrected_fact="Gilang suka kopi manis dengan gula",
+        user_id="Gilang",
+    )
+    assert res["status"] == "success"
+    assert res["superseded_count"] == 1
+
+    all_mems = sem_mem.load_semantic_memories()
+    assert len(all_mems) == 2  # old kept for audit, new appended
+    old = next(m for m in all_mems if "hitam" in m["fact"])
+    new = next(m for m in all_mems if "manis" in m["fact"])
+    assert old["authoritative"] is False
+    assert old["confidence"] == 0.0
+    assert old["superseded_by"] == new["id"]
+    assert old["superseded_at"]
+    assert new["provenance"] == "explicit_user_correction"
+    assert new["confidence"] == 1.0
+    assert new["authoritative"] is True
+    assert old["id"] in new["supersedes"]
+
+    # Search skips superseded, returns only correction
+    results = await sem_mem.search_memories("kopi", user_id="Gilang")
+    assert len(results) == 1
+    assert "manis" in results[0]["fact"]
+    assert results[0]["provenance"] == "explicit_user_correction"
+
+
+@pytest.mark.asyncio
+async def test_correct_memory_not_found_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def mock_embedding(text: str) -> list[float]:
+        if "hiking" in text.lower() or "gunung" in text.lower():
+            return [1.0, 0.0, 0.0]
+        if "makanan" in text.lower() or "sushi" in text.lower():
+            return [0.0, 1.0, 0.0]
+        return [0.0, 0.0, 1.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+    await sem_mem.add_memory("Gilang suka hiking", user_id="Gilang")
+    res = await sem_mem.correct_memory(
+        query="makanan favorit", corrected_fact="Gilang suka sushi", user_id="Gilang"
+    )
+    assert res["status"] == "not_found"
+    assert res["superseded_count"] == 0
+    assert len(sem_mem.load_semantic_memories()) == 1  # unchanged
+
+
+@pytest.mark.asyncio
+async def test_correct_memory_rejects_identical_fact(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def mock_embedding(text: str) -> list[float]:
+        if "hiking" in text.lower():
+            return [1.0, 0.0, 0.0]
+        return [0.0, 0.0, 1.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+    await sem_mem.add_memory("Gilang suka hiking", user_id="Gilang")
+    # corrected fact identical to full stored claim → rejected
+    res = await sem_mem.correct_memory(
+        query="hiking", corrected_fact="Gilang suka hiking", user_id="Gilang"
+    )
+    assert res["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_correct_memory_embedding_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Query wording differs from stored fact; similarity >= 0.78 still finds it."""
+    async def mock_embedding(text: str) -> list[float]:
+        if "minum" in text.lower():  # matches both "minuman" and "minum teh"
+            return [0.0, 1.0, 0.0]
+        if "kopi" in text.lower():
+            return [1.0, 0.0, 0.0]
+        return [0.0, 0.0, 1.0]
+
+    monkeypatch.setattr(sem_mem, "get_embedding", mock_embedding)
+    await sem_mem.add_memory("Bunga minum teh hijau tiap pagi", user_id="Bunga")
+    res = await sem_mem.correct_memory(
+        query="minuman pagi Bunga",
+        corrected_fact="Bunga minum kopi susu tiap pagi",
+        user_id="Bunga",
+    )
+    assert res["status"] == "success"
+    assert res["superseded_count"] == 1
+    results = await sem_mem.search_memories("minuman", user_id="Bunga")
+    assert len(results) == 1
+    assert "kopi susu" in results[0]["fact"]
+
+

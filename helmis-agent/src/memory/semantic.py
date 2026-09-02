@@ -162,7 +162,7 @@ async def add_memory(
                     m["provenance"] = provenance
                     m["confidence"] = max(0.0, min(1.0, confidence))
                     m["scope"] = scope
-                    m["authoritative"] = authoritative
+                    m["superseded_at"] = now_str
                     save_semantic_memories(memories)
                     log.info(
                         "Superseded existing memory for [%s] (sim=%.2f): '%s' -> '%s'",
@@ -193,6 +193,111 @@ async def add_memory(
     return entry
 
 
+async def correct_memory(
+    query: str,
+    corrected_fact: str,
+    user_id: str | None = None,
+    *,
+    source_turn_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Apply an explicit user correction: mark matching memory superseded (kept
+    for audit) and append the corrected fact as an authoritative claim.
+
+    The old record is NOT deleted: it stays with authoritative=False,
+    confidence=0.0, superseded_by=<new id>, superseded_at=<timestamp> so
+    reconciliation history remains inspectable and search filters skip it.
+    """
+    clean_old = query.strip()
+    clean_new = corrected_fact.strip()
+    if not clean_old:
+        return {"status": "error", "error": "Query koreksi tidak boleh kosong."}
+    if not clean_new:
+        return {"status": "error", "error": "Fakta koreksi tidak boleh kosong."}
+    if clean_new.lower() == clean_old.lower():
+        return {"status": "error", "error": "Fakta koreksi identik dengan memori lama."}
+
+    memories = load_semantic_memories()
+    now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M WIB")
+
+    # Pass 1: exact/substring match (strongest evidence, no embedding needed).
+    targets = [
+        m
+        for m in memories
+        if (not user_id or m.get("user_id") in (user_id, "Both", "all"))
+        and m.get("authoritative", True)
+        and clean_old.lower() in str(m.get("fact", "")).lower()
+    ]
+
+    # Pass 2: embedding similarity fallback when text match empty.
+    if not targets:
+        q_vec = await get_embedding(clean_old)
+        if q_vec:
+            for m in memories:
+                if user_id and m.get("user_id") not in (user_id, "Both", "all"):
+                    continue
+                if not m.get("authoritative", True):
+                    continue
+                vec = m.get("embedding")
+                if vec and cosine_similarity(q_vec, vec) >= 0.78:
+                    targets.append(m)
+
+    if not targets:
+        return {
+            "status": "not_found",
+            "superseded_count": 0,
+            "message": f"Tidak ditemukan memori aktif yang cocok dengan '{clean_old}'. Tidak ada koreksi diterapkan.",
+        }
+    if any(str(m.get("fact", "")).strip().lower() == clean_new.lower() for m in targets):
+        return {
+            "status": "error",
+            "superseded_count": 0,
+            "message": "Fakta koreksi identik dengan memori yang tersimpan. Tidak ada perubahan.",
+        }
+
+    new_vec = await get_embedding(clean_new)
+    new_id = f"mem_{uuid.uuid4().hex}"
+    target_ids = [str(m.get("id")) for m in targets]
+
+    for m in targets:
+        m["authoritative"] = False
+        m["confidence"] = 0.0
+        m["superseded_by"] = new_id
+        m["superseded_at"] = now_str
+
+    corrected: dict[str, Any] = {
+        "id": new_id,
+        "fact": clean_new,
+        "user_id": user_id or str(targets[0].get("user_id", "")),
+        "category": str(targets[0].get("category", "general")),
+        "created_at": now_str,
+        "embedding": new_vec,
+        "source_turn_id": source_turn_id,
+        "provenance": "explicit_user_correction",
+        "confidence": 1.0,
+        "scope": str(targets[0].get("scope", "private")),
+        "authoritative": True,
+        "supersedes": target_ids,
+        "corrected_at": now_str,
+    }
+    memories.append(corrected)
+    save_semantic_memories(memories)
+    log.info(
+        "Corrected %d memory record(s) for [%s]: '%s' -> '%s'",
+        len(targets),
+        corrected["user_id"],
+        clean_old,
+        clean_new,
+    )
+    return {
+        "status": "success",
+        "superseded_count": len(targets),
+        "superseded_facts": [str(m.get("fact", "")) for m in targets],
+        "corrected_fact": clean_new,
+        "message": f"Koreksi diterapkan: {len(targets)} memori lama ditandai superseded, fakta baru disimpan.",
+    }
+
+
 async def search_memories(
     query: str,
     user_id: str | None = None,
@@ -219,6 +324,8 @@ async def search_memories(
             continue
         if not m.get("authoritative", True) or float(m.get("confidence", 1.0)) < 0.7:
             continue
+        if m.get("superseded_by"):
+            continue
 
         vec = m.get("embedding")
         if vec and q_vector:
@@ -237,6 +344,7 @@ async def search_memories(
                 "user_id": m.get("user_id"),
                 "category": m.get("category"),
                 "created_at": m.get("created_at"),
+                "provenance": m.get("provenance"),
                 "score": round(score, 3),
             }
             results.append((score, res_item))

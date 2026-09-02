@@ -11,11 +11,11 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 ## Current Position
 
 - **Branch:** `feat/dynamic-secretary-foundation` (committed through 2026-09-03)
-- **Last commit:** `4352074` — Phase 1+2 reliability rebuild, 73 files, `297 passed`
+- **Last commit:** `6a4c674` — tracker records Phase 1+2 commit hash (`4352074`)
 - **Last updated:** 2026-09-03
-- **Last verified:** `297 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files, `git diff --check` clean
-- **Phase:** Phase 2 complete; Phase 3 next (safe memory and learning)
-- **Step:** Benchmark stronger-model arm rerun pending provider capacity; next: semantic memory correction/supersession workflow
+- **Last verified:** `301 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files, `git diff --check` clean
+- **Phase:** Phase 3 in progress (safe memory and learning)
+- **Step:** Semantic memory correction/supersession workflow done; next: skill proposal rollback/versioning + candidate workflow
 
 ## Phase Roadmap
 
@@ -55,6 +55,7 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | Replay/A-B benchmark harness | `helmis-agent/scripts/benchmark_replay.py` replays sanitized corpus cases against identical isolated state/tools with production cascade versus a pinned stronger-model arm, records tool sequences/outcomes/replies/latency, and writes `docs/production-evidence/model_benchmark_results.json`; production cascade completed 14 runs (1/14 contract passes, median behavior 4-7s), baseline arm was provider-inconclusive because `gemini-flash-latest` returned connection fallback on all 14 runs; no model upgrade decision made |
 | Backups | `scripts/backup.sh` WAL-checkpoints `helmis.db` before archiving |
 | Semantic memory safety | Provenance/source-turn/confidence/scope/authority fields; auto fact-extraction off by default (`HELMIS_ENABLE_AUTO_FACT_EXTRACTION`); retrieval restricted to authoritative ≥0.7 confidence |
+| Semantic memory correction workflow | `correct_memory()` in `semantic.py` + `correct_fact` tool: explicit user correction marks matched active claims superseded (`authoritative=False`, `confidence=0.0`, `superseded_by`/`superseded_at` audit links kept on disk) and appends an `explicit_user_correction` claim (confidence 1.0, `supersedes` backlinks); matching = exact/substring first, embedding ≥0.78 fallback; search skips superseded records and exposes provenance; tests in `tests/test_semantic_memory.py` |
 | Skill proposals | Auto-generated skills go to proposal store with validation; explicit `approve_skill_proposal()` promotion; active skills never auto-modified |
 | Webhook security | Optional `WAHA_WEBHOOK_SECRET` (header) and separate `SCHEDULER_WEBHOOK_SECRET`; `status@broadcast` rejected pre-queue; `/health` (liveness) vs `/ready` (WAHA) split; secrets wired in Compose + cron trigger |
 | Config | Compose/`.env.example` reconciled with secret vars; dev docs test-module table updated |
@@ -65,7 +66,6 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 - Domain-specific authorization policy and outbound target allowlisting beyond the central caller/chat/private-memory boundary
 - Guardrail chips opt-in policy for non-no-fluff turns (chips currently append on every mutating turn)
 - Replay/A-B benchmark rerun with available stronger model/quota; current report is provider-inconclusive for arm B, so no model upgrade decision yet
-- Semantic memory correction/supersession workflow (fields exist; no correction path)
 - Skill proposal rollback/versioning (approval exists; no revert)
 - CI pipeline (tests, lint, type check, compose validation, security contracts)
 - Phase 5 rollout: canary, synthetic scenarios, backup/restore verification, one-command rollback

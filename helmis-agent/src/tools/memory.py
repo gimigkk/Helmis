@@ -30,6 +30,24 @@ async def handle_remember_fact(args: dict[str, Any], default_sender: str) -> dic
     }
 
 
+@register_tool("correct_fact")
+async def handle_correct_fact(args: dict[str, Any], default_sender: str) -> dict[str, Any]:
+    old_claim = str(args.get("query") or args.get("old_fact") or "").strip()
+    new_fact = str(args.get("corrected_fact") or args.get("fact") or "").strip()
+    user_id = str(args.get("user_id") or default_sender).strip()
+    if not old_claim:
+        return {"status": "error", "error": "Klaim lama yang dikoreksi tidak boleh kosong."}
+    if not new_fact:
+        return {"status": "error", "error": "Fakta koreksi tidak boleh kosong."}
+
+    return await semantic_memory.correct_memory(
+        query=old_claim,
+        corrected_fact=new_fact,
+        user_id=user_id,
+        source_turn_id=str(args.get("source_turn_id") or "") or None,
+    )
+
+
 @register_tool("delete_memory")
 async def handle_delete_memory(args: dict[str, Any], default_sender: str) -> dict[str, Any]:
     query = str(args.get("query", "")).strip()
