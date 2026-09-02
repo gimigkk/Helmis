@@ -10,10 +10,18 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from src.agent.proactive import handle_proactive_scheduler_tick
-from src.memory.store import add_task, list_tasks, load_memory
+from src.memory.store import add_person, add_task, list_tasks, load_memory
 from src.whatsapp.client import WahaClient
 
 TZ = ZoneInfo("Asia/Jakarta")
+
+
+@pytest.fixture(autouse=True)
+def people_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Recipient resolution comes from directory data."""
+    monkeypatch.delenv("TRIO_GROUP_JID", raising=False)
+    add_person("Gilang", phone="+628123456789")
+    add_person("Bunga", phone="+628987654321")
 
 
 @pytest.mark.asyncio

@@ -398,7 +398,11 @@ def add_task(
         "recurrence_policy": clean_recurrence,
         "nag_interval_minutes": clean_nag_interval,
         "max_nags": clean_max_nags,
-        "nag_policy": {"interval_minutes": clean_nag_interval, "max_nags": clean_max_nags},
+        "nag_policy": {
+            **{k: v for k, v in supplied_nag.items() if k not in ("interval_minutes", "max_nags")},
+            "interval_minutes": clean_nag_interval,
+            "max_nags": clean_max_nags,
+        },
         "nag_enabled": clean_priority == "urgent" or nag_policy is not None,
     }
     if job is not None:

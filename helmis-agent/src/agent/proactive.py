@@ -134,6 +134,62 @@ def normalize_chat_target(raw_id: str, default_suffix: str = "@c.us") -> str:
     return f"{clean}{default_suffix}"
 
 
+_MULTI_RECIPIENT_TOKENS = ("both", "semua", "shared", "trio", "group", "grup")
+
+
+def _resolve_recipient_chat(assignee: str, *, cross_alert_recipient: str = "") -> str:
+    """Resolve a recipient chat from data: people directory, or group JID for multi-recipient tokens."""
+    from ..memory.store import get_person
+
+    name = (cross_alert_recipient or assignee).strip()
+    lowered = name.lower()
+
+    if any(token in lowered for token in _MULTI_RECIPIENT_TOKENS):
+        return os.environ.get("TRIO_GROUP_JID", "").strip()
+
+    person = get_person(name) if name else None
+    if person and person.get("phone"):
+        return normalize_chat_target(str(person["phone"]))
+    return ""
+
+
+def _resolve_reminder_policy(task: dict[str, Any]) -> dict[str, Any] | None:
+    """Resolve the nag policy for a task from data, falling back to task fields.
+
+    Lookup order: reminder_policies row for this task, then task-level
+    nag fields, then the urgent-priority default (10m interval, 5 nags,
+    stand-down at 60m) which reproduces the legacy ladder as plain data.
+    Returns None when no nagging applies.
+    """
+    task_id = str(task.get("task_id") or "")
+    if task_id:
+        policies = get_repository().list_reminder_policies(task_id=task_id)
+        if policies:
+            return policies[0]
+
+    nag_policy = task.get("nag_policy") if isinstance(task.get("nag_policy"), dict) else {}
+    priority = str(task.get("priority", "normal")).strip().lower()
+    nag_enabled = bool(task.get("nag_enabled")) or priority == "urgent"
+    interval = task.get("nag_interval_minutes") or nag_policy.get("interval_minutes")
+    max_nags = task.get("max_nags", nag_policy.get("max_nags"))
+    if not nag_enabled and interval is None:
+        return None
+
+    return {
+        "policy_id": "derived",
+        "task_id": task_id,
+        "repeat_interval_minutes": max(1, int(interval)) if interval else 10,
+        # max_nags counts the due reminder itself; max_repeats budgets extra nags.
+        "max_repeats": max(0, int(max_nags) - 1) if max_nags is not None else 5,
+        "acknowledgment_required": True,
+        "stand_down_after_minutes": int(
+            nag_policy.get("stand_down_after_minutes")
+            or ((int(interval) if interval else 10) * (int(max_nags) if max_nags is not None else 6) + 10)
+        ),
+        "cross_alert_recipient": str(nag_policy.get("cross_alert_recipient", "") or ""),
+    }
+
+
 async def send_reminder_to_recipient(
     client: WahaClient,
     assignee: str,
@@ -145,27 +201,10 @@ async def send_reminder_to_recipient(
     occurrence_id: str | None = None,
     claim_occurrence: bool = True,
 ) -> None:
-    """Route human reminder text to the appropriate WhatsApp chat (DM or Trio Group)."""
-    trio_group_jid = os.environ.get("TRIO_GROUP_JID", "").strip()
-    gilang_raw = os.environ.get("GILANG_PHONE", "").strip()
-    bunga_raw = os.environ.get("BUNGA_PHONE", "").strip()
-    assignee_lower = assignee.lower()
-
-    is_both = (
-        "both" in assignee_lower
-        or "semua" in assignee_lower
-        or "shared" in assignee_lower
-        or "trio" in assignee_lower
-        or ("gilang" in assignee_lower and "bunga" in assignee_lower)
-    )
-
-    target_chat: str
-    if (is_both or is_cross_alert) and trio_group_jid:
-        target_chat = trio_group_jid
-    elif "bunga" in assignee_lower:
-        target_chat = normalize_chat_target(bunga_raw) or "bunga@c.us"
-    else:
-        target_chat = normalize_chat_target(gilang_raw) or "gilang@c.us"
+    """Route human reminder text to the recipient resolved from data (directory/group)."""
+    target_chat = _resolve_recipient_chat(assignee)
+    if not target_chat:
+        raise RuntimeError(f"No resolvable recipient for reminder assignee '{assignee}'")
 
     log.info("Dispatching reminder to %s: %s", target_chat, text)
     repository = get_repository()
@@ -350,7 +389,6 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
             due_str = t.get("due", "")
             assignee = str(t.get("assignee", "Gilang")).strip()
             task_type = str(t.get("task_type", "reminder")).strip().lower()
-            priority = str(t.get("priority", "normal")).strip().lower()
             lead_mins = int(t.get("lead_time_minutes", 0) or 0)
             due_ts = parse_due_timestamp(due_str)
 
@@ -370,11 +408,25 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
             if is_bot_action:
                 # 1. Overdue / Downtime Expiration Check (> 2 hours overdue)
                 if (now_ts - due_ts) > 7200:
-                    t["status"] = "expired"
-                    t["execution_status"] = "expired"
-                    t["completed_at"] = now_str
-                    log.warning("Scheduled action '%s' was overdue by >2h. Marked expired.", title)
-                    log_activity(f"Scheduled action expired (>2h): '{title}'")
+                    next_fields = _advance_recurrence(t, due_ts)
+                    if next_fields:
+                        # Skip the missed occurrence but keep the recurrence alive:
+                        # the series survives downtime and lands on its next slot.
+                        t["status"] = "pending"
+                        t["execution_status"] = "skipped_overdue"
+                        t.update(next_fields)
+                        t["due_reminded"] = False
+                        t["reminded"] = False
+                        t["nudge_count"] = 0
+                        t["nudge_stopped"] = False
+                        log.warning("Recurring action '%s' overdue >2h; skipped occurrence, advanced to %s", title, next_fields.get("due"))
+                        log_activity(f"Recurring action skipped overdue occurrence: '{title}'")
+                    else:
+                        t["status"] = "expired"
+                        t["execution_status"] = "expired"
+                        t["completed_at"] = now_str
+                        log.warning("Scheduled action '%s' was overdue by >2h. Marked expired.", title)
+                        log_activity(f"Scheduled action expired (>2h): '{title}'")
                     continue
 
                 # 2. Trigger Window: within 2 minutes of due or slightly overdue (<2h)
@@ -413,7 +465,6 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
             kickoff_reminded = bool(t.get("kickoff_reminded"))
             due_reminded = bool(t.get("due_reminded") or t.get("reminded"))
             nudge_count = int(t.get("nudge_count", 0))
-            last_nudged_at = float(t.get("last_nudged_at") or 0)
             nudge_stopped = bool(t.get("nudge_stopped"))
 
             # ---------------------------------------------------------------------
@@ -452,8 +503,18 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
             # 2. STAGE 2: Final Deadline Alert
             # ---------------------------------------------------------------------
             if not due_reminded:
-                # Safeguard: If task is already > 2 hours overdue when first loaded, silently mark reminded
+                # Safeguard: If task is already > 2 hours overdue when first loaded, skip
+                # the stale occurrence but keep recurring series alive via advancement.
                 if (now_ts - due_ts) > 7200:
+                    next_fields = _advance_recurrence(t, due_ts)
+                    if next_fields:
+                        t.update(next_fields)
+                        t["due_reminded"] = False
+                        t["reminded"] = False
+                        t["nudge_count"] = 0
+                        t["nudge_stopped"] = False
+                        log.info("Recurring reminder '%s' overdue >2h; skipped occurrence, advanced to %s", title, next_fields.get("due"))
+                        continue
                     t["due_reminded"] = True
                     t["reminded"] = True
                     t["reminded_at"] = now_str
@@ -478,111 +539,39 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                     t["last_nudged_at"] = now_ts
                     t["nudge_count"] = 1
                     log_activity(f"Stage 2 due reminder sent to {assignee} for '{title}'")
+                    # Recurring human reminders must also advance, otherwise the
+                    # series dies after its first delivered due reminder.
+                    next_fields = _advance_recurrence(t, due_ts)
+                    if next_fields:
+                        t.update(next_fields)
+                        t["due_reminded"] = False
+                        t["reminded"] = False
+                        t["kickoff_reminded"] = False
+                        t["nudge_count"] = 0
+                        t["nudge_stopped"] = False
+                        t["last_nudged_at"] = None
                     continue
 
             # ---------------------------------------------------------------------
-            # 3. URGENT 10-MINUTE NAG ESCALATION LOOP
+            # 3. POLICY-DRIVEN NAG ESCALATION LOOP
+            # Cadence, repeat budget, stand-down, and cross-alert all come from
+            # the resolved reminder policy (repository row, task fields, or the
+            # urgent default). No per-person or per-count Python branches.
             # ---------------------------------------------------------------------
-            if priority == "urgent" and due_reminded and not nudge_stopped:
-                time_since_nudge = (now_ts - last_nudged_at) if last_nudged_at else (now_ts - due_ts)
-                if time_since_nudge >= 540:  # ~9 minutes
+            policy = _resolve_reminder_policy(t)
+            if policy and due_reminded and not nudge_stopped:
+                interval_min = max(1, int(policy.get("repeat_interval_minutes") or 10))
+                max_repeats = max(0, int(policy.get("max_repeats") or 0))
+                last_nudged = float(t.get("last_nudged_at") or 0)
+                time_since_nudge = (now_ts - last_nudged) if last_nudged else (now_ts - due_ts)
+                if time_since_nudge >= interval_min * 60 * 0.9:
                     next_count = nudge_count + 1
-
-                    if next_count == 2:
+                    if next_count > max_repeats + 1:
+                        stand_down = int(policy.get("stand_down_after_minutes") or 0)
+                        stood_down_min = stand_down if stand_down else interval_min * (max_repeats + 1)
                         msg_text = (
-                            f"{assignee}, tugas penting *{title}* belum ada konfirmasi (10 menit lalu). "
-                            "Apakah sudah beres atau masih berjalan?"
-                        )
-                        await send_reminder_to_recipient(
-                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-2",
-                            scheduled_for=due_ts,
-                        )
-                        t["nudge_count"] = 2
-                        t["last_nudged_at"] = now_ts
-                        log_activity(f"Urgent Nag #2 sent to {assignee} for '{title}'")
-
-                    elif next_count == 3:
-                        msg_text = (
-                            f"{assignee}, pengingat ke-3 untuk *{title}* (20 menit lewat). "
-                            "Mohon konfirmasi statusnya ya."
-                        )
-                        await send_reminder_to_recipient(
-                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-3",
-                            scheduled_for=due_ts,
-                        )
-                        t["nudge_count"] = 3
-                        t["last_nudged_at"] = now_ts
-                        log_activity(f"Urgent Nag #3 sent to {assignee} for '{title}'")
-
-                    elif next_count == 4:
-                        is_both = (
-                            "both" in assignee.lower()
-                            or "semua" in assignee.lower()
-                            or "shared" in assignee.lower()
-                            or "trio" in assignee.lower()
-                        )
-                        if is_both:
-                            msg_text = (
-                                f"PENTING: Tugas bersama *{title}* sudah 30 menit lewat dari jadwal "
-                                "dan belum ada konfirmasi dari Gilang maupun Bunga. Mohon salah satu bantu cek ya."
-                            )
-                            await send_reminder_to_recipient(
-                                client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-4",
-                                scheduled_for=due_ts,
-                            )
-                        else:
-                            msg_text = (
-                                f"PENTING: {assignee}, tugas *{title}* sudah 30 menit lewat dari jadwal "
-                                "dan belum ada konfirmasi."
-                            )
-                            await send_reminder_to_recipient(
-                                client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-4"
-                            )
-
-                            other_name = "Bunga" if "gilang" in assignee.lower() else "Gilang"
-                            cross_msg = (
-                                f"PENTING: {other_name}, {assignee} belum ada konfirmasi untuk tugas urgent "
-                                f"*{title}* (30 menit lewat). Tolong bantu cek atau bangunkan {assignee} ya."
-                            )
-                            await send_reminder_to_recipient(
-                                client, other_name, cross_msg, is_cross_alert=True,
-                                task_id=str(t.get("task_id", "")), stage="nag-4-cross-alert",
-                                scheduled_for=due_ts,
-                            )
-
-                        t["nudge_count"] = 4
-                        t["last_nudged_at"] = now_ts
-                        log_activity(f"Urgent Nag #4 (+ Partner Cross-Alert) sent for '{title}'")
-
-                    elif next_count == 5:
-                        msg_text = (
-                            f"PENTING: {assignee}, pengingat ke-5 untuk *{title}* (40 menit lewat). "
-                            "Mohon kabari statusnya ya."
-                        )
-                        await send_reminder_to_recipient(
-                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-5",
-                            scheduled_for=due_ts,
-                        )
-                        t["nudge_count"] = 5
-                        t["last_nudged_at"] = now_ts
-                        log_activity(f"Urgent Nag #5 sent to {assignee} for '{title}'")
-
-                    elif next_count == 6:
-                        msg_text = (
-                            f"PENTING: {assignee}, pengingat ke-6 untuk *{title}* (50 menit lewat). "
-                            "Mohon konfirmasi ya."
-                        )
-                        await send_reminder_to_recipient(
-                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-6",
-                            scheduled_for=due_ts,
-                        )
-                        t["nudge_count"] = 6
-                        t["last_nudged_at"] = now_ts
-                        log_activity(f"Urgent Nag #6 sent to {assignee} for '{title}'")
-
-                    elif next_count > 6:
-                        msg_text = (
-                            f"Helmis menghentikan pengingat otomatis untuk *{title}* (sudah 60 menit tanpa respon). "
+                            f"Helmis menghentikan pengingat otomatis untuk *{title}* "
+                            f"(sudah {stood_down_min} menit tanpa respon). "
                             "Tugas tetap tercatat 'pending' di daftar target."
                         )
                         await send_reminder_to_recipient(
@@ -591,7 +580,32 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                         )
                         t["nudge_stopped"] = True
                         t["last_nudged_at"] = now_ts
-                        log_activity(f"Urgent Nag stand-down reached (60m) for '{title}'")
+                        log_activity(f"Reminder stand-down reached ({stood_down_min}m) for '{title}'")
+                    else:
+                        minutes_overdue = int((now_ts - due_ts) // 60)
+                        cross_recipient = str(policy.get("cross_alert_recipient") or "")
+                        msg_text = (
+                            f"PENTING: {assignee}, pengingat ke-{next_count} untuk *{title}* "
+                            f"({minutes_overdue} menit lewat). Mohon konfirmasi statusnya ya."
+                        )
+                        await send_reminder_to_recipient(
+                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage=f"nag-{next_count}",
+                            scheduled_for=due_ts,
+                        )
+                        # Cross-alert at the midpoint of the nag budget.
+                        if cross_recipient and max_repeats >= 2 and next_count == 2 + (max_repeats - 1) // 2:
+                            cross_msg = (
+                                f"PENTING: {cross_recipient}, {assignee} belum ada konfirmasi untuk tugas "
+                                f"urgent *{title}* ({minutes_overdue} menit lewat). Tolong bantu cek ya."
+                            )
+                            await send_reminder_to_recipient(
+                                client, cross_recipient, cross_msg, is_cross_alert=True,
+                                task_id=str(t.get("task_id", "")), stage=f"nag-{next_count}-cross-alert",
+                                scheduled_for=due_ts,
+                            )
+                        t["nudge_count"] = next_count
+                        t["last_nudged_at"] = now_ts
+                        log_activity(f"Policy nag #{next_count} sent to {assignee} for '{title}'")
 
         except Exception as task_err:
             log.error("Error evaluating proactive reminder for task '%s': %s", t.get("title"), task_err)
