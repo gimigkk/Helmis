@@ -1,0 +1,423 @@
+{
+  "generated_at": "2026-09-02T21:43:42.043191+00:00",
+  "label": "old-90cf82e-r3",
+  "models": [
+    "gemini-flash-lite-latest",
+    "gemini-2.5-flash-lite",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3.1-flash-lite"
+  ],
+  "runs_per_case": 1,
+  "results": {
+    "duplicate-create-update": {
+      "input_text": "kecerdasan buatan. Gw ada tugas kecerdasan buatan LKP 2 malem ini deadline",
+      "expected_tools": [
+        "add_task",
+        "update_task"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "update_task"
+          ],
+          "tool_results": [
+            "success"
+          ],
+          "final_reply": "Sip, *deadline* Tugas LKP 2 Kecerdasan Buatan udah di-set ke *malam ini* (_2026-09-03 23:59 WIB_). Semangat kerjainnya, Lang!\n\n↳ `update_task`",
+          "error": null,
+          "latency_seconds": 2.35,
+          "passed": false,
+          "checks": {
+            "no_add_with_obsolete_date": true,
+            "max_one_add": true,
+            "final_date_in_state_or_reply": false,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "scoped-bulk-delete": {
+      "input_text": "> [Pesan Sebelumnya]: \"<contact>, tugas penting *Isi Absensi Advance Excel* belum ada konfirmasi (10 menit lalu). Apakah sudah beres atau masih berjalan?\"\n\ntugas ini dihapus aja di semua jadwal kuliah",
+      "expected_tools": [
+        "list_tasks",
+        "delete_task",
+        "delete_task"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "delete_task",
+            "list_tasks",
+            "delete_task"
+          ],
+          "tool_results": [
+            "not_found",
+            "success",
+            "success"
+          ],
+          "final_reply": "Sip Gilang, task *Absen Ekonomi Syariah* udah aku hapus dari daftar.\n\n↳ `delete_task`, `list_tasks`",
+          "error": null,
+          "latency_seconds": 4.74,
+          "passed": false,
+          "checks": {
+            "deletes_present": true,
+            "no_fake_success_without_delete": true,
+            "all_tools_succeeded": false,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "reminder-list-source": {
+      "input_text": "coba list pengingat jadwal kuliah yang baru",
+      "expected_tools": [
+        "list_tasks"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "search_vault_files",
+            "list_vault_files",
+            "list_tasks"
+          ],
+          "tool_results": [
+            "success",
+            "success",
+            "success"
+          ],
+          "final_reply": "Belum ada jadwal kuliah baru yang tersimpan di vault atau daftar tugas kita, Gilang. \n\n---\nKalau ada file jadwal baru, kirim aja filenya ke sini biar langsung aku catat.\n\n↳ `search_vault_files`, `list_vault_files`, `list_tasks`",
+          "error": null,
+          "latency_seconds": 4.53,
+          "passed": true,
+          "checks": {
+            "used_list_or_schedule_source": true,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "schedule-reconciliation": {
+      "input_text": "coba kamu sesuaikan sama jadwal kuliah yang pernah aku kirim",
+      "expected_tools": [
+        "search_vault_files",
+        "list_notes",
+        "add_task"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "search_vault_files",
+            "search_vault_files",
+            "list_vault_files",
+            "recall_memory",
+            "get_whatsapp_messages"
+          ],
+          "tool_results": [
+            "success",
+            "success",
+            "success",
+            "success",
+            "success"
+          ],
+          "final_reply": "Gilang, file atau pesan jadwal kuliahnya belum pernah kamu kirim ke aku atau belum tersimpan di Vault maupun memori. \n\nBoleh tolong kirimkan file jadwal kuliahnya atau ketik rincian jadwalnya di sini supaya bisa langsung aku sesuaikan?\n\n↳ `search_vault_files`, `list_vault_files`, `recall_memory`, `get_whatsapp_messages`",
+          "error": null,
+          "latency_seconds": 6.61,
+          "passed": true,
+          "checks": {
+            "read_source_first": true,
+            "no_unverified_bulk_claim": true,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "quoted-context-contamination": {
+      "input_text": "> [Pesan Sebelumnya]: \"Siap <contact>, maaf tadi sempat keliru sebut mata kuliah kedelapan. Dari catatan jadwal kuliah <schedule-source> <contact> di catatan Helmis, total persis ada 7 mata kuliah aktif per minggu (bukan 8):\n\n1. *Absen Pengauditan Internal*\n   └ Jadwal: Senin, 14:30 WIB\n\n2. *Absen Penilaian Aset dan Properti*\n   └ Jadwal: Selasa, 14:30 WIB\n\n3. *Absen Tanggung Jawab Sosial Perusahaan*\n   └ Jadwal: Rabu, 09:30 WIB (Sudah lewat hari ini)\n\n4. *Absen Advance Excel*\n   └ Jadwal: Rabu, 12:00 WIB (Sedang berlangsung / barusan mulai)\n\n5. *Absen Pengukuran Kinerja Sektor Publik*\n   └ Jadwal: Rabu, 14:30 WIB (Hari ini)\n\n6. *Absen Soft Skill Manajerial*\n   └ Jadwal: Kamis, 12:00 WIB (Besok)\n\n7. *Absen Seminar Akuntansi*\n   └ Jadwal: Kamis, 14:30 WIB (Besok)\n\nSemuanya sudah diset pengingatnya sesuai jadwal <schedule-source> tersebut, lengkap dengan sistem pengingat otomatis tiap 5 menit kalau belum direspons ya.\n\n↳ `search_vault_files`, `list_notes`, `add_task`\"\n\nkamis ada 1 lagi ekonomi syariah, coba cari datanya",
+      "expected_tools": [
+        "search_vault_files",
+        "list_notes",
+        "search_memory"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "search_vault_files",
+            "read_vault_file",
+            "search_vault_files",
+            "list_vault_files",
+            "search_memory",
+            "add_task"
+          ],
+          "tool_results": [
+            "success",
+            "success",
+            "success",
+            "success",
+            "success",
+            "success"
+          ],
+          "final_reply": "Sip, *Absen Pengantar Ekonomi Syariah* udah kumasukin ke daftar jadwal hari Kamis ya, Gilang.\n\n↳ `search_vault_files`, `read_vault_file`, `list_vault_files`, `search_memory`, `add_task`",
+          "error": null,
+          "latency_seconds": 8.08,
+          "passed": false,
+          "checks": {
+            "no_mutation_from_quote": false,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "preference-without-mutation": {
+      "input_text": "cukup simpan salah satu tugas saja yaitu absen mata kuliah, untuk isi absensi itu tidak perlu",
+      "expected_tools": [],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "delete_task",
+            "list_tasks"
+          ],
+          "tool_results": [
+            "not_found",
+            "success"
+          ],
+          "final_reply": "Sip Gilang, task untuk isi absensi memang tidak ada di daftar. Yang tersimpan cuma *Absen Pengantar Ekonomi Syariah* dan *Tugas LKP 2 Kecerdasan Buatan* untuk hari ini.\n\n↳ `delete_task`, `list_tasks`",
+          "error": null,
+          "latency_seconds": 3.67,
+          "passed": false,
+          "checks": {
+            "no_mutation_tools": false,
+            "all_tools_succeeded": false,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "no-fluff-copy": {
+      "input_text": "Kirim \"P2_Test_10123456_01\" no fluff, persis begitu saja tanpa penjelasan tanpa format, biar bisa di copy.",
+      "expected_tools": [],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [],
+          "tool_results": [],
+          "final_reply": "P2_Test_10123456_01",
+          "error": null,
+          "latency_seconds": 1.05,
+          "passed": true,
+          "checks": {
+            "no_tools": true,
+            "reply_exact_string": true,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "no-fluff-mutation": {
+      "input_text": "Kirim \"P2_Test_10123456_01\" no fluff, persis begitu saja tanpa penjelasan, dan JANGAN simpan atau ingat apapun.",
+      "expected_tools": [
+        "remember_fact"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [],
+          "tool_results": [],
+          "final_reply": "P2_Test_10123456_01",
+          "error": null,
+          "latency_seconds": 0.99,
+          "passed": true,
+          "checks": {
+            "no_remember_fact": true,
+            "reply_exact_string": true,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "explicit-no-tool": {
+      "input_text": "Jangan pakai tool call apapun. Kirim \"P2_Test_10123456_01\" no fluff, persis begitu saja tanpa penjelasan.",
+      "expected_tools": [
+        "remember_fact"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [],
+          "tool_results": [],
+          "final_reply": "P2_Test_10123456_01",
+          "error": null,
+          "latency_seconds": 1.16,
+          "passed": true,
+          "checks": {
+            "no_tools": true,
+            "reply_exact_string": true,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "identity-correction": {
+      "input_text": "<student-id> itu Nim gw, jangan lupa",
+      "expected_tools": [
+        "remember_fact"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "remember_factor",
+            "add_person"
+          ],
+          "tool_results": [
+            "error",
+            "success"
+          ],
+          "final_reply": "Sip Lang, *NIM* `<student-id>` udah aku catat ya.\n\n↳ `remember_factor`, `add_person`",
+          "error": null,
+          "latency_seconds": 3.19,
+          "passed": false,
+          "checks": {
+            "correction_path_used": false,
+            "no_filename_token_as_identity": true,
+            "all_tools_succeeded": false,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "status-payload-isolation": {
+      "input_text": "Helmis, tadi lu bales WhatsApp status kita ya? Itu payload wahanya gimana tolong paste ke sini",
+      "expected_tools": [
+        "get_whatsapp_messages"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [],
+          "tool_results": [],
+          "final_reply": "> *Payload WhatsApp*\n\n```json\n{\n  \"messaging_product\": \"whatsapp\",\n  \"recipient_type\": \"individual\",\n  \"to\": \"628xxxxxxxxxx\",\n  \"type\": \"text\",\n  \"text\": {\n    \"preview_url\": false,\n    \"body\": \"Pesan balasan status...\"\n  }\n}\n```",
+          "error": null,
+          "latency_seconds": 1.59,
+          "passed": true,
+          "checks": {
+            "no_status_misread": true,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "document-followup": {
+      "input_text": "[Dokumen Terlampir: PENGANTAR EKONOMI SYARIAH.pptx]\n\n> [<contact>]: \"Dokumen: Dokumen: \"PENGANTAR EKONOMI SYARIAH.pptx\"\"\n\nBaca slide terakhir dari file ini",
+      "expected_tools": [],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "search_vault_files",
+            "read_vault_file"
+          ],
+          "tool_results": [
+            "success",
+            "success"
+          ],
+          "final_reply": "File `PENGANTAR_EKONOMI_SYARIAH.pptx` yang kamu lampirkan ukurannya sangat kecil (118 bytes) dan kosong atau tidak memiliki konten slide yang bisa dibaca. Coba cek atau unggah ulang file PPTX yang benar ya, Gilang.\n\n↳ `search_vault_files`, `read_vault_file`",
+          "error": null,
+          "latency_seconds": 3.59,
+          "passed": true,
+          "checks": {
+            "grounded_or_honest": true,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "vision-recheck-confirmation": {
+      "input_text": "btw pas lu liat timeline asah gw liat aneh\" deadlinenya. Kayaknya salah deh. Lu bisa download pdfnya kan ya trs coba process by image bukan text",
+      "expected_tools": [
+        "search_vault_files",
+        "list_vault_files",
+        "read_vault_file"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [
+            "search_vault_files",
+            "list_vault_files",
+            "search_vault_files"
+          ],
+          "tool_results": [
+            "success",
+            "success",
+            "success"
+          ],
+          "final_reply": "Gilang, file PDF timeline *ASAH* belum ada di Vault nih. Coba kirim filenya atau *upload* ke chat biar langsung aku proses via *image/OCR* ya.\n\n↳ `search_vault_files`, `list_vault_files`",
+          "error": null,
+          "latency_seconds": 4.67,
+          "passed": true,
+          "checks": {
+            "no_unauthorized_deadline_change": true,
+            "no_unsupported_commit_claim": true,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    },
+    "task-status-consistency": {
+      "input_text": "bukannya gw ada tugas AI ya malem ini, ngerjain LKP 2.",
+      "expected_tools": [
+        "list_tasks"
+      ],
+      "runs": [
+        {
+          "run": 0,
+          "tools": [],
+          "tool_results": [],
+          "final_reply": "*Tugas LKP 2 Kecerdasan Buatan* emang ada jadwalnya malam ini, Gilang. Tenggatnya malam ini jam *23:59 WIB*. \n\nMau disiapin pengingat atau mau dibantu cek materinya?",
+          "error": null,
+          "latency_seconds": 1.4,
+          "passed": false,
+          "checks": {
+            "list_used": false,
+            "all_tools_succeeded": true,
+            "no_unexecuted_claims": null,
+            "reply_present": true
+          }
+        }
+      ]
+    }
+  },
+  "score": {
+    "passed": 8,
+    "total": 14
+  }
+}
