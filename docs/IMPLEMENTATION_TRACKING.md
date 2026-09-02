@@ -11,11 +11,11 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 ## Current Position
 
 - **Branch:** `feat/dynamic-secretary-foundation` (committed through 2026-09-03)
-- **Last commit:** `5a883d0` — chips opt-in + this snapshot update
+- **Last commit:** `0ea81eb` — policy-driven nag engine, recurrence survives downtime
 - **Last updated:** 2026-09-03
-- **Last verified:** `306 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files, `git diff --check` clean
-- **Phase:** Phase 3 build work complete (memory corrections, skill rollback/versioning, chips opt-in); remaining: uncertain-memory candidate flow decision (parked, non-blocking)
-- **Step:** Next: Phase 5 CI (unblocked) or Phase 4 occurrence catch-up (needs weekly-recurrence decision)
+- **Last verified:** `310 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files
+- **Phase:** Phase 4 core engine swap done (policy-driven nags, data recipients, downtime advance); remaining: quarantine unknown scheduled jobs, MCP/tool namespace unification
+- **Step:** Next: Phase 4 remainder (scheduled-job allowlist/quarantine) or Phase 5 CI
 
 ## Phase Roadmap
 
@@ -49,6 +49,7 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | Deterministic schedule routing | New `list_schedules`/`create_schedule`/`list_reminder_policies` tools over repository records with model-facing schema descriptions directing schedule questions away from task lists; tests in `tests/test_schedule_routing.py` |
 | Guardrail mutation fidelity | `mutation_was_effective()`: read-only tool success and zero-count mutation results never authorize success claims; `ambiguous`/`conflict`/`failed`/`not_found` outcomes block success language; `is_no_fluff_request()` + `verify_action_fidelity(no_fluff=)` suppress tool chips and keep copy-only output exact; tests in `tests/test_guardrail_contracts.py` |
 | Guardrail chips opt-in | Tool chips footnote now opt-in via `HELMIS_TOOL_CHIPS_ENABLED` (default off; wired in `.env.example`); no-fluff turns never get chips even when enabled; 4 legacy tests updated to the opt-in contract + 3 new cases in `tests/test_guardrail_contracts.py` |
+| Policy-driven reminder engine | `proactive.py` nag ladder now resolves a reminder policy per task (`reminder_policies` row → task nag fields → urgent default as data, legacy cadence preserved: 10m interval, 5 nags, 60m stand-down); recipients resolve through people directory + group JID for multi-recipient tokens (person-specific env/name-sniffing branches removed; unresolvable recipient raises instead of guessing); single generic nag template with policy-computed minutes; cross-alert fires at budget midpoint only when policy carries `cross_alert_recipient` (persisted through `add_task` nag_policy merge); recurrence advances for human reminders too (weekly series no longer dies after first due reminder) and for >2h overdue recurring tasks on both bot and human stages (occurrence skipped, series advanced to next slot instead of expiring); tests: policy-row cadence/stand-down, recurring human advance, downtime skip+advance, non-recurring still expires in `tests/test_proactive_engine.py` |
 | Burst media preservation | `process_batched_turn` labels every burst media attachment in turn context (primary = inlineData + document banner, others = explicit `[Lampiran Media: ...]` labels); media-download and history-fetch failures degrade safely with the turn still answered; tests in `tests/test_burst_media_preservation.py` |
 | Typed intent/action planning | New `src/agent/intent.py`: `TurnPlan` (intent/domain/action_type/selectors/side_effects/destructive/confirmation gate/source of truth), deterministic destructive-scope + ambiguous-selector confirmation gates with model-facing directives, entity pre-resolution against task store, `should_force_tools()` gates `mode=ANY` (confirmation-required plans no longer force tool calls); `guardrails.classify_turn_intent` delegates to the planner (legacy behavior preserved); tests in `tests/test_intent_planning.py` |
 | Group admission policy | New `src/whatsapp/policy.py`: pure decision functions for bot-mention detection (name/trigger prefix/@mention/phone mention/bot quote) and human-directed-message suppression; webhook group gate delegates to `decide_group_admission`; mention-list extraction normalized across WAHA engines; tests in `tests/test_group_policy.py` + webhook integration tests in `tests/test_ingestion_policy.py` |
