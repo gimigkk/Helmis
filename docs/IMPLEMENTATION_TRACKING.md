@@ -15,7 +15,7 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 - **Last updated:** 2026-09-03
 - **Last verified:** `301 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files, `git diff --check` clean
 - **Phase:** Phase 3 in progress (safe memory and learning)
-- **Step:** Semantic memory correction/supersession workflow done; next: skill proposal rollback/versioning + candidate workflow
+- **Step:** Skill proposal rollback/versioning + candidate workflow done; Phase 3 gate: uncertain-memory candidate flow decision (non-blocking, listed under Blockers) — next: Phase 4 remainder or guardrail chips opt-in
 
 ## Phase Roadmap
 
@@ -57,6 +57,7 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | Semantic memory safety | Provenance/source-turn/confidence/scope/authority fields; auto fact-extraction off by default (`HELMIS_ENABLE_AUTO_FACT_EXTRACTION`); retrieval restricted to authoritative ≥0.7 confidence |
 | Semantic memory correction workflow | `correct_memory()` in `semantic.py` + `correct_fact` tool: explicit user correction marks matched active claims superseded (`authoritative=False`, `confidence=0.0`, `superseded_by`/`superseded_at` audit links kept on disk) and appends an `explicit_user_correction` claim (confidence 1.0, `supersedes` backlinks); matching = exact/substring first, embedding ≥0.78 fallback; search skips superseded records and exposes provenance; tests in `tests/test_semantic_memory.py` |
 | Skill proposals | Auto-generated skills go to proposal store with validation; explicit `approve_skill_proposal()` promotion; active skills never auto-modified |
+| Skill versioning + rollback | Promotions and agent updates snapshot every prior active `SKILL.md` to `<skill>/.versions/vNNN.md` and record audit metadata (version, sha256, source, proposal path, timestamps) in `config/skills/.skill-registry.json`; `rollback_skill(name)` restores the registry-recorded previous version (rollback itself versioned + attributed); `list_skill_versions()` exposes history; `list_proposals()`/`reject_proposal(reason)` complete the candidate workflow (rejected proposals kept for audit with reason, never injectable); proposal path containment enforced; tests in `tests/test_skill_proposals.py` (6 cases) |
 | Webhook security | Optional `WAHA_WEBHOOK_SECRET` (header) and separate `SCHEDULER_WEBHOOK_SECRET`; `status@broadcast` rejected pre-queue; `/health` (liveness) vs `/ready` (WAHA) split; secrets wired in Compose + cron trigger |
 | Config | Compose/`.env.example` reconciled with secret vars; dev docs test-module table updated |
 
@@ -66,7 +67,6 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 - Domain-specific authorization policy and outbound target allowlisting beyond the central caller/chat/private-memory boundary
 - Guardrail chips opt-in policy for non-no-fluff turns (chips currently append on every mutating turn)
 - Replay/A-B benchmark rerun with available stronger model/quota; current report is provider-inconclusive for arm B, so no model upgrade decision yet
-- Skill proposal rollback/versioning (approval exists; no revert)
 - CI pipeline (tests, lint, type check, compose validation, security contracts)
 - Phase 5 rollout: canary, synthetic scenarios, backup/restore verification, one-command rollback
 
