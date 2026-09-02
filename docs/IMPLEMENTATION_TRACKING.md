@@ -11,11 +11,11 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 ## Current Position
 
 - **Branch:** `feat/dynamic-secretary-foundation` (committed through 2026-09-03)
-- **Last commit:** `6a4c674` — tracker records Phase 1+2 commit hash (`4352074`)
+- **Last commit:** `5a883d0` — chips opt-in + this snapshot update
 - **Last updated:** 2026-09-03
 - **Last verified:** `306 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files, `git diff --check` clean
 - **Phase:** Phase 3 build work complete (memory corrections, skill rollback/versioning, chips opt-in); remaining: uncertain-memory candidate flow decision (parked, non-blocking)
-- **Step:** Next: Phase 4 remainder (occurrence catch-up policy — needs weekly-recurrence decision) or Phase 5 CI
+- **Step:** Next: Phase 5 CI (unblocked) or Phase 4 occurrence catch-up (needs weekly-recurrence decision)
 
 ## Phase Roadmap
 
