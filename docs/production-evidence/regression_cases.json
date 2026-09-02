@@ -1,0 +1,401 @@
+{
+  "schema_version": 1,
+  "source": "sanitized production traces; selected timestamps retained only as correlation handles",
+  "cases": [
+    {
+      "timestamp": 1788347669,
+      "input_text": "kecerdasan buatan. Gw ada tugas kecerdasan buatan LKP 2 malem ini deadline",
+      "status": "dispatched",
+      "steps_count": 3,
+      "tools": [
+        {
+          "name": "add_task",
+          "args": {
+            "title": "Tugas LKP 2 Kecerdasan Buatan",
+            "lead_time_minutes": 120,
+            "due": "2026-02-09 23:59 WIB",
+            "task_type": "reminder",
+            "priority": "urgent"
+          },
+          "result_status": "success"
+        },
+        {
+          "name": "update_task",
+          "args": {
+            "title": "Tugas LKP 2 Kecerdasan Buatan",
+            "new_due": "2026-09-02 23:59 WIB",
+            "new_priority": "urgent"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "Sip, maaf ya, <user>. Langsung gw catat dan update deadline-nya jadi malam ini.\n\n*Tugas LKP 2 Kecerdasan Buatan*\n└ Deadline: Rabu, 2 September 2026 (23:59 WIB)\n\n---\nMau gw cariin atau cek file materi Kecerdasan Buatan yang kemarin atau mau langsung dikerjain sekarang?\n\n↳ `add_task`, `update_task`",
+      "id": "duplicate-create-update",
+      "title": "Existing reminder request must not create a phantom old-deadline task",
+      "failure_tags": [
+        "wrong-date-argument",
+        "duplicate mutation",
+        "unsupported success risk"
+      ],
+      "expected_invariants": [
+        "Resolve existing task before create; never send an obsolete date to add_task; final date must match durable state."
+      ]
+    },
+    {
+      "timestamp": 1788325464,
+      "input_text": "> [Pesan Sebelumnya]: \"<contact>, tugas penting *Isi Absensi Advance Excel* belum ada konfirmasi (10 menit lalu). Apakah sudah beres atau masih berjalan?\"\n\ntugas ini dihapus aja di semua jadwal kuliah",
+      "status": "dispatched",
+      "steps_count": 4,
+      "tools": [
+        {
+          "name": "list_tasks",
+          "args": {
+            "task_type": "reminder"
+          },
+          "result_status": "success"
+        },
+        {
+          "name": "delete_task",
+          "args": {
+            "title": "Isi Absensi Advance Excel"
+          },
+          "result_status": "success"
+        },
+        {
+          "name": "delete_task",
+          "args": {
+            "title": "Absen Mata Kuliah Advance Excel"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "Siap <contact>, semua tugas pengingat absensi yang terkait dengan *Advance Excel* sudah Helmis hapus dari daftar jadwal.\n\n↳ `list_tasks`, `delete_task`",
+      "id": "scoped-bulk-delete",
+      "title": "Delete all reminders for one course without leaving title variants",
+      "failure_tags": [
+        "title-based mutation",
+        "incomplete bulk delete"
+      ],
+      "expected_invariants": [
+        "Require explicit scope; report exact affected count; verify no matching variants remain."
+      ]
+    },
+    {
+      "timestamp": 1788325437,
+      "input_text": "coba list pengingat jadwal kuliah yang baru",
+      "status": "dispatched",
+      "steps_count": 2,
+      "tools": [
+        {
+          "name": "list_tasks",
+          "args": {
+            "task_type": "reminder"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "> *Daftar Pengingat Absen Jadwal Kuliah <contact>*\n\n*Tugas <contact>:*\n1. *Absen Tanggung Jawab Sosial Perusahaan*\n   └ Jadwal: Rabu, 02 September 2026 (09:30 WIB)\n\n2. *Absen Advance Excel*\n   └ Jadwal: Rabu, 02 September 2026 (12:00 WIB)\n\n3. *Absen Pengukuran Kinerja Sektor Publik*\n   └ Jadwal: Rabu, 02 September 2026 (14:30 WIB)\n\n4. *Absen Ekonomi Syariah*\n   └ Jadwal: Kamis, 03 September 2026 (09:30 WIB)\n\n5. *Absen Soft Skill Manajerial*\n   └ Jadwal: Kamis, 03 September 2026 (12:00 WIB)\n\n6. *Absen Seminar Akuntansi*\n   └ Jadwal: Kamis, 03 September 2026 (14:30 WIB)\n\n7. *Absen Pengauditan Internal*\n   └ Jadwal: Senin, 07 September 2026 (14:30 WIB)\n\n8. *Absen Penilaian Aset dan Properti*\n   └ Jadwal: Selasa, 08 September 2026 (14:30 WIB)\n\nSemua pengingat absen di atas sudah diset otomatis di sistem Helmis dengan fitur _ping_ tiap 5 menit jika belum direspons ya.\n\n↳ `list_tasks`",
+      "id": "reminder-list-source",
+      "title": "List reminders from canonical reminder records",
+      "failure_tags": [
+        "task/reminder conflation"
+      ],
+      "expected_invariants": [
+        "List must be complete and consistent with stored reminder policies, not an inferred narrative."
+      ]
+    },
+    {
+      "timestamp": 1788325232,
+      "input_text": "coba kamu sesuaikan sama jadwal kuliah yang pernah aku kirim",
+      "status": "dispatched",
+      "steps_count": 4,
+      "tools": [
+        {
+          "name": "search_vault_files",
+          "args": {
+            "query": "<schedule-source>"
+          },
+          "result_status": "success"
+        },
+        {
+          "name": "list_notes",
+          "args": {},
+          "result_status": "success"
+        },
+        {
+          "name": "add_task",
+          "args": {
+            "assignee": "<contact>",
+            "priority": "urgent",
+            "due": "2026-09-02 14:30 WIB",
+            "title": "Absen Pengukuran Kinerja Sektor Publik",
+            "task_type": "reminder"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "Siap <contact>, maaf tadi sempat keliru sebut mata kuliah kedelapan. Dari catatan jadwal kuliah <schedule-source> <contact> di catatan Helmis, total persis ada 7 mata kuliah aktif per minggu (bukan 8):\n\n1. *Absen Pengauditan Internal*\n   └ Jadwal: Senin, 14:30 WIB\n\n2. *Absen Penilaian Aset dan Properti*\n   └ Jadwal: Selasa, 14:30 WIB\n\n3. *Absen Tanggung Jawab Sosial Perusahaan*\n   └ Jadwal: Rabu, 09:30 WIB (Sudah lewat hari ini)\n\n4. *Absen Advance Excel*\n   └ Jadwal: Rabu, 12:00 WIB (Sedang berlangsung / barusan mulai)\n\n5. *Absen Pengukuran Kinerja Sektor Publik*\n   └ Jadwal: Rabu, 14:30 WIB (Hari ini)\n\n6. *Absen Soft Skill Manajerial*\n   └ Jadwal: Kamis, 12:00 WIB (Besok)\n\n7. *Absen Seminar Akuntansi*\n   └ Jadwal: Kamis, 14:30 WIB (Besok)\n\nSemuanya sudah diset pengingatnya sesuai jadwal <schedule-source> tersebut, lengkap dengan sistem pengingat otomatis tiap 5 menit kalau belum direspons ya.\n\n↳ `search_vault_files`, `list_notes`, `add_task`",
+      "id": "schedule-reconciliation",
+      "title": "Align reminders to a schedule source without silently inventing or miscounting courses",
+      "failure_tags": [
+        "wrong source of truth",
+        "unverified bulk mutation"
+      ],
+      "expected_invariants": [
+        "Read schedule records first; show resolved set; commit only verified occurrences/policies."
+      ]
+    },
+    {
+      "timestamp": 1788325283,
+      "input_text": "> [Pesan Sebelumnya]: \"Siap <contact>, maaf tadi sempat keliru sebut mata kuliah kedelapan. Dari catatan jadwal kuliah <schedule-source> <contact> di catatan Helmis, total persis ada 7 mata kuliah aktif per minggu (bukan 8):\n\n1. *Absen Pengauditan Internal*\n   └ Jadwal: Senin, 14:30 WIB\n\n2. *Absen Penilaian Aset dan Properti*\n   └ Jadwal: Selasa, 14:30 WIB\n\n3. *Absen Tanggung Jawab Sosial Perusahaan*\n   └ Jadwal: Rabu, 09:30 WIB (Sudah lewat hari ini)\n\n4. *Absen Advance Excel*\n   └ Jadwal: Rabu, 12:00 WIB (Sedang berlangsung / barusan mulai)\n\n5. *Absen Pengukuran Kinerja Sektor Publik*\n   └ Jadwal: Rabu, 14:30 WIB (Hari ini)\n\n6. *Absen Soft Skill Manajerial*\n   └ Jadwal: Kamis, 12:00 WIB (Besok)\n\n7. *Absen Seminar Akuntansi*\n   └ Jadwal: Kamis, 14:30 WIB (Besok)\n\nSemuanya sudah diset pengingatnya sesuai jadwal <schedule-source> tersebut, lengkap dengan sistem pengingat otomatis tiap 5 menit kalau belum direspons ya.\n\n↳ `search_vault_files`, `list_notes`, `add_task`\"\n\nkamis ada 1 lagi ekonomi syariah, coba cari datanya",
+      "status": "dispatched",
+      "steps_count": 4,
+      "tools": [
+        {
+          "name": "search_vault_files",
+          "args": {
+            "query": "jadwal"
+          },
+          "result_status": "success"
+        },
+        {
+          "name": "list_notes",
+          "args": {},
+          "result_status": "success"
+        },
+        {
+          "name": "search_memory",
+          "args": {
+            "query": "ekonomi syariah"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "Maaf <contact>, catatan di note Helmis untuk hari Kamis memang baru mencatat 2 mata kuliah (Soft Skill Manajerial & Seminar Akuntansi). Tapi dari tugas ekonomi syariah yang sebelumnya sempat dicatat, sepertinya ada mata kuliah Ekonomi Syariah di hari Kamis ya. \n\nBoleh tolong sebutkan jam kuliah *Ekonomi Syariah* di hari Kamis? Nanti langsung Helmis masukkan ke daftar lengkap dan diset pengingat absen otomatisnya.\n\n↳ `search_vault_files`, `list_notes`, `search_memory`",
+      "id": "quoted-context-contamination",
+      "title": "Do not treat quoted assistant text as fresh authoritative context",
+      "failure_tags": [
+        "quoted text contamination",
+        "memory/search ambiguity"
+      ],
+      "expected_invariants": [
+        "Separate current request from quoted content; no mutation from quoted claims alone."
+      ]
+    },
+    {
+      "timestamp": 1788325504,
+      "input_text": "cukup simpan salah satu tugas saja yaitu absen mata kuliah, untuk isi absensi itu tidak perlu",
+      "status": "dispatched",
+      "steps_count": 1,
+      "tools": [],
+      "final_reply": "Siap <contact>, Helmis mengerti. Mulai sekarang tugas yang dicatat hanya untuk *absen mata kuliah*-nya saja, sedangkan tugas untuk *isi absensi* tidak perlu. \n\nAda lagi yang mau Helmis rapikan atau ubah di daftar jadwalnya?",
+      "id": "preference-without-mutation",
+      "title": "A policy preference statement must not be falsely reported as a completed cleanup",
+      "failure_tags": [
+        "false success",
+        "no durable mutation"
+      ],
+      "expected_invariants": [
+        "If no tool runs, do not claim records were changed."
+      ]
+    },
+    {
+      "timestamp": 1788322064,
+      "input_text": "No fluff biar bisa di copy",
+      "status": "dispatched",
+      "steps_count": 1,
+      "tools": [],
+      "final_reply": "<document-name>",
+      "id": "no-fluff-copy",
+      "title": "No-fluff copy request returns only the requested string",
+      "failure_tags": [
+        "no-fluff violation"
+      ],
+      "expected_invariants": [
+        "No tool calls, chips, commentary, or extra formatting."
+      ]
+    },
+    {
+      "timestamp": 1788322100,
+      "input_text": "Kirim no fluff",
+      "status": "dispatched",
+      "steps_count": 2,
+      "tools": [
+        {
+          "name": "remember_fact",
+          "args": {
+            "fact": "NIM <user> adalah <student-id>",
+            "user_id": "<user>"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "<document-name>\n\n↳ `remember_fact`",
+      "id": "no-fluff-mutation",
+      "title": "No-fluff request must not trigger memory writes",
+      "failure_tags": [
+        "unnecessary side effect",
+        "no-fluff violation"
+      ],
+      "expected_invariants": [
+        "Read-only response; zero remember_fact calls."
+      ]
+    },
+    {
+      "timestamp": 1788322118,
+      "input_text": "Gausah tool call, kirim no fluff",
+      "status": "dispatched",
+      "steps_count": 2,
+      "tools": [
+        {
+          "name": "remember_fact",
+          "args": {
+            "fact": "NIM <user> adalah <student-id>",
+            "user_id": "<user>"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "<document-name>\n\n↳ `remember_fact`",
+      "id": "explicit-no-tool",
+      "title": "Explicit request not to call tools must be honored",
+      "failure_tags": [
+        "explicit steering ignored"
+      ],
+      "expected_invariants": [
+        "Do not invoke tools unless a necessary side effect is explicitly requested."
+      ]
+    },
+    {
+      "timestamp": 1788322089,
+      "input_text": "<student-id> itu Nim gw, jangan lupa",
+      "status": "dispatched",
+      "steps_count": 2,
+      "tools": [
+        {
+          "name": "remember_fact",
+          "args": {
+            "fact": "NIM <user> adalah <student-id>",
+            "user_id": "<user>"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "<document-name>\n\n↳ `remember_fact`",
+      "id": "identity-correction",
+      "title": "Explicit identity correction supersedes prior identity safely",
+      "failure_tags": [
+        "memory correction",
+        "provenance"
+      ],
+      "expected_invariants": [
+        "Store correction with source/provenance; reconcile prior identity claims; never trust filename tokens alone."
+      ]
+    },
+    {
+      "timestamp": 1788077332,
+      "input_text": "Helmis, tadi lu bales WhatsApp status kita ya? Itu payload wahanya gimana tolong paste ke sini",
+      "status": "dispatched",
+      "steps_count": 2,
+      "tools": [
+        {
+          "name": "get_whatsapp_messages",
+          "args": {
+            "limit": 5,
+            "target": "Group"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "```json\n{\n  \"event\": \"message\",\n  \"from\": \"<chat-id>\",\n  \"to\": \"<chat-id>\",\n  \"body\": \"ini format yang lebih rapih dong\",\n  \"quoted_message_id\": \"<message-id>\",\n  \"timestamp\": <chat-id>,\n  \"type\": \"chat\"\n}\n```\n\n↳ `get_whatsapp_messages`",
+      "id": "status-payload-isolation",
+      "title": "Status/event payload must not be misread as a normal group message",
+      "failure_tags": [
+        "status-event routing",
+        "wrong history result"
+      ],
+      "expected_invariants": [
+        "Reject status@broadcast or isolate it; preserve actual message IDs and source chat."
+      ]
+    },
+    {
+      "timestamp": 1787927896,
+      "input_text": "[Dokumen Terlampir: PENGANTAR EKONOMI SYARIAH.pptx]\n\n> [<contact>]: \"Dokumen: Dokumen: \"PENGANTAR EKONOMI SYARIAH.pptx\"\"\n\nBaca slide terakhir dari file ini",
+      "status": "dispatched",
+      "steps_count": 1,
+      "tools": [],
+      "final_reply": "Berikut adalah isi dari bagian slide terakhir (*Diskusi dan Refleksi*) dalam materi tersebut:\n\n* *Diskusi: Pertanyaan Pemantik*\n  - Bagaimana ekonomi syariah dapat diterapkan dalam kehidupan sehari-hari sebagai mahasiswa?\n  - Apa kontribusi yang bisa Anda berikan untuk mengembangkan ekonomi syariah di Indonesia?\n  - Menurut Anda, apakah ekonomi syariah mampu menggantikan sistem konvensional? Mengapa?\n  - Diskusikan tantangan terbesar yang dihadapi ekonomi syariah di era digital.",
+      "id": "document-followup",
+      "title": "A follow-up document question must use retrieved document content",
+      "failure_tags": [
+        "ungrounded answer risk"
+      ],
+      "expected_invariants": [
+        "Answer only from successful document retrieval/OCR; otherwise report inability."
+      ]
+    },
+    {
+      "timestamp": 1787940119,
+      "input_text": "btw pas lu liat timeline asah gw liat aneh\" deadlinenya. Kayaknya salah deh. Lu bisa download pdfnya kan ya trs coba process by image bukan text",
+      "status": "dispatched",
+      "steps_count": 4,
+      "tools": [
+        {
+          "name": "search_vault_files",
+          "args": {
+            "query": "asah"
+          },
+          "result_status": "success"
+        },
+        {
+          "name": "list_vault_files",
+          "args": {
+            "query": "asah"
+          },
+          "result_status": "success"
+        },
+        {
+          "name": "read_vault_file",
+          "args": {
+            "file_id_or_name": "soal_tugas_soft_skill_asah.jpg"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "Siap <user>, udah Helmis cek ulang file `soal_tugas_soft_skill_asah.jpg` pakai vision OCR. \n\nEmang betul deadline aslinya tertulis *Sebelum Minggu (5 September 2026)*. \n\nMau Helmis update deadline tugas Soft Skill Asah di sistem jadi hari Minggu, 5 September 2026 (23:59 WIB)?\n\n↳ `search_vault_files`, `list_vault_files`, `read_vault_file`",
+      "id": "vision-recheck-confirmation",
+      "title": "A visual recheck should not claim an update when it only offered one",
+      "failure_tags": [
+        "unsupported mutation claim"
+      ],
+      "expected_invariants": [
+        "Distinguish read/OCR success from update commit; ask confirmation before changing deadline."
+      ]
+    },
+    {
+      "timestamp": 1788347606,
+      "input_text": "bukannya gw ada tugas AI ya malem ini, ngerjain LKP 2.",
+      "status": "dispatched",
+      "steps_count": 2,
+      "tools": [
+        {
+          "name": "list_tasks",
+          "args": {
+            "status": "all"
+          },
+          "result_status": "success"
+        }
+      ],
+      "final_reply": "Oh iya, betul <user>! Tugas LKP 2 Analisis Algoritma (yang lo kirim filenya siang tadi) udah selesai dan lo tandai kelar kemarin malam (`26 Agustus`). \n\nUntuk malam ini, daftar tugas aktif lo:\n1. *Tugas Soft Skill 1: Personal Productivity Asah (Essay)* (Deadline: Sabtu, 5 Sept)\n2. *Membuat PPT Sistem Informasi mingguan* (Deadline: Selasa, 8 Sept)\n3. *Membuat PPT untuk mata kuliah Sistem Operasi (Minggu Depan)* (Deadline: Selasa, 8 Sept)\n\nMau gw buatkan jadwal atau pengingat baru buat LKP lanjutan atau tugas lain malam ini, <user>?\n\n↳ `list_tasks`",
+      "id": "task-status-consistency",
+      "title": "Task listing must not contradict a subsequent task update",
+      "failure_tags": [
+        "stale state",
+        "completion mismatch"
+      ],
+      "expected_invariants": [
+        "Read result and final response must agree on current status and due date."
+      ]
+    }
+  ]
+}

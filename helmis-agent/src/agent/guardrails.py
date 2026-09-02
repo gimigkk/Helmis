@@ -6,80 +6,31 @@ import logging
 import re
 from typing import Any
 
+from .intent import (
+    build_turn_plan,
+    classify_intent,
+)
+
 log = logging.getLogger("helmis-guardrails")
-
-# ---------------------------------------------------------------------------
-# Pre-Emptive Intent Classifier — determines Gemini toolConfig mode
-# ---------------------------------------------------------------------------
-
-# Patterns that indicate a clear QUERY intent (read-only inspection, questions, listings)
-_QUERY_PATTERNS = re.compile(
-    r"(?:"
-    r"^(?:cek|check|lihat|liat|show|tampil(?:kan|in)?|list|daftar|cari(?:in|kan)?|search|find|baca(?:in|kan)?|read|rangkum|summarize)\b"
-    r"|(?:ada\s+(?:tugas|jadwal|reminder|agenda|catatan|file)|apa\s+(?:aja|saja|jadwal|tugas|agenda|kegiatan))"
-    r"|(?:tugas|task|reminder|jadwal|catatan|note|file|dokumen)\s+(?:apa|mana|yang\s+mana)"
-    r"|(?:berapa|kapan|dimana|siapa|nomor|kontak|email)\b"
-    r"|\?$"
-    r")",
-    re.IGNORECASE,
-)
-
-# Patterns that indicate an ACTION intent (state mutation required)
-_ACTION_PATTERNS = re.compile(
-    r"(?:"
-    # Reschedule / snooze / postpone relative phrases
-    r"(?:\b(?:siangan|sorean|malaman|besokan|ntar|entar|nanti(?:\s+aja)?|tunda|mundur(?:in|kan)?|geser|pindah(?:in|kan)?)\b)"
-    r"|(?:ganti|ubah|update|reschedule|snooze|postpone)\s+(?:jadwal|waktu|jam|deadline|reminder|tugas)"
-    r"|\b(?:jam|pukul)\s+\d{1,2}(?:[:.]\d{2})?"
-    # Create / add / record (e.g. ingetin gw bayar kosan, remind me, catat tugas)
-    r"|(?:inget(?:in|kan)?|remind|catat(?:in|kan)?|jadwal(?:in|kan)?|bikin(?:in|kan)?|buat(?:in|kan)?|tambah(?:in|kan)?|set)\b"
-    r"|(?:tolong|coba|minta)\s+(?:kirim|hapus|simpan|save|delete|send|forward)"
-    # Delete / complete / mark
-    r"|(?:hapus|delete|buang|hilang(?:in|kan)?)\s+(?:tugas|task|reminder|catatan|note|memori|file)"
-    r"|(?:selesai(?:in|kan)?|done|complete|mark|tandai)\s+(?:tugas|task|reminder)"
-    r"|(?:tugas|task|reminder)\s+.*?\s+(?:selesai|done|beres|kelar)"
-    # File / vault operations
-    r"|(?:kirim(?:in|kan)?|send|forward)\s+(?:file|dokumen|foto|gambar|pdf)"
-    r"|(?:simpan|save)\s+(?:ini|file|dokumen|foto)"
-    # Explicit time-shift directives
-    r"|\b\d+\s*(?:jam|menit|minute|hour)\s+lagi\b"
-    r")",
-    re.IGNORECASE,
-)
 
 
 def classify_turn_intent(text: str) -> str:
-    """
-    Classify user message intent to determine Gemini toolConfig mode.
+    """Delegate to typed intent planner for backward-compatible classification."""
+    return classify_intent(build_turn_plan(text))
 
-    Returns:
-        'action'  — State mutation required (force tool call via mode=ANY)
-        'query'   — Data retrieval likely (mode=AUTO, tools available)
-        'chat'    — Casual conversation (mode=AUTO)
-    """
-    if not text or not text.strip():
-        return "chat"
 
-    clean = text.strip()
-
-    # 1. Explicit query verbs / questions take precedence for read requests (e.g. 'cek jadwal besok')
-    if _QUERY_PATTERNS.search(clean) and not re.search(r"\b(?:ingetin|remind|catatin|buatkan|jadwalkan|hapus|geser|mundurin)\b", clean, re.IGNORECASE):
-        return "query"
-
-    # 2. Action patterns (reschedule, snooze, add_task, update_task, complete_task, save/send file)
-    if _ACTION_PATTERNS.search(clean):
-        return "action"
-
-    # 3. Secondary query check
-    if _QUERY_PATTERNS.search(clean):
-        return "query"
-
-    # 4. URLs or docs likely need read tools
-    if re.search(r"https?://|docs\.google|sheets\.google|drive\.google", clean, re.IGNORECASE):
-        return "query"
-
-    return "chat"
-
+def is_no_fluff_request(text: str) -> bool:
+    """Detect copy-only / no-fluff turns where output must remain exact."""
+    if not text:
+        return False
+    clean = text.strip().lower()
+    return (
+        "no fluff" in clean
+        or "gausah tool call" in clean
+        or "tanpa basa-basi" in clean
+        or "biar bisa di copy" in clean
+        or "biar gampang di copy" in clean
+    )
 
 
 SUPERSCRIPTS = {
@@ -269,6 +220,38 @@ MUTATION_CLAIM_PATTERNS = [
 ]
 
 
+# Tool result statuses that prove a durable state mutation actually happened.
+# A bare "success" on a read-only tool (or a mutation that matched zero rows)
+# must never authorize a success claim in the final text.
+MUTATION_AUTHORIZING_TOOLS = {
+    "delete_memory", "delete_note", "delete_task", "complete_task", "update_task",
+    "send_whatsapp_message", "send_whatsapp_media", "send_vault_file",
+    "save_vault_file", "move_vault_files", "delete_vault_files",
+    "create_vault_directory", "delete_vault_directory", "create_schedule",
+    "append_to_note", "save_note", "remember_fact",
+}
+
+
+def mutation_was_effective(tool_record: dict[str, Any]) -> bool:
+    """Return True only when a mutation tool result proves a durable commit.
+
+    success with deleted_count/count 0, ambiguous, conflict, not_found and
+    failed outcomes do not authorize any success language.
+    """
+    name = tool_record.get("name")
+    result = tool_record.get("result") or {}
+    status = result.get("status")
+    if status != "success":
+        return False
+    if name in MUTATION_AUTHORIZING_TOOLS:
+        for count_key in ("deleted_count", "affected_count"):
+            if result.get(count_key) == 0:
+                return False
+        if result.get("outcome") in ("ambiguous", "conflict", "failed", "not_found"):
+            return False
+    return True
+
+
 def detect_unexecuted_mutation_claims(text: str, executed_tools: list[dict[str, Any]]) -> str | None:
     """
     Detect whether the model's generated text claims an action was executed (e.g. task completed,
@@ -281,12 +264,8 @@ def detect_unexecuted_mutation_claims(text: str, executed_tools: list[dict[str, 
     success_tools = {
         t.get("name")
         for t in executed_tools
-        if t.get("name") and t.get("result", {}).get("status") == "success"
+        if t.get("name") and mutation_was_effective(t)
     }
-
-    # If list_tasks was called, general references to completed tasks are allowed queries
-    if "list_tasks" in success_tools:
-        return None
 
     for category_name, pattern, required_tools in MUTATION_CLAIM_PATTERNS:
         if pattern.search(text):
@@ -310,7 +289,12 @@ def strip_hallucinated_tool_chips(text: str) -> str:
     return cleaned.strip()
 
 
-def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> str:
+def verify_action_fidelity(
+    text: str,
+    executed_tools: list[dict[str, Any]],
+    *,
+    no_fluff: bool = False,
+) -> str:
     """
     Structural State Fidelity Guardrail:
     Ensures that when tools are executed in a turn, the finalized response is strictly consistent
@@ -338,6 +322,10 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
 
     # If no tools were executed, return cleaned text (guaranteed no fake tool chips)
     if not executed_tools:
+        return cleaned_text
+
+    # No-fluff / copy-only turns: output must stay exact. No chips, no rewrites.
+    if no_fluff:
         return cleaned_text
 
     # Check state mutation and vault retrieval tools
@@ -371,7 +359,7 @@ def verify_action_fidelity(text: str, executed_tools: list[dict[str, Any]]) -> s
         )
         if all_not_found:
             last_res = mutation_tools[-1].get("result", {})
-            msg = last_res.get("message")
+            msg = last_res.get("message") or last_res.get("error")
             if msg and isinstance(msg, str):
                 final_text = msg
 

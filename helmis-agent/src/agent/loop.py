@@ -10,9 +10,6 @@ import httpx
 
 from . import cascade
 from .cascade import (
-    GEMINI_KEYS,
-    GEMINI_MODELS,
-    fetch_available_gemini_models,
     get_cascade_models,
     get_next_gemini_key,
     load_all_skills,
@@ -20,10 +17,15 @@ from .cascade import (
 )
 from .crystallize import auto_crystallize_turn
 from .guardrails import (
-    classify_turn_intent,
     detect_unexecuted_mutation_claims,
-    inject_tool_directive,
+    is_no_fluff_request,
     verify_action_fidelity,
+)
+from .intent import (
+    build_turn_plan,
+    plan_system_directive,
+    resolve_task_entities,
+    should_force_tools,
 )
 
 log = logging.getLogger("helmis-agent")
@@ -128,9 +130,9 @@ async def run_agentic_react_loop(
     3. Feeds tool responses back into the conversation turn
     4. Synthesizes concise final response with verified outcomes
     """
-    from ..tools import GEMINI_TOOLS, execute_tool_call
     from ..memory.semantic import search_memories
     from ..memory.store import get_memory_context_summary
+    from ..tools import GEMINI_TOOLS, execute_tool_call
     from ..whatsapp.history import build_multi_turn_contents
 
     system_prompt = load_system_prompt()
@@ -183,9 +185,24 @@ async def run_agentic_react_loop(
     executed_tools: list[dict[str, Any]] = []
     active_model = candidate_models[0] if candidate_models else "gemini-flash-lite-latest"
 
-    # Pre-emptive Intent Classification: detect if user intent requires forced tool calling
-    turn_intent = classify_turn_intent(message_text)
-    log.debug("Pre-emptive intent classification for [%s]: %s", sender_name, turn_intent)
+    # Typed intent/action plan: classify, resolve entities, gate side effects
+    turn_plan = build_turn_plan(message_text)
+    no_fluff = is_no_fluff_request(message_text)
+    log.debug(
+        "Turn plan for [%s]: intent=%s domain=%s action=%s destructive=%s confirm=%s (no_fluff=%s)",
+        sender_name,
+        turn_plan.intent,
+        turn_plan.domain,
+        turn_plan.action_type,
+        turn_plan.destructive,
+        turn_plan.requires_confirmation,
+        no_fluff,
+    )
+    if turn_plan.intent == "action":
+        turn_plan = resolve_task_entities(turn_plan)
+    plan_directive = plan_system_directive(turn_plan)
+    if plan_directive:
+        full_system_instruction = f"{full_system_instruction}\n\n{plan_directive}"
 
     step = 0
     total_steps = 0
@@ -203,10 +220,12 @@ async def run_agentic_react_loop(
         )
         if has_new_input:
             step = max(0, step - 3)
-            # Re-classify intent on mid-turn steering (user may have changed direction)
+            # Re-plan on mid-turn steering (user may have changed direction)
             last_user_parts = [p.get("text", "") for c in contents if c.get("role") == "user" for p in c.get("parts", []) if "text" in p]
             if last_user_parts:
-                turn_intent = classify_turn_intent(last_user_parts[-1])
+                turn_plan = build_turn_plan(last_user_parts[-1])
+                if turn_plan.intent == "action":
+                    turn_plan = resolve_task_entities(turn_plan)
 
         payload: dict[str, Any] = {
             "systemInstruction": {"parts": [{"text": full_system_instruction}]},
@@ -215,9 +234,9 @@ async def run_agentic_react_loop(
             "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2048},
         }
 
-        # Forced Tool Calling: On first step with action intent, force model to emit functionCall
-        # After step 0, revert to AUTO so model can synthesize final text response
-        if step == 0 and turn_intent == "action":
+        # Forced Tool Calling: On first step with unambiguous action plan, force model
+        # to emit functionCall. After step 0, revert to AUTO for final text synthesis.
+        if step == 0 and should_force_tools(turn_plan):
             payload["toolConfig"] = {
                 "functionCallingConfig": {"mode": "ANY"}
             }
@@ -261,56 +280,60 @@ async def run_agentic_react_loop(
         if not candidates:
             return "Maaf, tidak ada respon dari model AI."
 
-        candidate_part = candidates[0].get("content", {}).get("parts", [{}])[0]
+        parts: list[dict[str, Any]] = candidates[0].get("content", {}).get("parts", []) or []
 
-        # Case A: Model wants to invoke a tool
-        if "functionCall" in candidate_part:
-            fc = candidate_part["functionCall"]
-            func_name = str(fc.get("name", ""))
-            func_args = dict(fc.get("args", {}))
-            log.debug("Agent selected tool call: %s(%s)", func_name, func_args)
+        # Case A: Model wants to invoke one or more tools (parallel function calls)
+        function_call_parts = [p for p in parts if "functionCall" in p]
+        text_parts = [p for p in parts if isinstance(p.get("text"), str) and p["text"].strip()]
 
-            # Update real-time turn state for dynamic watchdog status
-            if turn_state is not None:
-                turn_state["current_tool"] = func_name
-                turn_state["tool_args"] = func_args
+        if function_call_parts:
+            # Preserve the full model turn (all parts, including any interleaved text
+            # and thoughtSignature) before appending function responses.
+            contents.append({"role": "model", "parts": parts})
 
-            # Execute tool locally with dynamically synchronized media_data
-            current_exec_media = (turn_state.get("media_data") if turn_state else None) or media_data
-            tool_result = await execute_tool_call(
-                func_name, func_args, sender_name, client=client, media_data=current_exec_media, chat_id=chat_id
-            )
-            executed_tools.append({"name": func_name, "args": func_args, "result": tool_result})
+            responses: list[dict[str, Any]] = []
+            for call_part in function_call_parts:
+                fc = call_part["functionCall"]
+                func_name = str(fc.get("name", ""))
+                func_args = dict(fc.get("args", {}))
+                log.debug("Agent selected tool call: %s(%s)", func_name, func_args)
 
-            if turn_state is not None:
-                if func_name in ("send_vault_file", "send_whatsapp_media", "send_whatsapp_message") and tool_result.get("status") == "success":
-                    turn_state["dispatched_items"] = turn_state.get("dispatched_items", 0) + 1
-                turn_state["last_completed_tool"] = func_name
+                # Update real-time turn state for dynamic watchdog status
+                if turn_state is not None:
+                    turn_state["current_tool"] = func_name
+                    turn_state["tool_args"] = func_args
 
-            if tracer:
-                tracer.log_step(
-                    step=step + 1,
-                    max_steps=max_steps,
-                    model_name=active_model,
-                    tool_call={"name": func_name, "args": func_args},
-                    tool_result=tool_result,
+                # Execute tool locally with dynamically synchronized media_data
+                current_exec_media = (turn_state.get("media_data") if turn_state else None) or media_data
+                tool_result = await execute_tool_call(
+                    func_name, func_args, sender_name, client=client, media_data=current_exec_media, chat_id=chat_id
+                )
+                executed_tools.append({"name": func_name, "args": func_args, "result": tool_result})
+
+                if turn_state is not None:
+                    if func_name in ("send_vault_file", "send_whatsapp_media", "send_whatsapp_message") and tool_result.get("status") == "success":
+                        turn_state["dispatched_items"] = turn_state.get("dispatched_items", 0) + 1
+                    turn_state["last_completed_tool"] = func_name
+
+                if tracer:
+                    tracer.log_step(
+                        step=step + 1,
+                        max_steps=max_steps,
+                        model_name=active_model,
+                        tool_call={"name": func_name, "args": func_args},
+                        tool_result=tool_result,
+                    )
+
+                responses.append(
+                    {
+                        "functionResponse": {
+                            "name": func_name,
+                            "response": {"output": tool_result},
+                        }
+                    }
                 )
 
-            # Append model functionCall turn (preserving thoughtSignature) and functionResponse turn
-            contents.append({"role": "model", "parts": [candidate_part]})
-            contents.append(
-                {
-                    "role": "user",
-                    "parts": [
-                        {
-                            "functionResponse": {
-                                "name": func_name,
-                                "response": {"output": tool_result},
-                            }
-                        }
-                    ],
-                }
-            )
+            contents.append({"role": "user", "parts": responses})
 
             # Check mailbox immediately after tool execution
             has_tool_input = await drain_and_inject_mid_turn_mailbox(
@@ -326,8 +349,8 @@ async def run_agentic_react_loop(
             step += 1
             continue
 
-        # Case B: Model generated final text output
-        text = candidate_part.get("text", "")
+        # Case B: Model generated final text output (collect text across all text parts)
+        text = "".join(p.get("text", "") for p in text_parts)
         if isinstance(text, str) and text.strip():
             raw_cleaned = text.strip()
             for prefix in ("[Helmis]:", "[Helmis]: ", "[Gilang]:", "[Gilang]: ", "[Bunga]:", "[Bunga]: "):
@@ -342,7 +365,7 @@ async def run_agentic_react_loop(
                     unexecuted_claim,
                     step + 1,
                 )
-                contents.append({"role": "model", "parts": [candidate_part]})
+                contents.append({"role": "model", "parts": parts})
                 contents.append({
                     "role": "user",
                     "parts": [
@@ -359,7 +382,7 @@ async def run_agentic_react_loop(
                 step += 1
                 continue
 
-            cleaned = verify_action_fidelity(raw_cleaned, executed_tools)
+            cleaned = verify_action_fidelity(raw_cleaned, executed_tools, no_fluff=no_fluff)
             if tracer:
                 tracer.log_step(
                     step=step + 1,

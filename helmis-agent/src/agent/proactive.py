@@ -15,34 +15,91 @@ import asyncio
 import logging
 import os
 import re
+import time
+import uuid
 from datetime import datetime
+from datetime import datetime as DateTime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ..memory.store import load_memory, log_activity, parse_due_timestamp, save_memory
+from ..memory.recurrence import format_occurrence, next_occurrence_for_task
+from ..memory.store import (
+    fetch_tickable_tasks,
+    get_repository,
+    log_activity,
+    parse_due_timestamp,
+    update_task_fields,
+)
 from ..tools.registry import execute_tool_call
 from ..whatsapp.client import WahaClient
+from .delivery import deliver_outbox_batch
 
 log = logging.getLogger("helmis-proactive")
 TZ = ZoneInfo("Asia/Jakarta")
+OCCURRENCE_LEASE_SECONDS = 300.0
 
 
-async def _delayed_action_runner(task_title: str, delay_sec: float, client: WahaClient) -> None:
+def _occurrence_id(task_id: str, scheduled_for: float, stage: str = "default") -> str:
+    """Derive a stable occurrence ID so repeated scheduler ticks are harmless."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"helmis:occurrence:{task_id}:{stage}:{scheduled_for:.6f}"))
+
+
+def _reminder_occurrence_id(task_id: str, scheduled_for: float, stage: str) -> str:
+    return _occurrence_id(task_id, scheduled_for, stage)
+
+
+def _claim_task_occurrence(task: dict[str, Any], now_ts: float) -> tuple[dict[str, Any] | None, str | None]:
+    """Materialize and claim the task's due occurrence for one scheduler worker."""
+    due_ts = parse_due_timestamp(str(task.get("due", "")))
+    task_id = str(task.get("task_id") or "")
+    if not task_id or due_ts == float("inf"):
+        return None, None
+    repository = get_repository()
+    occurrence = repository.ensure_occurrence(
+        task_id, due_ts, _occurrence_id(task_id, due_ts), now_ts
+    )
+    claim_token = str(uuid.uuid4())
+    claimed = repository.claim_occurrence(
+        str(occurrence.get("occurrence_id", "")),
+        now_ts,
+        OCCURRENCE_LEASE_SECONDS,
+        claim_token,
+    )
+    return claimed, claim_token if claimed else None
+
+
+def _advance_recurrence(task: dict[str, Any], scheduled_for: float) -> dict[str, Any]:
+    """Return the next due time for a recurring task, if one exists."""
+    recurrence = task.get("recurrence") or task.get("recurrence_policy")
+    if not isinstance(recurrence, dict):
+        return {}
+    scheduled_at = DateTime.fromtimestamp(scheduled_for, tz=TZ)
+    next_due = next_occurrence_for_task(task, scheduled_at)
+    if next_due is None:
+        return {}
+    return {"due": format_occurrence(next_due), "recurrence": recurrence, "recurrence_policy": recurrence}
+
+
+async def _delayed_action_runner(task_id: str, delay_sec: float, client: WahaClient) -> None:
     """In-process high-precision countdown timer for near-horizon scheduled actions (<10 mins)."""
     try:
-        log.info("Near-horizon countdown started for '%s' (delay: %.1fs)", task_title, delay_sec)
+        log.info("Near-horizon countdown started for '%s' (delay: %.1fs)", task_id, delay_sec)
         await asyncio.sleep(delay_sec)
-        mem = load_memory()
-        t = next((x for x in mem.get("tasks", []) if x.get("title") == task_title), None)
+        tasks = get_repository().fetch_tickable_tasks()
+        t = next((x for x in tasks if x.get("task_id") == task_id), None)
+        # Accept the old title argument for existing callers; scheduler-created
+        # timers always pass the stable task ID above.
+        if t is None:
+            t = next((x for x in tasks if x.get("title") == task_id), None)
         if t and str(t.get("status", "pending")).lower() == "pending":
             now_dt = datetime.now(TZ)
             now_str = now_dt.strftime("%A, %d %B %Y - %H:%M WIB")
             dispatched = await dispatch_scheduled_action(client=client, task=t, now_str=now_str)
             if dispatched:
-                save_memory(mem)
-                log.info("Near-horizon timer successfully executed and saved for '%s'", task_title)
+                _persist_scheduler_task(t)
+                log.info("Near-horizon timer successfully executed and saved for '%s'", task_id)
     except Exception as e:
-        log.error("Error in near-horizon timer for '%s': %s", task_title, e)
+        log.error("Error in near-horizon timer for '%s': %s", task_id, e)
 
 
 def spawn_near_horizon_timer(task: dict[str, Any], client: WahaClient | None) -> None:
@@ -58,8 +115,8 @@ def spawn_near_horizon_timer(task: dict[str, Any], client: WahaClient | None) ->
     if delay_sec <= 600:  # <= 10 minutes away
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(_delayed_action_runner(task.get("title", ""), delay_sec, client))
-            log.info("Spawned exact-second timer for '%s' (in %.1f seconds)", task.get("title"), delay_sec)
+            loop.create_task(_delayed_action_runner(str(task.get("task_id", "")), delay_sec, client))
+            log.info("Spawned exact-second timer for '%s' (in %.1f seconds)", task.get("task_id"), delay_sec)
         except RuntimeError:
             pass
 
@@ -82,6 +139,11 @@ async def send_reminder_to_recipient(
     assignee: str,
     text: str,
     is_cross_alert: bool = False,
+    task_id: str = "",
+    stage: str = "reminder",
+    scheduled_for: float | None = None,
+    occurrence_id: str | None = None,
+    claim_occurrence: bool = True,
 ) -> None:
     """Route human reminder text to the appropriate WhatsApp chat (DM or Trio Group)."""
     trio_group_jid = os.environ.get("TRIO_GROUP_JID", "").strip()
@@ -106,7 +168,40 @@ async def send_reminder_to_recipient(
         target_chat = normalize_chat_target(gilang_raw) or "gilang@c.us"
 
     log.info("Dispatching reminder to %s: %s", target_chat, text)
-    await client.send_message(chat_id=target_chat, text=text)
+    repository = get_repository()
+    claim_token: str | None = None
+    if task_id and scheduled_for is not None:
+        occurrence_id = occurrence_id or _reminder_occurrence_id(task_id, scheduled_for, stage)
+        occurrence = repository.ensure_occurrence(
+            task_id, scheduled_for, occurrence_id, time.time(), stage=stage
+        )
+        if claim_occurrence:
+            claim_token = str(uuid.uuid4())
+            claimed = repository.claim_occurrence(
+                str(occurrence["occurrence_id"]), time.time(), OCCURRENCE_LEASE_SECONDS, claim_token
+            )
+            if claimed is None:
+                return
+    idempotency_key = f"reminder:{task_id or 'legacy'}:{stage}:{target_chat}"
+    queued = repository.enqueue_outbox(
+        outbox_id=f"outbox-{abs(hash(idempotency_key))}",
+        idempotency_key=idempotency_key,
+        target_chat=target_chat,
+        payload={"text": text},
+        created_at=time.time(),
+        occurrence_id=occurrence_id,
+    )
+    if queued.get("state") == "delivered":
+        if claim_token and occurrence_id:
+            repository.complete_occurrence(occurrence_id, claim_token)
+        return
+    result = await deliver_outbox_batch(client, outbox_id=str(queued["outbox_id"]))
+    if result["delivered"] != 1:
+        if claim_token and occurrence_id:
+            repository.release_occurrence(occurrence_id, claim_token)
+        raise RuntimeError(f"Reminder delivery failed for {target_chat}")
+    if claim_token and occurrence_id:
+        repository.complete_occurrence(occurrence_id, claim_token)
 
 
 async def dispatch_scheduled_action(
@@ -235,8 +330,7 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
        - Urgent 10-Minute Nag Loop: Nudges every 10m up to 60m + cross-partner alert at 30m.
     """
     log.info("Scheduler tick: Evaluating proactive reminders and scheduled actions...")
-    mem = load_memory()
-    tasks = mem.get("tasks", [])
+    tasks = fetch_tickable_tasks()
     if not tasks:
         log.debug("No tasks in memory to evaluate.")
         return
@@ -245,9 +339,8 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
     now_ts = now_dt.timestamp()
     now_str = now_dt.strftime("%A, %d %B %Y - %H:%M WIB")
 
-    updated_any = False
-
     for t in tasks:
+        before_task = dict(t)
         try:
             status = str(t.get("status", "pending")).lower()
             if status in ("completed", "failed", "expired"):
@@ -282,11 +375,13 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                     t["completed_at"] = now_str
                     log.warning("Scheduled action '%s' was overdue by >2h. Marked expired.", title)
                     log_activity(f"Scheduled action expired (>2h): '{title}'")
-                    updated_any = True
                     continue
 
                 # 2. Trigger Window: within 2 minutes of due or slightly overdue (<2h)
                 if now_ts >= (due_ts - 120):
+                    occurrence, claim_token = _claim_task_occurrence(t, now_ts)
+                    if occurrence is None or claim_token is None:
+                        continue
                     is_late = (now_ts - due_ts) > 300  # More than 5 mins late
                     dispatched = await dispatch_scheduled_action(
                         client=client,
@@ -295,7 +390,18 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                         is_overdue_catchup=is_late,
                     )
                     if dispatched:
-                        updated_any = True
+                        if str(t.get("status", "pending")).lower() == "completed":
+                            next_fields = _advance_recurrence(t, float(occurrence["scheduled_for"]))
+                            if next_fields:
+                                t["status"] = "pending"
+                                t.update(next_fields)
+                            get_repository().complete_occurrence(
+                                str(occurrence["occurrence_id"]), claim_token
+                            )
+                        else:
+                            get_repository().release_occurrence(
+                                str(occurrence["occurrence_id"]), claim_token
+                            )
                     continue
 
                 # Not due yet, skip remainder of human reminder logic
@@ -333,11 +439,13 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                         f"Halo {assignee}, pengingat persiapan: deadline *{title}* pada {due_str} "
                         f"(sisa {lead_text} lagi). Waktunya mulai persiapan atau pengerjaan ya."
                     )
-                    await send_reminder_to_recipient(client, assignee, msg_text)
+                    await send_reminder_to_recipient(
+                        client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="kickoff",
+                        scheduled_for=due_ts,
+                    )
                     t["kickoff_reminded"] = True
                     t["kickoff_reminded_at"] = now_str
                     log_activity(f"Stage 1 kickoff sent to {assignee} for '{title}' (Lead: {lead_text})")
-                    updated_any = True
                     continue
 
             # ---------------------------------------------------------------------
@@ -351,7 +459,6 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                     t["reminded_at"] = now_str
                     t["nudge_stopped"] = True
                     log.info("Task '%s' was already >2h overdue. Silently marked reminded to avoid false alarms.", title)
-                    updated_any = True
                     continue
 
                 # Trigger if within 5 minutes of due or overdue within recent window
@@ -360,7 +467,10 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                         f"Halo {assignee}, pengingat deadline: *{title}* ({due_str}). "
                         "Jika sudah selesai, kabari Helmis ya."
                     )
-                    await send_reminder_to_recipient(client, assignee, msg_text)
+                    await send_reminder_to_recipient(
+                        client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="due",
+                        scheduled_for=due_ts,
+                    )
                     t["due_reminded"] = True
                     t["reminded"] = True
                     t["reminded_at"] = now_str
@@ -368,7 +478,6 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                     t["last_nudged_at"] = now_ts
                     t["nudge_count"] = 1
                     log_activity(f"Stage 2 due reminder sent to {assignee} for '{title}'")
-                    updated_any = True
                     continue
 
             # ---------------------------------------------------------------------
@@ -384,22 +493,26 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                             f"{assignee}, tugas penting *{title}* belum ada konfirmasi (10 menit lalu). "
                             "Apakah sudah beres atau masih berjalan?"
                         )
-                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        await send_reminder_to_recipient(
+                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-2",
+                            scheduled_for=due_ts,
+                        )
                         t["nudge_count"] = 2
                         t["last_nudged_at"] = now_ts
                         log_activity(f"Urgent Nag #2 sent to {assignee} for '{title}'")
-                        updated_any = True
 
                     elif next_count == 3:
                         msg_text = (
                             f"{assignee}, pengingat ke-3 untuk *{title}* (20 menit lewat). "
                             "Mohon konfirmasi statusnya ya."
                         )
-                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        await send_reminder_to_recipient(
+                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-3",
+                            scheduled_for=due_ts,
+                        )
                         t["nudge_count"] = 3
                         t["last_nudged_at"] = now_ts
                         log_activity(f"Urgent Nag #3 sent to {assignee} for '{title}'")
-                        updated_any = True
 
                     elif next_count == 4:
                         is_both = (
@@ -413,64 +526,99 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                                 f"PENTING: Tugas bersama *{title}* sudah 30 menit lewat dari jadwal "
                                 "dan belum ada konfirmasi dari Gilang maupun Bunga. Mohon salah satu bantu cek ya."
                             )
-                            await send_reminder_to_recipient(client, assignee, msg_text)
+                            await send_reminder_to_recipient(
+                                client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-4",
+                                scheduled_for=due_ts,
+                            )
                         else:
                             msg_text = (
                                 f"PENTING: {assignee}, tugas *{title}* sudah 30 menit lewat dari jadwal "
                                 "dan belum ada konfirmasi."
                             )
-                            await send_reminder_to_recipient(client, assignee, msg_text)
+                            await send_reminder_to_recipient(
+                                client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-4"
+                            )
 
                             other_name = "Bunga" if "gilang" in assignee.lower() else "Gilang"
                             cross_msg = (
                                 f"PENTING: {other_name}, {assignee} belum ada konfirmasi untuk tugas urgent "
                                 f"*{title}* (30 menit lewat). Tolong bantu cek atau bangunkan {assignee} ya."
                             )
-                            await send_reminder_to_recipient(client, other_name, cross_msg, is_cross_alert=True)
+                            await send_reminder_to_recipient(
+                                client, other_name, cross_msg, is_cross_alert=True,
+                                task_id=str(t.get("task_id", "")), stage="nag-4-cross-alert",
+                                scheduled_for=due_ts,
+                            )
 
                         t["nudge_count"] = 4
                         t["last_nudged_at"] = now_ts
                         log_activity(f"Urgent Nag #4 (+ Partner Cross-Alert) sent for '{title}'")
-                        updated_any = True
 
                     elif next_count == 5:
                         msg_text = (
                             f"PENTING: {assignee}, pengingat ke-5 untuk *{title}* (40 menit lewat). "
                             "Mohon kabari statusnya ya."
                         )
-                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        await send_reminder_to_recipient(
+                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-5",
+                            scheduled_for=due_ts,
+                        )
                         t["nudge_count"] = 5
                         t["last_nudged_at"] = now_ts
                         log_activity(f"Urgent Nag #5 sent to {assignee} for '{title}'")
-                        updated_any = True
 
                     elif next_count == 6:
                         msg_text = (
                             f"PENTING: {assignee}, pengingat ke-6 untuk *{title}* (50 menit lewat). "
                             "Mohon konfirmasi ya."
                         )
-                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        await send_reminder_to_recipient(
+                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="nag-6",
+                            scheduled_for=due_ts,
+                        )
                         t["nudge_count"] = 6
                         t["last_nudged_at"] = now_ts
                         log_activity(f"Urgent Nag #6 sent to {assignee} for '{title}'")
-                        updated_any = True
 
                     elif next_count > 6:
                         msg_text = (
                             f"Helmis menghentikan pengingat otomatis untuk *{title}* (sudah 60 menit tanpa respon). "
                             "Tugas tetap tercatat 'pending' di daftar target."
                         )
-                        await send_reminder_to_recipient(client, assignee, msg_text)
+                        await send_reminder_to_recipient(
+                            client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="stand-down",
+                            scheduled_for=due_ts,
+                        )
                         t["nudge_stopped"] = True
                         t["last_nudged_at"] = now_ts
                         log_activity(f"Urgent Nag stand-down reached (60m) for '{title}'")
-                        updated_any = True
 
         except Exception as task_err:
             log.error("Error evaluating proactive reminder for task '%s': %s", t.get("title"), task_err)
 
-    if updated_any:
-        save_memory(mem)
-        log.info("Proactive evaluation completed and state saved to disk.")
-    else:
-        log.debug("No new reminders or nag pings triggered in this tick.")
+        finally:
+            _persist_scheduler_task(t, before_task)
+
+    log.info("Proactive evaluation completed with repository-backed task updates.")
+
+
+def _persist_scheduler_task(
+    task: dict[str, Any], before: dict[str, Any] | None = None
+) -> None:
+    """Persist only scheduler changes using the task's stable ID and version."""
+    task_id = str(task.get("task_id") or "")
+    if not task_id:
+        return
+    previous = before or {}
+    fields = {
+        key: value
+        for key, value in task.items()
+        if key not in {"task_id", "version"} and value != previous.get(key)
+    }
+    if not fields:
+        return
+    result = update_task_fields(
+        task_id, fields, expected_version=int(previous.get("version", task.get("version", 1)))
+    )
+    if result.get("outcome") == "conflict":
+        log.info("Skipped stale scheduler update for task %s", task_id)

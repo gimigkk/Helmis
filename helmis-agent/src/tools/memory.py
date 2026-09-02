@@ -16,7 +16,13 @@ async def handle_remember_fact(args: dict[str, Any], default_sender: str) -> dic
     if not fact:
         return {"status": "error", "error": "Fakta/preferensi tidak boleh kosong."}
 
-    saved = await semantic_memory.add_memory(fact=fact, user_id=user_id)
+    saved = await semantic_memory.add_memory(
+        fact=fact,
+        user_id=user_id,
+        provenance="explicit_remember_fact_tool",
+        source_turn_id=str(args.get("source_turn_id") or "") or None,
+        scope=str(args.get("scope") or "private"),
+    )
     return {
         "status": "success",
         "saved_fact": saved,

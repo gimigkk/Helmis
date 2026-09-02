@@ -1,13 +1,15 @@
-import os
-import sys
+"""Shared storage isolation for repository-backed tests."""
 
-# Ensure mcp-waha and mcp-waha/src are in sys.path
-TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_DIR = os.path.dirname(TESTS_DIR)
+from pathlib import Path
 
-if PROJECT_DIR not in sys.path:
-    sys.path.insert(0, PROJECT_DIR)
+import pytest
 
-SRC_DIR = os.path.join(PROJECT_DIR, "src")
-if SRC_DIR not in sys.path:
-    sys.path.insert(0, SRC_DIR)
+
+@pytest.fixture(autouse=True)
+def sqlite_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Give each test a fresh SQLite database and JSON sidecar directory."""
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    monkeypatch.setenv("HELMIS_DB_PATH", str(data_dir / "helmis.db"))
+    return data_dir

@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import threading
+import uuid
 from datetime import datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -20,25 +21,33 @@ from ..agent.cascade import GEMINI_KEYS, GEMINI_MODELS, get_next_gemini_key
 
 log = logging.getLogger("helmis-semantic-memory")
 
-DATA_DIR = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else "./data")
-SEMANTIC_MEMORY_FILE = os.path.join(DATA_DIR, "semantic_memories.json")
+def _semantic_memory_file() -> str:
+    """Resolve the semantic memory path per call so DATA_DIR env changes
+    (tests, config reload) take effect without process restart."""
+    data_dir = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else "./data")
+    return os.path.join(data_dir, "semantic_memories.json")
+
+
+SEMANTIC_MEMORY_FILE = _semantic_memory_file()
+DATA_DIR = os.path.dirname(SEMANTIC_MEMORY_FILE)
 TZ = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
 
 _semantic_lock = threading.RLock()
 
 
 def _ensure_dir() -> None:
-    os.makedirs(os.path.dirname(SEMANTIC_MEMORY_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(_semantic_memory_file()), exist_ok=True)
 
 
 def load_semantic_memories() -> list[dict[str, Any]]:
     """Load persistent memories from disk with thread-safety."""
     _ensure_dir()
+    path = _semantic_memory_file()
     with _semantic_lock:
-        if not os.path.exists(SEMANTIC_MEMORY_FILE):
+        if not os.path.exists(path):
             return []
         try:
-            with open(SEMANTIC_MEMORY_FILE, encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):
                     return cast(list[dict[str, Any]], data)
@@ -50,14 +59,15 @@ def load_semantic_memories() -> list[dict[str, Any]]:
 def save_semantic_memories(memories: list[dict[str, Any]]) -> None:
     """Save persistent memories atomically to disk."""
     _ensure_dir()
+    path = _semantic_memory_file()
     with _semantic_lock:
-        tmp_file = f"{SEMANTIC_MEMORY_FILE}.tmp.{os.getpid()}"
+        tmp_file = f"{path}.tmp.{os.getpid()}"
         try:
             with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(memories, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_file, SEMANTIC_MEMORY_FILE)
+            os.replace(tmp_file, path)
         except Exception as e:
             log.error("Failed to save semantic memory file: %s", e)
             if os.path.exists(tmp_file):
@@ -107,7 +117,17 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     return dot / (norm1 * norm2)
 
 
-async def add_memory(fact: str, user_id: str, category: str = "general") -> dict[str, Any] | None:
+async def add_memory(
+    fact: str,
+    user_id: str,
+    category: str = "general",
+    *,
+    source_turn_id: str | None = None,
+    provenance: str = "explicit_user_statement",
+    confidence: float = 1.0,
+    scope: str = "private",
+    authoritative: bool = True,
+) -> dict[str, Any] | None:
     """
     Store a new episodic fact or preference in semantic memory with vector embedding.
     Automatically supersedes/updates existing memories if the fact updates a previously recorded topic
@@ -138,6 +158,11 @@ async def add_memory(fact: str, user_id: str, category: str = "general") -> dict
                     m["category"] = category
                     m["created_at"] = now_str
                     m["embedding"] = embedding
+                    m["source_turn_id"] = source_turn_id
+                    m["provenance"] = provenance
+                    m["confidence"] = max(0.0, min(1.0, confidence))
+                    m["scope"] = scope
+                    m["authoritative"] = authoritative
                     save_semantic_memories(memories)
                     log.info(
                         "Superseded existing memory for [%s] (sim=%.2f): '%s' -> '%s'",
@@ -149,12 +174,17 @@ async def add_memory(fact: str, user_id: str, category: str = "general") -> dict
                     return m
 
     entry: dict[str, Any] = {
-        "id": f"mem_{int(datetime.now().timestamp() * 1000)}",
+        "id": f"mem_{uuid.uuid4().hex}",
         "fact": clean_fact,
         "user_id": user_id,
         "category": category,
         "created_at": now_str,
         "embedding": embedding,
+        "source_turn_id": source_turn_id,
+        "provenance": provenance,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "scope": scope,
+        "authoritative": authoritative,
     }
 
     memories.append(entry)
@@ -186,6 +216,8 @@ async def search_memories(
     for m in memories:
         # Filter by user if specified
         if user_id and m.get("user_id") not in (user_id, "Both", "all"):
+            continue
+        if not m.get("authoritative", True) or float(m.get("confidence", 1.0)) < 0.7:
             continue
 
         vec = m.get("embedding")
@@ -280,6 +312,8 @@ async def extract_facts_from_turn_background(
     Passive background worker: Extracts durable facts, personal preferences,
     routines, and key context from a conversation turn and stores them in vector memory.
     """
+    if os.environ.get("HELMIS_ENABLE_AUTO_FACT_EXTRACTION", "0").lower() not in {"1", "true", "yes"}:
+        return
     if len(user_message.strip()) < 8:
         return
 
@@ -334,4 +368,10 @@ Example output:
             break
 
     for fact in extracted_facts:
-        await add_memory(fact=fact, user_id=sender_name)
+        await add_memory(
+            fact=fact,
+            user_id=sender_name,
+            provenance="model_extracted_from_turn",
+            confidence=0.7,
+            authoritative=False,
+        )

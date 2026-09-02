@@ -40,7 +40,7 @@ def _get_vault_dir() -> str:
         if mod_name in sys.modules:
             mod = sys.modules[mod_name]
             if hasattr(mod, "VAULT_DIR"):
-                v_dir = getattr(mod, "VAULT_DIR")
+                v_dir = mod.VAULT_DIR
     return v_dir
 
 
@@ -51,7 +51,7 @@ def _get_catalog_file() -> str:
         if mod_name in sys.modules:
             mod = sys.modules[mod_name]
             if hasattr(mod, "CATALOG_FILE"):
-                c_file = getattr(mod, "CATALOG_FILE")
+                c_file = mod.CATALOG_FILE
     return c_file
 
 
@@ -687,6 +687,7 @@ def read_vault_file(
             log.warning("pymupdf text extraction error on %s: %s, falling back to pypdf", filename, ex)
             try:
                 import io
+
                 import pypdf
 
                 reader = pypdf.PdfReader(io.BytesIO(raw_bytes))

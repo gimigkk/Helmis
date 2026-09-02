@@ -10,7 +10,6 @@ from typing import Any
 from ..memory.store import log_activity
 from .registry import register_tool
 
-
 log = logging.getLogger("helmis-tools-skills")
 
 
@@ -28,6 +27,56 @@ def _get_skills_dir() -> str:
         if d and os.path.exists(d) and os.path.isdir(d):
             return os.path.abspath(d)
     return ""
+
+
+def _get_proposals_dir() -> str:
+    """Return the writable proposal store, never the active skill directory."""
+    configured = os.environ.get("SKILL_PROPOSALS_DIR", "")
+    if configured:
+        return os.path.abspath(configured)
+    data_dir = os.environ.get("DATA_DIR", "./data")
+    return os.path.abspath(os.path.join(data_dir, "skill-proposals"))
+
+
+def _validate_skill_content(name: str, description: str, content: str) -> str | None:
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", name):
+        return "Nama skill harus berupa slug alfanumerik maksimal 64 karakter."
+    if len(description) > 500:
+        return "Deskripsi skill terlalu panjang."
+    if len(content) > 50_000:
+        return "Konten skill terlalu besar."
+    if "```" not in content and len(content) < 20:
+        return "Konten skill terlalu pendek untuk menjadi playbook yang valid."
+    return None
+
+
+async def approve_skill_proposal(proposal: str, *, skills_dir: str | None = None) -> dict[str, Any]:
+    """Promote one validated proposal into the active skill directory explicitly."""
+    proposal_path = os.path.abspath(proposal)
+    proposals_dir = os.path.abspath(_get_proposals_dir())
+    if os.path.commonpath((proposal_path, proposals_dir)) != proposals_dir:
+        return {"status": "error", "error": "Proposal path is outside the proposal store."}
+    if not os.path.isfile(proposal_path):
+        return {"status": "not_found", "error": "Skill proposal tidak ditemukan."}
+    with open(proposal_path, encoding="utf-8") as handle:
+        content = handle.read()
+    match = re.match(r"^---\nname:\s*([a-z0-9-]+)\n.*?\n---\n\n(.*)\Z", content, re.DOTALL)
+    if not match:
+        return {"status": "error", "error": "Format proposal skill tidak valid."}
+    name, body = match.group(1), match.group(2).rstrip() + "\n"
+    validation_error = _validate_skill_content(name, "", body)
+    if validation_error:
+        return {"status": "error", "error": validation_error}
+    target_root = os.path.abspath(skills_dir or _get_skills_dir())
+    if not target_root:
+        return {"status": "error", "error": "Direktori skill aktif tidak ditemukan."}
+    target_dir = os.path.join(target_root, name)
+    os.makedirs(target_dir, exist_ok=True)
+    target_file = os.path.join(target_dir, "SKILL.md")
+    with open(target_file, "w", encoding="utf-8") as handle:
+        handle.write(f"---\nname: {name}\ndescription: Approved procedural skill.\n---\n\n{body}")
+    os.replace(proposal_path, f"{proposal_path}.approved")
+    return {"status": "success", "skill": name, "active_file": target_file}
 
 
 def list_available_skills() -> list[dict[str, str]]:
@@ -134,6 +183,30 @@ async def handle_create_skill(
     if not safe_name:
         return {"status": "error", "error": "Nama skill tidak valid setelah sanitasi."}
 
+    validation_error = _validate_skill_content(safe_name, description, content)
+    if validation_error:
+        return {"status": "error", "error": validation_error}
+
+    # Generated skills are proposals until an operator explicitly approves them.
+    if safe_name.startswith("auto-") and default_sender == "Helmis-AutoCrystallizer":
+        proposals_dir = _get_proposals_dir()
+        proposal_file = os.path.join(proposals_dir, f"{safe_name}.md")
+        os.makedirs(proposals_dir, exist_ok=True)
+        skill_md = f"---\nname: {safe_name}\ndescription: {description or 'Proposed procedural skill.'}\nstatus: proposed\nrequested_by: {default_sender}\n---\n\n{content}\n"
+        try:
+            with open(proposal_file, "x", encoding="utf-8") as f:
+                f.write(skill_md)
+        except FileExistsError:
+            return {"status": "pending", "skill": safe_name, "proposal": proposal_file}
+        except Exception as ex:
+            return {"status": "error", "error": f"Gagal menyimpan proposal skill: {ex}"}
+        return {
+            "status": "pending",
+            "skill": safe_name,
+            "proposal": proposal_file,
+            "message": f"Skill *{safe_name}* disimpan sebagai proposal dan belum aktif.",
+        }
+
     skills_dir = _get_skills_dir()
     if not skills_dir:
         return {"status": "error", "error": "Direktori config/skills tidak ditemukan."}
@@ -231,4 +304,3 @@ def handle_list_skills(args: dict[str, Any]) -> dict[str, Any]:
         "count": len(available),
         "skills": available,
     }
-

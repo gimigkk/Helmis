@@ -7,14 +7,13 @@ import os
 import time
 from unittest.mock import patch
 
+import pypdf
 import pytest
 import pytest_httpx
-import pypdf
 
 from src.memory.sandbox import (
     cleanup_sandbox,
     get_from_sandbox,
-    get_sandbox_dir,
     is_safe_sandbox_path,
     save_to_sandbox,
 )
@@ -31,10 +30,10 @@ from src.tools.registry import execute_tool_call
 def create_test_pdf_bytes(text_per_page: list[str]) -> bytes:
     """Helper to generate a minimal valid in-memory PDF with given text per page."""
     writer = pypdf.PdfWriter()
-    for text in text_per_page:
+    for _text in text_per_page:
         # Create a blank page and attach text if possible, or add blank page
         writer.add_blank_page(width=200, height=200)
-    
+
     stream = io.BytesIO()
     writer.write(stream)
     return stream.getvalue()

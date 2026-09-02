@@ -3,23 +3,9 @@ test_agent.py — Tests for tool dispatching and tool schema declarations.
 """
 
 import os
-import tempfile
-from collections.abc import Generator
-
-import pytest
 
 import src.agent as agent
 import src.memory as memory
-
-
-@pytest.fixture(autouse=True)
-def temp_memory_file(monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, None]:
-    """Use temporary file for memory testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_file = os.path.join(tmpdir, "test_memory.json")
-        monkeypatch.setattr(memory, "MEMORY_FILE", tmp_file)
-        monkeypatch.setattr(memory, "DATA_DIR", tmpdir)
-        yield tmp_file
 
 
 def test_gemini_tools_schema_valid() -> None:
@@ -505,7 +491,6 @@ async def test_multistep_react_loop_with_status_update() -> None:
             # Assert final response was correctly returned
             assert final_reply is not None
             assert "Tagihan listrik berhasil dihitung" in final_reply
-
 
 
 

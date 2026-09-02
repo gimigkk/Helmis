@@ -20,6 +20,12 @@ docs/
 └── SCENARIOS_AND_PLAYBOOKS.md       # Operational Real-World Scenarios & Failure Playbooks
 ```
 
+## Rebuild Tracking
+
+- [RELIABILITY_REBUILD_PLAN.md](RELIABILITY_REBUILD_PLAN.md) is the canonical reliability rebuild plan and decision record.
+- [IMPLEMENTATION_TRACKING.md](IMPLEMENTATION_TRACKING.md) is the single implementation status tracker.
+- [production-evidence/README.md](production-evidence/README.md) contains sanitized production evidence and regression cases.
+
 ---
 
 ## Core System Highlights

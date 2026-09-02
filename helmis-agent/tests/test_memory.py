@@ -2,24 +2,9 @@
 test_memory.py — Tests for persistent memory operations and time awareness.
 """
 
-import os
-import tempfile
-from collections.abc import Generator
 from datetime import datetime
 
-import pytest
-
 import src.memory as memory
-
-
-@pytest.fixture(autouse=True)
-def temp_memory_file(monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, None]:
-    """Use temporary file for memory testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_file = os.path.join(tmpdir, "test_memory.json")
-        monkeypatch.setattr(memory, "MEMORY_FILE", tmp_file)
-        monkeypatch.setattr(memory, "DATA_DIR", tmpdir)
-        yield tmp_file
 
 
 def test_time_of_day_info() -> None:
@@ -166,6 +151,100 @@ def test_parse_due_timestamp_indonesian_natural_expressions() -> None:
     assert dt_maghrib.minute == 30
 
 
+def test_task_identity_and_recurring_policy_are_persisted() -> None:
+    first = memory.add_task(
+        title="Weekly planning",
+        due="2026-09-07 09:00 WIB",
+        identity_key_value="planning-weekly",
+        recurrence={"type": "weekly", "weekdays": ["monday"], "time": "09:00", "timezone": "Asia/Jakarta"},
+        nag_policy={"interval_minutes": 5, "max_nags": 3},
+    )
+    second = memory.add_task(
+        title="Planning reminder",
+        due="2026-09-14 09:00 WIB",
+        identity_key_value="planning-weekly",
+        recurrence={"type": "weekly", "weekdays": ["monday"], "time": "09:00", "timezone": "Asia/Jakarta"},
+        nag_policy={"interval_minutes": 5, "max_nags": 3},
+    )
+    assert first["task_id"] == second["task_id"]
+    assert second["identity_key"] == "planning weekly"
+    assert second["nag_policy"] == {"interval_minutes": 5, "max_nags": 3}
+    assert second["recurrence"]["type"] == "weekly"
+
+
+def test_empty_or_ambiguous_task_selectors_do_not_mutate() -> None:
+    first = memory.add_task("Same logical work", "Tomorrow 10:00 WIB", identity_key_value="one")
+    second = memory.add_task("Same logical work", "Tomorrow 11:00 WIB", identity_key_value="two")
+    assert memory.complete_task("") is None
+    assert memory.delete_task("") is False
+    result = memory.complete_task_result(title="Same logical work")
+    assert result["status"] == "ambiguous"
+    assert result["count"] == 2
+    assert memory.load_memory()["tasks"][0]["status"] == "pending"
+    assert first["task_id"] != second["task_id"]
+
+
+def test_exact_id_mutations_and_version_conflict_are_lossless() -> None:
+    task = memory.add_task("Rename this task", "Tomorrow 10:00 WIB")
+    task_id = task["task_id"]
+    version = task["version"]
+
+    updated = memory.update_task_result(
+        task_id=task_id,
+        expected_version=version,
+        new_title="Renamed task",
+    )
+    assert updated["status"] == "applied"
+    assert updated["outcome"] == "committed"
+    assert updated["affected_ids"] == [task_id]
+    assert updated["before"]["title"] == "Rename this task"
+    assert updated["after"]["title"] == "Renamed task"
+
+    conflict = memory.update_task_result(
+        task_id=task_id,
+        expected_version=version,
+        new_due="Tomorrow 12:00 WIB",
+    )
+    assert conflict["status"] == "conflict"
+    assert conflict["outcome"] == "conflict"
+    assert memory.load_memory()["tasks"][0]["due"] == "Tomorrow 10:00 WIB"
+
+    deleted = memory.bulk_delete_tasks(task_id=task_id)
+    assert deleted["status"] == "applied"
+    assert deleted["outcome"] == "committed"
+    assert deleted["affected_ids"] == [task_id]
+    assert memory.load_memory()["tasks"] == []
+
+
+def test_update_result_preserves_not_found_and_ambiguous() -> None:
+    memory.add_task("Repeated task", "Tomorrow 10:00 WIB", identity_key_value="first")
+    memory.add_task("Repeated task", "Tomorrow 11:00 WIB", identity_key_value="second")
+
+    ambiguous = memory.update_task_result(title="Repeated task", new_due="Tomorrow 12:00 WIB")
+    assert ambiguous["status"] == "ambiguous"
+    assert ambiguous["outcome"] == "ambiguous"
+    assert ambiguous["count"] == 2
+
+    missing = memory.update_task_result(task_id="missing-task", new_due="Tomorrow 12:00 WIB")
+    assert missing["status"] == "not_found"
+    assert missing["outcome"] == "not_found"
+    assert missing["affected_ids"] == []
+
+
+def test_weekly_and_interval_recurrence() -> None:
+    from src.memory.recurrence import interval_next_occurrence, weekly_next_occurrence
+
+    after = datetime(2026, 9, 2, 12, 0, tzinfo=memory.TZ)
+    weekly = weekly_next_occurrence(["kamis"], "09:30", after, "Asia/Jakarta")
+    assert weekly is not None
+    assert weekly.weekday() == 3
+    assert (weekly.hour, weekly.minute) == (9, 30)
+
+    interval = interval_next_occurrence(5, "minutes", after, after)
+    assert interval is not None
+    assert (interval - after).total_seconds() == 300
+
+
 def test_get_memory_context_summary_temporal_isolation() -> None:
     """Verify that get_memory_context_summary provides temporal anchoring without leaking tasks, notes, or contacts."""
     memory.add_task(title="Secret Task 123", due="Tomorrow 10:00 WIB")
@@ -179,4 +258,3 @@ def test_get_memory_context_summary_temporal_isolation() -> None:
     assert "Secret Task 123" not in summary
     assert "Secret Contact" not in summary
     assert "Secret note body" not in summary
-

@@ -4,7 +4,6 @@ ocr.py — Multimodal Vision OCR Engine using Google Gemini for Scanned Document
 
 import base64
 import logging
-from typing import Any
 
 import httpx
 

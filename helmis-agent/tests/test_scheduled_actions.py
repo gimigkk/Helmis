@@ -3,33 +3,17 @@ test_scheduled_actions.py — Unit Tests for Polymorphic Scheduled Bot Actions,
 ToolJobExecutor, AgentLoopJobExecutor, Expiration, and Human Reminder Isolation.
 """
 
-from collections.abc import Generator
 from datetime import datetime
-from typing import Any
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from src.agent.proactive import handle_proactive_scheduler_tick
-from src.memory.store import add_task, list_tasks, load_memory, save_memory, update_task
+from src.memory.store import add_task, list_tasks, load_memory
 from src.whatsapp.client import WahaClient
 
 TZ = ZoneInfo("Asia/Jakarta")
-
-
-@pytest.fixture(autouse=True)
-def clean_memory_fixture() -> Generator[None, None, None]:
-    """Ensure clean memory for each test run."""
-    empty_mem: dict[str, Any] = {
-        "tasks": [],
-        "activity_log": [],
-        "notes": [],
-        "people": {},
-    }
-    save_memory(empty_mem)
-    yield
-    save_memory(empty_mem)
 
 
 @pytest.mark.asyncio

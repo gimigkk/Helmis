@@ -7,12 +7,11 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 from ..agent.guardrails import inject_tool_directive
-
-if TYPE_CHECKING:
-    from ..whatsapp.client import WahaClient
+from .authorization import authorize_tool_call
+from .validation import validate_tool_args
 
 log = logging.getLogger("helmis-tools")
 
@@ -47,6 +46,18 @@ async def execute_tool_call(
         log.error("Tool '%s' is not registered in TOOL_REGISTRY", func_name)
         res = {"status": "error", "error": f"Tool '{func_name}' tidak dikenal."}
         return inject_tool_directive(res, func_name)
+
+    authorization_error = authorize_tool_call(
+        func_name, args, default_sender=default_sender, chat_id=chat_id
+    )
+    if authorization_error is not None:
+        log.warning("Rejected unauthorized tool call %s from %r", func_name, default_sender)
+        return inject_tool_directive(authorization_error, func_name)
+
+    validation_error = validate_tool_args(func_name, args)
+    if validation_error is not None:
+        log.warning("Rejected invalid args for %s: %s", func_name, args)
+        return inject_tool_directive(validation_error, func_name)
 
     try:
         sig = inspect.signature(handler)

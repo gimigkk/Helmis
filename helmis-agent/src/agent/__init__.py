@@ -21,6 +21,7 @@ from .guardrails import (
     inject_tool_directive,
     verify_action_fidelity,
 )
+from .intent import TurnPlan, build_turn_plan, should_force_tools
 from .loop import drain_and_inject_mid_turn_mailbox, run_agentic_react_loop
 from .proactive import handle_proactive_scheduler_tick
 from .tracer import AgentTurnTracer
@@ -45,6 +46,9 @@ __all__ = [
     "load_system_prompt",
     "run_agentic_react_loop",
     "should_attempt_crystallization",
+    "should_force_tools",
     "transcribe_audio_base64",
+    "TurnPlan",
+    "build_turn_plan",
     "verify_action_fidelity",
 ]

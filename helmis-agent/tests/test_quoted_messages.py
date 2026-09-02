@@ -5,7 +5,6 @@ test_quoted_messages.py — Tests for WAHA quoted message / reply payload extrac
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-import src.whatsapp.parser as parser_mod
 import src.whatsapp.queue as queue_mod
 import src.whatsapp.webhook as webhook_mod
 from src.whatsapp.client import WahaClient

@@ -4,7 +4,7 @@
 #
 # Backs up persistent data:
 #   - data/waha-sessions/  (WhatsApp session — avoids re-scanning QR)
-#   - data/hermes/         (memory database, learned skills, logs)
+#   - data/                 (SQLite memory database, legacy memory, sessions, vault, skills, logs)
 #
 # Can be run manually or scheduled on the host VPS:
 #   0 3 * * * /path/to/helmis/scripts/backup.sh >> /var/log/helmis-backup.log 2>&1
@@ -39,6 +39,10 @@ mkdir -p "${DESTINATION}"
 # -----------------------------------------------------------------------
 
 echo "[backup] Archiving data directories..."
+# SQLite is copied after a checkpoint so the archive contains a consistent database.
+if [[ -f "${PROJECT_DIR}/data/helmis.db" ]] && command -v sqlite3 >/dev/null 2>&1; then
+  sqlite3 "${PROJECT_DIR}/data/helmis.db" "PRAGMA wal_checkpoint(TRUNCATE);"
+fi
 tar -czf "${ARCHIVE_PATH}" \
   -C "${PROJECT_DIR}" \
   --exclude='data/waha-sessions/.*lock*' \

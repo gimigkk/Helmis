@@ -8,21 +8,24 @@ from .ocr import (
 )
 from .semantic import (
     DATA_DIR as SEMANTIC_DATA_DIR,
+)
+from .semantic import (
     SEMANTIC_MEMORY_FILE,
     _ensure_dir,
     _semantic_lock,
     add_memory,
     cosine_similarity,
-    delete_memory as delete_semantic_memory,
     extract_facts_from_turn_background,
     get_embedding,
     load_semantic_memories,
     save_semantic_memories,
     search_memories,
 )
+from .semantic import (
+    delete_memory as delete_semantic_memory,
+)
 from .store import (
     DATA_DIR,
-    MEMORY_FILE,
     TZ,
     _ensure_data_dir,
     _memory_lock,
@@ -30,14 +33,18 @@ from .store import (
     add_person,
     add_task,
     append_to_note,
+    bulk_delete_tasks,
     complete_task,
+    complete_task_result,
     delete_note,
     delete_task,
+    fetch_tickable_tasks,
     get_current_time_str,
     get_memory_context_summary,
     get_note,
     get_person,
     get_time_of_day_info,
+    identity_key,
     list_notes,
     list_tasks,
     load_memory,
@@ -47,6 +54,8 @@ from .store import (
     save_note,
     search_memory,
     update_task,
+    update_task_fields,
+    update_task_result,
 )
 from .vault import (
     CATALOG_FILE,
@@ -78,7 +87,6 @@ __all__ = [
     "DATA_DIR",
     "DEFAULT_CATEGORIES",
     "DEFAULT_OWNERS",
-    "MEMORY_FILE",
     "SEMANTIC_DATA_DIR",
     "SEMANTIC_MEMORY_FILE",
     "TZ",
@@ -95,6 +103,11 @@ __all__ = [
     "add_memory",
     "add_person",
     "add_task",
+    "bulk_delete_tasks",
+    "complete_task_result",
+    "identity_key",
+    "update_task_result",
+    "update_task",
     "append_to_note",
     "complete_task",
     "cosine_similarity",
@@ -117,6 +130,7 @@ __all__ = [
     "is_safe_vault_path",
     "list_notes",
     "list_tasks",
+    "fetch_tickable_tasks",
     "list_vault_directories",
     "list_vault_files",
     "load_memory",
@@ -136,4 +150,5 @@ __all__ = [
     "search_memory",
     "search_vault",
     "update_task",
+    "update_task_fields",
 ]
