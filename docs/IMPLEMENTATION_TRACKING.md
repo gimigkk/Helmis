@@ -11,11 +11,11 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 ## Current Position
 
 - **Branch:** `feat/dynamic-secretary-foundation` (committed through 2026-09-03)
-- **Last commit:** `0ea81eb` — policy-driven nag engine, recurrence survives downtime
+- **Last commit:** `1418e8c` — memory candidate review workflow
 - **Last updated:** 2026-09-03
-- **Last verified:** `310 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files
-- **Phase:** Phase 4 core engine swap done (policy-driven nags, data recipients, downtime advance); remaining: quarantine unknown scheduled jobs, MCP/tool namespace unification
-- **Step:** Next: Phase 4 remainder (scheduled-job allowlist/quarantine) or Phase 5 CI
+- **Last verified:** `324 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files
+- **Phase:** Phases 3+4 build complete (uncertain-memory candidate flow closes Phase 3; quarantine + MCP unification close Phase 4)
+- **Step:** Next: Phase 5 CI, then canary/backup/rollback rollout work
 
 ## Phase Roadmap
 
@@ -24,8 +24,8 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | 0 | Freeze production, capture evidence, establish replay baseline | **Complete** | 14-case sanitized corpus and executable offline contracts |
 | 1 | Trustworthy state and mutations | **Complete** | Direct JSON cutover done; schedule/policy records and authorization in place |
 | 2 | Conservative, grounded agent | **Complete** | Typed action plans with confirmation gates, deterministic routing, schema validation, group admission policy, durable replay dedup, replay benchmark harness (stronger-model arm pending provider capacity) |
-| 3 | Safe memory and learning | **Partial** | Corrections/supersession, proposal rollback/versioning, candidate workflow |
-| 4 | Reliable scheduling and delivery | **Partial, current** | Recurrence-driven occurrences, durable drain/recovery, delivery guarantees |
+| 3 | Safe memory and learning | **Complete** | Provenance + auto-extraction off by default; correction/supersession workflow; skill proposal/version/rollback; uncertain claims queue as candidates until explicit confirm/reject |
+| 4 | Reliable scheduling and delivery | **Complete** | Durable occurrences + outbox; policy-driven nag engine with data recipients; recurrence survives downtime (bot + human); job allowlist/quarantine; MCP delegates to internal registry |
 | 5 | Production hygiene and rollout | **Not started** | CI, backup/restore, canary, synthetic checks, rollback |
 
 ## Done
@@ -50,6 +50,9 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | Guardrail mutation fidelity | `mutation_was_effective()`: read-only tool success and zero-count mutation results never authorize success claims; `ambiguous`/`conflict`/`failed`/`not_found` outcomes block success language; `is_no_fluff_request()` + `verify_action_fidelity(no_fluff=)` suppress tool chips and keep copy-only output exact; tests in `tests/test_guardrail_contracts.py` |
 | Guardrail chips opt-in | Tool chips footnote now opt-in via `HELMIS_TOOL_CHIPS_ENABLED` (default off; wired in `.env.example`); no-fluff turns never get chips even when enabled; 4 legacy tests updated to the opt-in contract + 3 new cases in `tests/test_guardrail_contracts.py` |
 | Policy-driven reminder engine | `proactive.py` nag ladder now resolves a reminder policy per task (`reminder_policies` row → task nag fields → urgent default as data, legacy cadence preserved: 10m interval, 5 nags, 60m stand-down); recipients resolve through people directory + group JID for multi-recipient tokens (person-specific env/name-sniffing branches removed; unresolvable recipient raises instead of guessing); single generic nag template with policy-computed minutes; cross-alert fires at budget midpoint only when policy carries `cross_alert_recipient` (persisted through `add_task` nag_policy merge); recurrence advances for human reminders too (weekly series no longer dies after first due reminder) and for >2h overdue recurring tasks on both bot and human stages (occurrence skipped, series advanced to next slot instead of expiring); tests: policy-row cadence/stand-down, recurring human advance, downtime skip+advance, non-recurring still expires in `tests/test_proactive_engine.py` |
+| Scheduled-job allowlist + quarantine | `dispatch_scheduled_action` validates jobs before execution: unknown `kind` values are quarantined (durable `quarantined` status + reason, never reinterpreted), `tool` jobs must reference a registered AND schema-declared tool, `message` jobs require explicit text (no title-sniffing for structured jobs), agent/message targets resolve via people directory with quarantine on unresolvable recipient; only plain kindless message tasks keep title extraction (generic fallback, no job structure to misuse); 4 new tests in `tests/test_scheduled_actions.py` |
+| MCP namespace unification | `mcp_export.py` raw-client wrappers removed: external MCP tools (`waha_send_message`, `waha_send_media`, `waha_get_messages`) delegate to the same `TOOL_REGISTRY` handlers through `execute_tool_call`, so authorization, schema validation, and logging apply identically (optional params omitted instead of passing nulls that fail schema type checks); `mcp` added to internal caller prefixes; tests in `tests/test_mcp_export.py` |
+| Uncertain-memory candidate workflow | `add_memory(status=)`: model-extracted facts queue as `candidate` (never retrieved, never overwrite active records even at sim≥0.88 — closes leak where 0.7-confidence claims passed the retrieval filter); `list_memory_candidates` / `confirm_memory_candidate(id)` (→ active, authoritative, confidence 0.9) / `reject_memory_candidate(id)` (→ `rejected`, kept on disk for audit, never retrieved); owner-scoped resolution; 5 new tests in `tests/test_semantic_memory.py` |
 | Burst media preservation | `process_batched_turn` labels every burst media attachment in turn context (primary = inlineData + document banner, others = explicit `[Lampiran Media: ...]` labels); media-download and history-fetch failures degrade safely with the turn still answered; tests in `tests/test_burst_media_preservation.py` |
 | Typed intent/action planning | New `src/agent/intent.py`: `TurnPlan` (intent/domain/action_type/selectors/side_effects/destructive/confirmation gate/source of truth), deterministic destructive-scope + ambiguous-selector confirmation gates with model-facing directives, entity pre-resolution against task store, `should_force_tools()` gates `mode=ANY` (confirmation-required plans no longer force tool calls); `guardrails.classify_turn_intent` delegates to the planner (legacy behavior preserved); tests in `tests/test_intent_planning.py` |
 | Group admission policy | New `src/whatsapp/policy.py`: pure decision functions for bot-mention detection (name/trigger prefix/@mention/phone mention/bot quote) and human-directed-message suppression; webhook group gate delegates to `decide_group_admission`; mention-list extraction normalized across WAHA engines; tests in `tests/test_group_policy.py` + webhook integration tests in `tests/test_ingestion_policy.py` |
@@ -79,7 +82,7 @@ Blocking occurrence semantics (need user/product answer, then proceed):
 3. Reminder recipients, quiet hours, escalation defaults? -> if the user wants to
 
 Non-blocking (decide before Phase 5 only):
-- Authorized chat/group list; provider duplicate-detection window; migration maintenance window; backup RPO/RTO; uncertain-memory candidate flow.
+- Authorized chat/group list; provider duplicate-detection window; migration maintenance window; backup RPO/RTO.
 
 ## Conventions
 
