@@ -167,7 +167,8 @@ def _resolve_reminder_policy(task: dict[str, Any]) -> dict[str, Any] | None:
         if policies:
             return policies[0]
 
-    nag_policy = task.get("nag_policy") if isinstance(task.get("nag_policy"), dict) else {}
+    raw_nag_policy = task.get("nag_policy")
+    nag_policy: dict[str, Any] = raw_nag_policy if isinstance(raw_nag_policy, dict) else {}
     priority = str(task.get("priority", "normal")).strip().lower()
     nag_enabled = bool(task.get("nag_enabled")) or priority == "urgent"
     interval = task.get("nag_interval_minutes") or nag_policy.get("interval_minutes")
