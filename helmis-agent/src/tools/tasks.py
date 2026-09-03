@@ -15,21 +15,6 @@ from ..whatsapp.client import WahaClient
 from .registry import register_tool
 
 
-def complete_task(*args: Any, **kwargs: Any) -> Any:
-    """Compatibility seam for legacy integrations; production uses the safe result API."""
-    result = complete_task_result(
-        title=str(kwargs.get("title") or (args[0] if args else "")),
-        task_id=kwargs.get("task_id"),
-        expected_version=kwargs.get("expected_version"),
-    )
-    if result.get("status") == "applied":
-        return {
-            **result,
-            "status": "success",
-        }
-    return result
-
-
 @register_tool("add_task")
 async def handle_add_task(
     args: dict[str, Any],
@@ -109,7 +94,7 @@ def handle_list_tasks(args: dict[str, Any]) -> dict[str, Any]:
 
 @register_tool("complete_task")
 def handle_complete_task(args: dict[str, Any]) -> dict[str, Any]:
-    title = str(args.get("title") or args.get("task_id_or_title") or "").strip()
+    title = str(args.get("title") or "").strip()
     task_id = str(args.get("task_id", "")).strip() or None
     identity = args.get("identity_key") or args.get("identity_key_value")
     try:
@@ -122,17 +107,6 @@ def handle_complete_task(args: dict[str, Any]) -> dict[str, Any]:
         identity_key_value=str(identity).strip() if identity else None,
         expected_version=expected_version,
     )
-
-    # Legacy integrations may monkeypatch the compatibility seam during tests.
-    if not task_id and not identity and result["status"] == "not_found":
-        legacy_result = complete_task(title)
-        if isinstance(legacy_result, dict) and legacy_result.get("status") == "success":
-            result = {
-                "status": "applied",
-                "task_id": legacy_result.get("task_id"),
-                "task": legacy_result.get("task") or legacy_result,
-            }
-
 
     if result["status"] == "applied":
         task = result.get("task") or {}

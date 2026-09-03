@@ -12,7 +12,7 @@ from src.agent.proactive import handle_proactive_scheduler_tick
 from src.memory.store import (
     add_person,
     add_task,
-    complete_task,
+    complete_task_result,
     get_repository,
     load_memory,
     update_task,
@@ -221,7 +221,7 @@ async def test_completed_task_skips_all_reminders() -> None:
         due="2026-08-26 15:00 WIB",
         assignee="Gilang",
     )
-    complete_task("Beli Susu Oat")
+    complete_task_result(title="Beli Susu Oat")
 
     mock_dt = datetime(2026, 8, 26, 15, 0, 0, tzinfo=TZ)
     with patch("src.agent.proactive.datetime") as mock_datetime:

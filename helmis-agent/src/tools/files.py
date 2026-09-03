@@ -276,10 +276,6 @@ async def handle_move_vault_files(
     """Dynamic tool to move 1 or many files to a destination folder, category, or owner."""
     target = args.get("target")
     if not target:
-        # Fallback to legacy argument names if called
-        target = args.get("query_or_file_ids") or args.get("file_id_or_name")
-
-    if not target:
         return {"status": "error", "error": "target (nama file, ID, atau kata kunci pencarian) wajib diisi."}
 
     dest_dir = args.get("destination_directory") or args.get("new_directory")

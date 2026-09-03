@@ -23,17 +23,17 @@ def test_task_lifecycle() -> None:
     pending_tasks = memory.list_tasks(status="pending")
     assert len(pending_tasks) == 1
 
-    completed = memory.complete_task("Meeting")
-    assert completed is not None
-    assert completed["status"] == "completed"
-    assert "completed_at" in completed
+    completed = memory.complete_task_result(title="Meeting with client")
+    assert completed["status"] == "applied"
+    assert completed["task"]["status"] == "completed"
+    assert "completed_at" in completed["task"]
 
     # Pending should now be 0, completed should be 1
     assert len(memory.list_tasks(status="pending")) == 0
     assert len(memory.list_tasks(status="completed")) == 1
 
-    deleted = memory.delete_task("Meeting")
-    assert deleted is True
+    deleted = memory.bulk_delete_tasks(title_query="Meeting with client", status="all")
+    assert deleted["outcome"] == "committed"
     assert len(memory.list_tasks(status="all")) == 0
 
 
@@ -59,10 +59,10 @@ def test_list_tasks_urgency_sorting() -> None:
     assert tasks_alpha[3]["title"] == "Meeting dokter gigi"
 
     # Clean up
-    memory.delete_task("Beli tiket")
-    memory.delete_task("Jemput adik")
-    memory.delete_task("Bayar tagihan")
-    memory.delete_task("Meeting dokter")
+    memory.bulk_delete_tasks(title_query="Beli tiket")
+    memory.bulk_delete_tasks(title_query="Jemput adik")
+    memory.bulk_delete_tasks(title_query="Bayar tagihan")
+    memory.bulk_delete_tasks(title_query="Meeting dokter")
 
 
 def test_person_directory() -> None:
@@ -95,20 +95,22 @@ def test_parse_due_timestamp_day_of_week() -> None:
     assert ts_senin != float("inf")
 
 
-def test_delete_task_exact_match_does_not_wipe_substrings() -> None:
+def test_bulk_delete_reports_exact_scope() -> None:
+    """Bulk delete is explicitly scoped: it deletes every match and reports the exact count."""
     memory.add_task("tugas", "Tomorrow 10:00 WIB")
     memory.add_task("tugas ekonomi syariah", "Tomorrow 12:00 WIB")
     memory.add_task("tugas statistik", "Tomorrow 14:00 WIB")
 
-    deleted = memory.delete_task("tugas")
-    assert deleted is True
+    result = memory.bulk_delete_tasks(title_query="tugas", status="all")
+    assert result["outcome"] == "committed"
+    assert result["deleted_count"] == 3
+    assert sorted(d["title"] for d in result["deleted"]) == [
+        "tugas", "tugas ekonomi syariah", "tugas statistik",
+    ]
+    assert memory.list_tasks(status="all") == []
 
-    pending = memory.list_tasks(status="pending")
-    titles = [t["title"] for t in pending]
-    assert "tugas" not in titles
-    assert "tugas ekonomi syariah" in titles
-    assert "tugas statistik" in titles
-    assert len(pending) == 2
+    # Missing scope returns an error instead of wiping unscoped rows.
+    assert memory.bulk_delete_tasks(status="all")["status"] == "error"
 
 
 def test_parse_due_timestamp_indonesian_natural_expressions() -> None:
@@ -175,8 +177,8 @@ def test_task_identity_and_recurring_policy_are_persisted() -> None:
 def test_empty_or_ambiguous_task_selectors_do_not_mutate() -> None:
     first = memory.add_task("Same logical work", "Tomorrow 10:00 WIB", identity_key_value="one")
     second = memory.add_task("Same logical work", "Tomorrow 11:00 WIB", identity_key_value="two")
-    assert memory.complete_task("") is None
-    assert memory.delete_task("") is False
+    assert memory.complete_task_result(title="")["status"] == "error"
+    assert memory.bulk_delete_tasks(status="pending")["status"] == "error"
     result = memory.complete_task_result(title="Same logical work")
     assert result["status"] == "ambiguous"
     assert result["count"] == 2

@@ -336,7 +336,7 @@ async def test_concurrent_brain_memory_mutations_without_race_conditions() -> No
 
     # Clean up test tasks
     for t in concurrent_tasks:
-        memory.delete_task(t["title"])
+        memory.bulk_delete_tasks(task_id=str(t["task_id"]), status="all")
 
 
 

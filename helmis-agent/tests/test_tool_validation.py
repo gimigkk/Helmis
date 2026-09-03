@@ -23,7 +23,7 @@ from src.tools.registry import execute_tool_call
 async def test_unknown_argument_is_rejected_before_handler() -> None:
     result = await execute_tool_call(
         "add_task",
-        {"title": "X", "due": "besok", "task_id_or_title": "legacy-key"},
+        {"title": "X", "due": "besok", "task_id_or_title": "alias-key"},
         default_sender="Gilang",
     )
     assert result["status"] == "error"

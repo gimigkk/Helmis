@@ -12,7 +12,7 @@ from src.agent.intent import (
 
 
 class TestClassificationParity:
-    """classify_turn_intent delegates to plan and preserves legacy behavior."""
+    """classify_turn_intent delegates to the typed plan classifier."""
 
     def test_query_cases(self) -> None:
         assert classify_turn_intent("cek jadwal besok") == "query"
@@ -162,7 +162,7 @@ class TestPlanSystemDirective:
 
 
 class TestClassifyIntentMapping:
-    def test_legacy_mapping(self) -> None:
+    def test_coarse_mapping(self) -> None:
         assert classify_intent(build_turn_plan("cek jadwal")) == "query"
         assert classify_intent(build_turn_plan("ingetin gw x")) == "action"
         assert classify_intent(build_turn_plan("wkwk")) == "chat"

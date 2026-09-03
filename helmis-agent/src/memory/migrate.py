@@ -1,4 +1,4 @@
-"""One-time import of legacy JSON tasks into the SQLite task repository."""
+"""One-time import of JSON task archives into the SQLite task repository."""
 
 from __future__ import annotations
 
@@ -12,15 +12,15 @@ from typing import Any
 from .task_repository import TaskRepository
 
 
-def _legacy_id(task: dict[str, Any], index: int) -> str:
+def _stable_import_id(task: dict[str, Any], index: int) -> str:
     fields = "|".join(str(task.get(field, "")) for field in ("title", "due", "assignee", "created_at", "status"))
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"helmis:legacy-task:{index}:{fields}"))
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"helmis:imported-task:{index}:{fields}"))
 
 
 def _normalize(task: Any, index: int) -> dict[str, Any]:
     record = dict(task) if isinstance(task, dict) else {"title": str(task or "")}
     title = str(record.get("title") or "").strip()
-    record.setdefault("task_id", _legacy_id(record, index))
+    record.setdefault("task_id", _stable_import_id(record, index))
     record["title"] = title
     record.setdefault("identity_key", " ".join(title.casefold().split()))
     record.setdefault("status", "pending")
@@ -28,7 +28,7 @@ def _normalize(task: Any, index: int) -> dict[str, Any]:
     return record
 
 
-def migrate_legacy_tasks(
+def migrate_json_tasks(
     source: str | os.PathLike[str], database: str | os.PathLike[str]
 ) -> dict[str, Any]:
     """Import tasks, verify counts, and archive the JSON source without deleting it."""
@@ -62,7 +62,7 @@ def main() -> None:
     data_dir = Path(os.environ.get("DATA_DIR", "./data"))
     source = Path(os.environ.get("MEMORY_FILE", data_dir / "helmis_memory.json"))
     database = Path(os.environ.get("HELMIS_DB_PATH", data_dir / "helmis.db"))
-    print(json.dumps(migrate_legacy_tasks(source, database), ensure_ascii=False))
+    print(json.dumps(migrate_json_tasks(source, database), ensure_ascii=False))
 
 
 if __name__ == "__main__":

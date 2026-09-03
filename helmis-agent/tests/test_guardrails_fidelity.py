@@ -167,7 +167,7 @@ async def test_loop_intercepts_unexecuted_mutation_claim():
 
     with patch("httpx.AsyncClient.post", side_effect=mock_post), \
          patch("src.agent.loop.get_next_gemini_key", return_value="dummy_key_123"), \
-         patch("src.tools.tasks.complete_task", return_value={"status": "success", "task_id": "1", "title": "nge-chat murid"}):
+         patch("src.tools.tasks.complete_task_result", return_value={"status": "applied", "task": {"task_id": "1", "title": "nge-chat murid"}}):
 
         final_reply = await run_agentic_react_loop(
             client=mock_client,

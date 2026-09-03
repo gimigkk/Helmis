@@ -1,10 +1,10 @@
 """
 memory.py — Persistent store for Helmis memory.
 
-Tasks live in SQLite (WAL) via :mod:`src.memory.task_repository`; the legacy
-JSON file is a one-time migration input only. People, notes, and the activity
-log remain JSON-backed until the second bounded migration. Traces stay
-append-only JSONL and are not part of this module.
+Tasks live in SQLite (WAL) via :mod:`src.memory.task_repository`. People,
+notes, and the activity log remain JSON-backed in the ``helmis_memory.json``
+sidecar until the second bounded migration. Traces stay append-only JSONL
+and are not part of this module.
 """
 
 import json
@@ -45,45 +45,13 @@ def _resolve_db_path() -> str:
 
 
 def get_repository() -> TaskRepository:
-    """Return the process-wide task repository, importing legacy JSON once."""
+    """Return the process-wide task repository."""
     global _repository
     db_path = _resolve_db_path()
     with _repository_lock:
         if _repository is None or _repository.database_path != db_path:
-            repo = TaskRepository(db_path)
-            legacy = _load_legacy_tasks_once()
-            if legacy:
-                repo.load_or_migrate(legacy)
-            _repository = repo
+            _repository = TaskRepository(db_path)
     return _repository
-
-
-def _load_legacy_tasks_once() -> list[dict[str, Any]]:
-    """Read legacy JSON tasks once for import; returns [] when absent or already imported."""
-    data_dir = _resolve_data_dir()
-    marker = os.path.join(data_dir, ".legacy_tasks_imported")
-    if os.path.exists(marker):
-        return []
-    mem_path = _get_memory_file()
-    os.makedirs(data_dir, exist_ok=True)
-    if not os.path.exists(mem_path):
-        with open(marker, "w", encoding="utf-8") as f:
-            f.write("no-json-source")
-        return []
-    try:
-        with open(mem_path, encoding="utf-8") as f:
-            data = json.load(f)
-        raw_tasks = data.get("tasks", []) if isinstance(data, dict) else []
-        normalized: list[dict[str, Any]] = []
-        for index, task in enumerate(raw_tasks):
-            record, _ = _normalize_task_record(task, index)
-            normalized.append(record)
-        with open(marker, "w", encoding="utf-8") as f:
-            f.write("imported")
-        return normalized
-    except Exception as e:
-        log.error("Legacy task import from %s failed: %s", mem_path, e)
-        return []
 
 
 def identity_key(value: str) -> str:
@@ -95,68 +63,6 @@ def identity_key(value: str) -> str:
 
 def _new_task_id() -> str:
     return str(uuid.uuid4())
-
-
-def _legacy_task_id(task: dict[str, Any], index: int) -> str:
-    """Create a repeatable ID for a legacy row during the compatibility migration."""
-    stable_fields = "|".join(
-        str(task.get(field, ""))
-        for field in ("title", "due", "assignee", "created_at", "status")
-    )
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"helmis:legacy-task:{index}:{stable_fields}"))
-
-
-def _normalize_task_record(task: Any, index: int) -> tuple[dict[str, Any], bool]:
-    """Backfill new fields on legacy task JSON without changing its meaning."""
-    if not isinstance(task, dict):
-        task = {"title": str(task or "")}
-    changed = False
-    title = str(task.get("title", "")).strip()
-    if not task.get("task_id"):
-        # Legacy IDs remain stable across restarts and repeated migrations.
-        task["task_id"] = _legacy_task_id(task, index)
-        changed = True
-
-    if not str(task.get("title", "")).strip() and title:
-        task["title"] = title
-        changed = True
-    if task.get("status") is None:
-        task["status"] = "pending"
-        changed = True
-    if task.get("task_type") is None:
-        task["task_type"] = "reminder"
-        changed = True
-    if not task.get("identity_key"):
-        task["identity_key"] = identity_key(title)
-        changed = True
-    if "recurrence" not in task:
-        task["recurrence"] = task.get("recurrence_policy")
-        changed = True
-    if "recurrence_policy" not in task:
-        task["recurrence_policy"] = task.get("recurrence")
-        changed = True
-    if "nag_interval_minutes" not in task or task.get("nag_interval_minutes") is None:
-        task["nag_interval_minutes"] = 10
-        changed = True
-    if "max_nags" not in task or task.get("max_nags") is None:
-        task["max_nags"] = 6
-        changed = True
-    if "nag_enabled" not in task:
-        task["nag_enabled"] = str(task.get("priority", "normal")).lower() == "urgent"
-        changed = True
-    if "nag_policy" not in task or not isinstance(task.get("nag_policy"), dict):
-        task["nag_policy"] = {
-            "interval_minutes": int(task.get("nag_interval_minutes") or 10),
-            "max_nags": int(task.get("max_nags") or 6),
-        }
-        changed = True
-    if task.get("version") is None:
-        task["version"] = TASK_SCHEMA_VERSION
-        changed = True
-    if task.get("schema_version") is None:
-        task["schema_version"] = TASK_SCHEMA_VERSION
-        changed = True
-    return task, changed
 
 
 def _bump_task_version(task: dict[str, Any]) -> None:
@@ -747,35 +653,6 @@ def _complete_task_mutator(task: dict[str, Any]) -> dict[str, Any]:
     task["completed_at"] = get_current_time_str()
     task["updated_at"] = get_current_time_str()
     return task
-
-
-def complete_task(title: str = "", *, task_id: str | None = None) -> dict[str, Any] | None:
-    """Legacy completion wrapper; ambiguous selectors do not mutate state."""
-    result = complete_task_result(title=title, task_id=task_id)
-    return result.get("task") if result.get("status") == "applied" else None
-
-
-def delete_task(title: str = "", *, task_id: str | None = None) -> bool:
-    """Legacy deletion wrapper; ambiguous or empty selectors do not mutate state."""
-    if task_id:
-        result = bulk_delete_tasks(task_id=task_id, status="all")
-        return result.get("outcome") == "committed"
-    if not title or not title.strip():
-        return False
-    tasks = get_repository().list_tasks()
-    query = identity_key(title)
-    exact_matches = [
-        task for task in tasks if identity_key(str(task.get("title", ""))) == query
-    ]
-    if len(exact_matches) > 1:
-        return False
-    candidates = exact_matches or _matching_tasks(tasks, title=title)
-    if len(candidates) != 1:
-        return False
-    result = get_repository().delete_matching(
-        lambda t: [task for task in t if str(task.get("task_id")) == str(candidates[0]["task_id"])]
-    )
-    return result.get("outcome") == "committed"
 
 
 def parse_due_timestamp(due_str: str) -> float:

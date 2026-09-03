@@ -2,9 +2,9 @@
 validation.py — Argument validation against declared Gemini tool schemas.
 
 The tool schema in schema.py is the single source of truth for what the model
-may pass to a tool. Handlers tolerate extra alias keys for legacy callers, but
-model-issued calls are checked here so invalid arguments fail fast at the
-dispatch boundary instead of silently producing empty-string/None handling.
+may pass to a tool. Handlers tolerate extra alias keys, but model-issued
+calls are checked here so invalid arguments fail fast at the dispatch
+boundary instead of silently producing empty-string/None handling.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ _TYPE_CHECKS: dict[str, tuple[type, ...]] = {
 }
 
 # Properties that exist in handler seams but are intentionally not model-facing
-# (internal scheduler descriptors, legacy aliases kept for old MCP clients).
+# (internal scheduler descriptors).
 _NON_MODEL_ARGS: dict[str, set[str]] = {
     # 'job' descriptors are validated by the proactive executor, not by schema.
     "add_task": {"job"},

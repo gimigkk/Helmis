@@ -180,7 +180,7 @@ def _side_effects(action_type: str) -> list[str]:
 
 
 def classify_intent(plan: TurnPlan) -> str:
-    """Map a typed plan to the legacy intent string ('action'/'query'/'chat')."""
+    """Map a typed plan to the coarse intent string ('action'/'query'/'chat')."""
     return plan.intent
 
 

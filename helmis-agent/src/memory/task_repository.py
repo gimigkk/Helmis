@@ -1,8 +1,8 @@
 """SQLite/WAL repository for structured task state.
 
-The JSON memory file remains a compatibility mirror for legacy callers and for
-non-task records. Task reads and mutations use this repository so selector
-resolution, optimistic version checks, and commits can share one transaction.
+Non-task records (people, notes, activity log) live in the JSON sidecar.
+Task reads and mutations use this repository so selector resolution,
+optimistic version checks, and commits can share one transaction.
 """
 
 from __future__ import annotations
@@ -353,15 +353,15 @@ class TaskRepository:
         ).fetchall()
         return [self._row_to_task(row) for row in rows]
 
-    def load_or_migrate(self, legacy_tasks: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Import normalized legacy rows once, then read tasks from SQLite."""
+    def load_or_migrate(self, tasks_to_import: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Import normalized rows once (guarded by a repo marker), then read tasks from SQLite."""
         with self._connect() as connection:
             migrated = connection.execute(
                 "SELECT value FROM repository_meta WHERE key = ?",
-                ("legacy_tasks_migrated",),
+                ("bulk_import_done",),
             ).fetchone()
             if migrated is None:
-                for task in legacy_tasks:
+                for task in tasks_to_import:
                     values = self._task_values(task)
                     connection.execute(
                         """INSERT OR IGNORE INTO tasks
@@ -371,7 +371,7 @@ class TaskRepository:
                     )
                 connection.execute(
                     "INSERT INTO repository_meta(key, value) VALUES (?, ?)",
-                    ("legacy_tasks_migrated", "1"),
+                    ("bulk_import_done", "1"),
                 )
             return self._all_tasks(connection)
 

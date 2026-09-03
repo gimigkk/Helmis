@@ -182,8 +182,8 @@ def _resolve_reminder_policy(task: dict[str, Any]) -> dict[str, Any] | None:
     """Resolve the nag policy for a task from data, falling back to task fields.
 
     Lookup order: reminder_policies row for this task, then task-level
-    nag fields, then the urgent-priority default (10m interval, 5 nags,
-    stand-down at 60m) which reproduces the legacy ladder as plain data.
+    nag fields, then the urgent-priority default ladder (10m interval,
+    5 nags, stand-down at 60m) expressed as plain data.
     Returns None when no nagging applies.
     """
     task_id = str(task.get("task_id") or "")
@@ -247,7 +247,7 @@ async def send_reminder_to_recipient(
             )
             if claimed is None:
                 return
-    idempotency_key = f"reminder:{task_id or 'legacy'}:{stage}:{target_chat}"
+    idempotency_key = f"reminder:{task_id or 'unscheduled'}:{stage}:{target_chat}"
     queued = repository.enqueue_outbox(
         outbox_id=f"outbox-{abs(hash(idempotency_key))}",
         idempotency_key=idempotency_key,
