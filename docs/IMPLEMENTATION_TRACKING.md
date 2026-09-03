@@ -11,11 +11,11 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 ## Current Position
 
 - **Branch:** `feat/dynamic-secretary-foundation` (committed through 2026-09-03)
-- **Last commit:** `1418e8c` — memory candidate review workflow
+- **Last commit:** `5631528` — Phase 5 ops tooling (CI, backup verify, rollback, health check)
 - **Last updated:** 2026-09-03
-- **Last verified:** `324 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files
-- **Phase:** Phases 3+4 build complete (uncertain-memory candidate flow closes Phase 3; quarantine + MCP unification close Phase 4)
-- **Step:** Next: Phase 5 CI, then canary/backup/rollback rollout work
+- **Last verified:** `326 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files
+- **Phase:** All rebuild phases (0–5) build complete; legacy task wrappers/JSON import path removed
+- **Step:** Next: push branch + deploy to VPS (sync → migrate → rebuild agent → health check)
 
 ## Phase Roadmap
 
@@ -26,7 +26,7 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | 2 | Conservative, grounded agent | **Complete** | Typed action plans with confirmation gates, deterministic routing, schema validation, group admission policy, durable replay dedup, replay benchmark harness (stronger-model arm pending provider capacity) |
 | 3 | Safe memory and learning | **Complete** | Provenance + auto-extraction off by default; correction/supersession workflow; skill proposal/version/rollback; uncertain claims queue as candidates until explicit confirm/reject |
 | 4 | Reliable scheduling and delivery | **Complete** | Durable occurrences + outbox; policy-driven nag engine with data recipients; recurrence survives downtime (bot + human); job allowlist/quarantine; MCP delegates to internal registry |
-| 5 | Production hygiene and rollout | **Not started** | CI, backup/restore, canary, synthetic checks, rollback |
+| 5 | Production hygiene and rollout | **Complete (build)** | CI gate (ruff/import/pytest/compose), `verify_backup.sh`, `rollback.sh`, `health_check.sh`; VPS rollout itself pending deploy |
 
 ## Done
 
@@ -65,14 +65,20 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | Skill versioning + rollback | Promotions and agent updates snapshot every prior active `SKILL.md` to `<skill>/.versions/vNNN.md` and record audit metadata (version, sha256, source, proposal path, timestamps) in `config/skills/.skill-registry.json`; `rollback_skill(name)` restores the registry-recorded previous version (rollback itself versioned + attributed); `list_skill_versions()` exposes history; `list_proposals()`/`reject_proposal(reason)` complete the candidate workflow (rejected proposals kept for audit with reason, never injectable); proposal path containment enforced; tests in `tests/test_skill_proposals.py` (6 cases) |
 | Webhook security | Optional `WAHA_WEBHOOK_SECRET` (header) and separate `SCHEDULER_WEBHOOK_SECRET`; `status@broadcast` rejected pre-queue; `/health` (liveness) vs `/ready` (WAHA) split; secrets wired in Compose + cron trigger |
 | Config | Compose/`.env.example` reconciled with secret vars; dev docs test-module table updated |
+| Legacy code removal | All legacy task wrappers deleted (`complete_task`/`delete_task` in store, `complete_task` seam in tools, JSON auto-import path, `task_id_or_title`/`query_or_file_ids` alias fallbacks); `migrate_json_tasks` is the only JSON→SQLite path (repo marker `bulk_import_done`); zero `legacy` references in src/tests/scripts; suite green at 326 |
+| Version A/B benchmark | Version-agnostic arm replay (`scripts/run_arm_replay.py`) old (`90cf82e`) vs new branch, 3 runs × 14 sanitized cases: old 26/42 (62%) vs new 35/42 (83%); mutation-integrity failures 8 case-runs → 0; residual: ambiguous bulk-delete success language (fixed by not_found guardrail), duplicate-create-update scorer literalism; report in `docs/production-evidence/version_comparison.md` |
+| not_found guardrail hardening | `verify_action_fidelity`: when all mutation tools return `not_found` and the tool result ships no message, a verified ground-truth no-match message replaces the model text (previously the model's claim stood when the result had no message field); claiming language blocked outright by the mutation-claim detector; 2 tests in `tests/test_guardrail_contracts.py` |
+| CI pipeline | `.github/workflows/ci.yml`: ruff (`src/ tests/ scripts/`), 14-module import smoke check, full pytest with isolated `DATA_DIR`, `docker compose config -q` validation; triggers on push (main + feat/**) and PRs |
+| Backup restore verification | `scripts/verify_backup.sh`: extracts archive to `mktemp` dir, `PRAGMA integrity_check`, per-table row counts (`tasks`/`outbox`/`occurrences`/`reminder_policies`/`memory_candidates`), waha-session + catalog presence warnings; never touches live `data/` or `.env`; tested against synthetic archive |
+| One-command rollback | `scripts/rollback.sh`: safety backup → explicit migration-boundary warning/confirmation → `git checkout` target commit → rebuild agent only (waha/scheduler/volumes/data untouched) → healthy check with log tail |
+| Synthetic health check | `scripts/health_check.sh`: container run/healthy status for all 3 services, host-side `/health`, `/ready` (WAHA reachability), waha `/ping`, MCP tool-registration + outbox-drain log presence; non-zero exit on failure |
 
 ## Not Started
 
 - Delivery duplicate-window: provider-side deduplication is not implemented (durable outbox + replay dedup suppress duplicates before send, but crash-after-provider-accept still relies on the provider)
 - Domain-specific authorization policy and outbound target allowlisting beyond the central caller/chat/private-memory boundary
 - Replay/A-B benchmark rerun with available stronger model/quota; current report is provider-inconclusive for arm B, so no model upgrade decision yet
-- CI pipeline (tests, lint, type check, compose validation, security contracts)
-- Phase 5 rollout: canary, synthetic scenarios, backup/restore verification, one-command rollback
+- VPS rollout: push branch → sync VPS to branch → `python -m src.memory.migrate` → rebuild agent → `scripts/health_check.sh` (CI run + canary against a test WAHA session happen at deploy time)
 
 ## Blockers / Open Decisions
 
