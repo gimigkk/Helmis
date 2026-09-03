@@ -12,16 +12,19 @@ import src.agent.cascade as cascade
 
 
 def test_fallback_models_include_new_generations(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Verify fallback models list contains new generations (3.7-flash, 3.5-flash-lite) and sorted properly."""
+    """Fallback list: newest flash tiers first, dead aliases last."""
     # Force network failure to trigger fallback branch
     monkeypatch.setattr(cascade, "GEMINI_KEYS", ["invalid_key"])
     monkeypatch.setattr("httpx.get", MagicMock(side_effect=Exception("Offline")))
 
     models = cascade.fetch_available_gemini_models()
     assert "gemini-3.7-flash" in models
-    assert "gemini-3.5-flash-lite" in models
+    assert "gemini-3.5-flash" in models
     assert "gemini-flash-lite-latest" in models
-    assert "gemini-2.5-pro" in models
+    assert "gemini-pro-latest" in models
+    # Working models lead; dead alias sinks to the end.
+    assert models[0] == "gemini-3.8-flash"
+    assert models[-1] == "gemini-flash-lite-latest"
 
 
 def test_dynamic_api_discovery_filtering_and_sorting(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -75,20 +78,20 @@ def test_dynamic_api_discovery_filtering_and_sorting(monkeypatch: pytest.MonkeyP
     assert "gemini-robotics-001" not in models
     assert "embedding-001" not in models
 
-    # Included and sorted: Flash-Lite first, then Flash, Gemma, Pro
+    # Included and sorted: newest Flash first, then Flash-Lite, Gemma, Pro
     assert "gemini-3.5-flash-lite" in models
     assert "gemini-3.7-flash" in models
     assert "gemma-3-27b-it" in models
     assert "gemini-2.5-pro" in models
 
-    # Flash-Lite should appear before Flash, which appears before Gemma and Pro
-    idx_lite = models.index("gemini-3.5-flash-lite")
+    # Newest flash tiers lead; Flash-Lite before Gemma and Pro; Pro last
     idx_flash = models.index("gemini-3.7-flash")
+    idx_lite = models.index("gemini-3.5-flash-lite")
     idx_gemma = models.index("gemma-3-27b-it")
     idx_pro = models.index("gemini-2.5-pro")
 
-    assert idx_lite < idx_flash
-    assert idx_flash < idx_gemma
+    assert idx_flash < idx_lite
+    assert idx_lite < idx_gemma
     assert idx_gemma < idx_pro
 
 

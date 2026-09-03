@@ -225,15 +225,16 @@ def test_verify_action_fidelity_sanitizes_raw_exceptions() -> None:
     assert "kendala teknis" in sanitized or "gagal" in sanitized or "maaf" in sanitized.lower()
 
 
-def test_verify_action_fidelity_strips_fake_tool_chips() -> None:
+def test_verify_action_fidelity_strips_fake_tool_chips(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HELMIS_TOOL_CHIPS_ENABLED", raising=False)
     """If the LLM mimicked/hallucinated a tool footnote without actually running the tool, strip it."""
     fake_response = "Sip Gilang, silakan istirahat. Nanti 11:20 WIB kukun ya.\n\n_↳ add_task_"
     sanitized = verify_action_fidelity(fake_response, executed_tools=[])
     assert "↳" not in sanitized
     assert "add_task" not in sanitized
 
-    # If another tool actually ran, authentic chips are opt-in (default off)
+    # If another tool actually ran, authentic chips append (default on) —
+    # but the hallucinated inline footnote stays stripped.
     real_tools = [{"name": "list_tasks", "args": {}, "result": {"status": "success"}}]
     sanitized_real = verify_action_fidelity(fake_response, executed_tools=real_tools)
-    assert "↳" not in sanitized_real
-    assert "add_task" not in sanitized_real
+    assert "_↳ add_task_" not in sanitized_real

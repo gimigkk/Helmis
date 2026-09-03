@@ -56,37 +56,51 @@ def fetch_available_gemini_models() -> list[str]:
             log.warning("Could not fetch models dynamically with key: %s", e)
 
     if not discovered:
-        # Fallback list if offline or API unreachable
+        # Fallback list if offline or API unreachable.
+        # Newest flash tiers with confirmed quota first; dead aliases last.
         return [
-            "gemini-flash-lite-latest",
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
             "gemini-2.5-flash-lite",
-            "gemini-3.1-flash-lite-preview",
             "gemini-3.1-flash-lite",
             "gemini-flash-latest",
-            "gemini-3.7-flash",
             "gemini-2.5-flash",
-            "gemini-3.5-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-2.5-pro",
             "gemini-pro-latest",
+            "gemini-flash-lite-latest",
         ]
 
-    # Sort: Flash-Lite first (sub-second speed), then Flash, then Gemma, then Pro
+    # Sort: newest flash tiers with confirmed quota first (3.8 > 3.7 > 3.6 >
+    # 3.5 > flash-lite), then older Flash, Gemma, Pro. Known-dead aliases sink
+    # to the very end so the first cascade window (loop tries the first 4)
+    # never wastes wall-clock on them.
+    _PREFERRED = [
+        ("gemini-3.8-flash", 0),
+        ("gemini-3.7-flash", 1),
+        ("gemini-3.6-flash", 2),
+        ("gemini-3.5-flash", 3),
+        ("gemini-2.5-flash-lite", 4),
+        ("gemini-3.1-flash-lite", 5),
+    ]
+
     def score_model(m: str) -> int:
         m_lower = m.lower()
+        for name, score in _PREFERRED:
+            if m_lower == name:
+                return score
         if m_lower == "gemini-flash-lite-latest":
-            return 1
+            # Dead alias on current keys (repeat timeouts); last resort only.
+            return 90
         elif "flash-lite" in m_lower or "flash_lite" in m_lower:
-            return 2
-        elif m_lower == "gemini-flash-latest":
-            return 3
-        elif "flash" in m_lower:
-            return 4
-        elif "gemma" in m_lower:
-            return 5
-        elif "pro" in m_lower:
             return 6
-        return 7
+        elif "flash" in m_lower:
+            return 7
+        elif "gemma" in m_lower:
+            return 8
+        elif "pro" in m_lower:
+            return 9
+        return 10
 
     discovered.sort(key=score_model)
     return discovered

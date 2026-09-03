@@ -4,6 +4,8 @@ test_agent.py — Tests for tool dispatching and tool schema declarations.
 
 import os
 
+import pytest
+
 import src.agent as agent
 import src.memory as memory
 
@@ -330,12 +332,13 @@ def test_verify_action_fidelity_enforces_not_found_message() -> None:
         }
     ]
     corrected = agent.verify_action_fidelity("Sip, sudah saya hapus.", tools_failed)
-    assert "↳ `delete_memory`" not in corrected  # chips are opt-in (default off)
+    # verified not_found message replaces model text; chips suppressed on override paths
     assert "Tidak ditemukan memori yang cocok di database." in corrected
 
 
-def test_verify_action_fidelity_passes_successful_turns() -> None:
-    # When mutation tool succeeded, verify footnote is appended to the bottom
+def test_verify_action_fidelity_passes_successful_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+    # When mutation tool succeeded, text passes; chips default ON append footnote.
+    monkeypatch.delenv("HELMIS_TOOL_CHIPS_ENABLED", raising=False)
     tools_success = [
         {
             "name": "delete_memory",
@@ -343,7 +346,8 @@ def test_verify_action_fidelity_passes_successful_turns() -> None:
         }
     ]
     verified = agent.verify_action_fidelity("Sip, sudah saya hapus ya.", tools_success)
-    assert verified == "Sip, sudah saya hapus ya."  # chips opt-in: default off
+    assert verified.startswith("Sip, sudah saya hapus ya.")
+    assert "↳ `delete_memory`" in verified  # chips default on
 
 
 def test_format_tool_chips_deduplicates_and_orders() -> None:

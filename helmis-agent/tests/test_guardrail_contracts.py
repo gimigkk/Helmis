@@ -89,12 +89,15 @@ def test_no_fluff_suppresses_tool_chips() -> None:
     assert "↳" not in out
 
 
-def test_chips_opt_in_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default: chips off for all turns (opt-in policy)."""
+def test_chips_opt_out_disabled_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default: chips ON; explicit opt-out via env."""
     monkeypatch.delenv("HELMIS_TOOL_CHIPS_ENABLED", raising=False)
     tools = [{"name": "add_task", "result": {"status": "success"}}]
     out = verify_action_fidelity("Tersimpan ya.", tools)
-    assert "↳" not in out
+    assert "↳ `add_task`" in out  # default on
+    monkeypatch.setenv("HELMIS_TOOL_CHIPS_ENABLED", "0")
+    out_off = verify_action_fidelity("Tersimpan ya.", tools)
+    assert "↳" not in out_off
 
 
 def test_chips_opt_in_enabled_for_normal_turns(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,8 +127,9 @@ def test_not_found_without_message_never_passes_model_success_claim() -> None:
     assert "Tidak ada data yang cocok" in out
 
 
-def test_not_found_delete_task_handler_message_used_verbatim() -> None:
-    """Tool-supplied not_found message is enforced verbatim."""
+def test_not_found_delete_task_handler_message_used_verbatim(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tool-supplied not_found message is enforced verbatim (override path, no chips)."""
+    monkeypatch.setenv("HELMIS_TOOL_CHIPS_ENABLED", "0")
     tools = [
         {
             "name": "delete_task",

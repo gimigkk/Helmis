@@ -79,12 +79,13 @@ def test_verify_action_fidelity_blocks_unexecuted_mutation():
     assert "Nge-chat anak murid" not in res
 
 
-def test_verify_action_fidelity_passes_verified_mutation():
+def test_verify_action_fidelity_passes_verified_mutation(monkeypatch):
+    monkeypatch.delenv("HELMIS_TOOL_CHIPS_ENABLED", raising=False)
     text = "Sip, tugas Nge-chat anak murid buat les sudah Helmis tandai selesai ya."
     tools = [{"name": "complete_task", "result": {"status": "success"}}]
     res = verify_action_fidelity(text, tools)
     assert "Sip, tugas Nge-chat anak murid" in res
-    assert "↳" not in res  # chips are opt-in (default off)
+    assert "↳ `complete_task`" in res  # chips default on
 
 
 def test_strip_hallucinated_tool_chips():
@@ -181,7 +182,7 @@ async def test_loop_intercepts_unexecuted_mutation_claim():
         assert call_count >= 2
         assert final_reply is not None
         assert "berhasil ditandai selesai" in final_reply
-        assert "complete_task" not in final_reply  # chips are opt-in (default off)
+        assert "↳" in final_reply  # chips default on: tool footnote appended
 
 
 def test_sanitize_latex_for_whatsapp():
