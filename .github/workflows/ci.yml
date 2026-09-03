@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: helmis-agent
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: helmis-agent/pyproject.toml
+
+      - name: Install agent + dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check src/ tests/ scripts/
+
+      - name: Import smoke check (no external services)
+        run: |
+          python - <<'EOF'
+          import importlib
+
+          modules = [
+              "src.server",
+              "src.agent.loop",
+              "src.agent.guardrails",
+              "src.agent.proactive",
+              "src.memory.store",
+              "src.memory.semantic",
+              "src.memory.migrate",
+              "src.memory.task_repository",
+              "src.tools.registry",
+              "src.tools.schema",
+              "src.tools.validation",
+              "src.tools.mcp_export",
+              "src.tools.authorization",
+              "src.whatsapp.webhook",
+          ]
+          for name in modules:
+              importlib.import_module(name)
+              print(f"ok: {name}")
+          EOF
+
+      - name: Run tests
+        env:
+          DATA_DIR: /tmp/helmis-ci-data
+        run: pytest -q
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-compose config
+        run: docker compose config -q && echo "compose config valid"
