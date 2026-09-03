@@ -343,3 +343,13 @@ def test_list_tasks_hides_routine_by_default(monkeypatch, tmp_path) -> None:
 
     full_view = memory.list_tasks(status="pending", include_routine=True)
     assert len(full_view) == 3
+
+
+def test_category_detection_word_verb_beats_course_mention(monkeypatch, tmp_path) -> None:
+    """'Membuat PPT untuk mata kuliah X' is work; 'Kuliah X' is routine."""
+    from src.memory.store import _detect_task_category
+
+    assert _detect_task_category("Membuat PPT untuk mata kuliah Sistem Operasi", None) == "work"
+    assert _detect_task_category("Kuliah Ekonomi Syariah", None) == "routine"
+    assert _detect_task_category("Absen Seminar Akuntansi", None) == "routine"
+    assert _detect_task_category("Mengerjakan soal ekonomi syariah", None) == "work"
