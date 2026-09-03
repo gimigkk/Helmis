@@ -11,10 +11,10 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 ## Current Position
 
 - **Branch:** `main` (feat/dynamic-secretary-foundation merged; deployed to production VPS `43.133.129.209`)
-- **Last commit:** `f1f133e` — compact mode for query turns
-- **Last updated:** 2026-09-03 (late)
-- **Last verified:** `466 passed` (full suite, from `helmis-agent/`), Ruff clean on src/ tests/
-- **Phase:** Deployed and production-hardened through a long live session (latency, UX, categories, routing)
+- **Last commit:** `5a6819e` — latency optimizations deployed (sub-second models, 1.8s hedge, 503 instant cooldown, compact actions)
+- **Last updated:** 2026-09-03 (post-latency rebuild)
+- **Last verified:** `468 passed` (full suite, from `helmis-agent/`), Ruff clean on src/ tests/, `scripts/health_check.sh` PASS on VPS
+- **Phase:** Deployed and production-hardened (turn response slashed from 18s to 2.7s)
 - **Step:** Monitor live turns; remaining ideas: context caching (provider-level), history compaction
 
 ## Phase Roadmap
