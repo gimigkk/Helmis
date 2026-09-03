@@ -36,16 +36,21 @@ check() {
 # Containers: all three services running, agent + waha healthy
 # -----------------------------------------------------------------------
 for SVC in agent waha scheduler; do
-  check "container ${SVC} running" docker compose ps --status running --services | grep -qx "${SVC}"
+  if docker compose ps --status running --services | grep -qx "${SVC}"; then
+    echo "[health] ok      container ${SVC} running"
+  else
+    echo "[health] FAIL    container ${SVC} running" >&2
+    FAIL=1
+  fi
 done
-check "container agent healthy"  docker compose ps agent | grep -q healthy
-check "container waha healthy"   docker compose ps waha  | grep -q healthy
+check "container agent healthy" bash -c "docker compose ps agent | grep -q healthy"
+check "container waha healthy"  bash -c "docker compose ps waha  | grep -q healthy"
 
 # -----------------------------------------------------------------------
-# HTTP surfaces from the host
+# HTTP surfaces
 # -----------------------------------------------------------------------
-check "agent /health" curl -fsS "http://localhost:${PORT}/health"
-check "agent /ready (WAHA reachable)" curl -fsS "http://localhost:${PORT}/ready"
+check "agent /health" docker compose exec -T agent python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT}/health')"
+check "agent /ready (WAHA reachable)" docker compose exec -T agent python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT}/ready')"
 check "waha /ping" curl -fsS "http://localhost:${WAHA_PORT}/ping"
 
 # -----------------------------------------------------------------------
