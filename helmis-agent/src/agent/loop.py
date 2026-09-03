@@ -11,6 +11,7 @@ import httpx
 from . import cascade
 from .cascade import (
     get_cascade_models,
+    get_cascade_models_with_cooldown,
     get_next_gemini_key,
     load_all_skills,
     load_system_prompt,
@@ -246,10 +247,13 @@ async def run_agentic_react_loop(
         # Per model: rotate up to all available keys (quota and transient 503s
         # are key-specific); only a *timeout* on a key skips to the next model,
         # so a dead model costs at most one timeout instead of key-count tries.
+        # Models that failed recently (503/timeout/404) are demoted so healthy
+        # tail models are tried first instead of re-probing a dead head.
         response_data: dict[str, Any] | None = None
-        active_candidates = candidate_models[:4]
+        active_candidates = get_cascade_models_with_cooldown(is_video=is_video)[:4]
         keys_count = len(getattr(cascade, "GEMINI_KEYS", [])) or 1
         for model in active_candidates:
+            overload_503_count = 0
             for _ in range(keys_count):
                 api_key = get_next_gemini_key()
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
@@ -265,9 +269,11 @@ async def run_agentic_react_loop(
                             continue
                         elif resp.status_code == 503:
                             log.warning("Model overloaded (503) on %s with key %s..., rotating", model, api_key[:8])
+                            overload_503_count += 1
                             continue
                         elif resp.status_code == 404:
                             log.warning("Model not found (404) on %s, skipping", model)
+                            cascade.mark_model_unavailable(model)
                             break
                         else:
                             log.error("Gemini API error (%d) on %s: %s", resp.status_code, model, resp.text[:400])
@@ -276,7 +282,13 @@ async def run_agentic_react_loop(
                     # Timeout/connection refused is a model-level failure:
                     # never re-try the same model on another key.
                     log.warning("Timeout or connection error on %s: %s — next model", model, ex)
+                    cascade.mark_model_unavailable(model)
                     break
+            if overload_503_count >= keys_count:
+                # Every key says the model itself is overloaded — skip it for
+                # the rest of the turn window instead of re-probing per step.
+                log.info("Model %s overloaded on all %d keys — cooldown engaged", model, keys_count)
+                cascade.mark_model_unavailable(model)
 
             if response_data:
                 break
@@ -433,9 +445,10 @@ async def run_agentic_react_loop(
                 "generationConfig": {"temperature": 0.0, "maxOutputTokens": 256},
             }
             # Rotate keys/models: the synthesis call must be at least as
-            # reliable as the working turn that preceded it.
+            # reliable as the working turn that preceded it. Cooldown-aware
+            # ordering skips models that failed during this same turn.
             synthesis_payload = dict(payload)
-            for model in candidate_models[:4]:
+            for model in get_cascade_models_with_cooldown(is_video=is_video)[:4]:
                 for _ in range(len(getattr(cascade, "GEMINI_KEYS", [])) or 1):
                     api_key = get_next_gemini_key()
                     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"

@@ -81,23 +81,33 @@ def _ensure_data_dir() -> None:
     os.makedirs(os.path.dirname(_get_memory_file()), exist_ok=True)
 
 
+def _default_people() -> dict[str, Any]:
+    """Env-seeded core directory (Gilang/Bunga).
+
+    Used as defaults on first boot AND as fallback when the sidecar's people
+    record is empty — an old sidecar without `people` must never disable
+    recipient resolution for proactive reminders.
+    """
+    return {
+        "Gilang": {
+            "phone": os.environ.get("GILANG_PHONE", "+6281234567890"),
+            "role": "User / Principal",
+            "notes": "Direct, prefers concise updates",
+        },
+        "Bunga": {
+            "phone": os.environ.get("BUNGA_PHONE", "+6289876543210"),
+            "role": "User / Principal",
+            "notes": "Co-principal",
+        },
+    }
+
+
 def load_memory() -> dict[str, Any]:
     """Load memory: tasks from SQLite, people/notes/activity from JSON."""
     _ensure_data_dir()
     default_memory: dict[str, Any] = {
         "schedules": [],
-        "people": {
-            "Gilang": {
-                "phone": os.environ.get("GILANG_PHONE", "+6281234567890"),
-                "role": "User / Principal",
-                "notes": "Direct, prefers concise updates",
-            },
-            "Bunga": {
-                "phone": os.environ.get("BUNGA_PHONE", "+6289876543210"),
-                "role": "User / Principal",
-                "notes": "Co-principal",
-            },
-        },
+        "people": _default_people(),
         "notes": [],
     }
 
@@ -113,6 +123,8 @@ def load_memory() -> dict[str, Any]:
             log.error("Failed to load memory file (%s): %s", mem_path, e)
 
     mem: dict[str, Any] = {**default_memory, **json_data}
+    if not mem.get("people"):
+        mem["people"] = _default_people()
     mem["tasks"] = get_repository().list_tasks()
     return cast(dict[str, Any], mem)
 
@@ -893,6 +905,10 @@ def add_person(name: str, phone: str = "", role: str = "", notes: str = "") -> d
     if not name or not name.strip():
         raise ValueError("Person name cannot be empty")
     people = cast(dict[str, Any], _load_json_records("people", {}))
+    if not people:
+        # Seed from env defaults so a core principal is never lost by an edit
+        # to an unrelated contact.
+        people = _default_people()
     person_data = {
         "phone": phone.strip(),
         "role": role.strip(),
@@ -907,6 +923,8 @@ def add_person(name: str, phone: str = "", role: str = "", notes: str = "") -> d
 def get_person(name: str) -> dict[str, Any] | None:
     """Find a person in directory by name substring."""
     people = cast(dict[str, Any], _load_json_records("people", {}))
+    if not people:
+        people = _default_people()
     query = name.lower().strip()
     for p_name, p_data in people.items():
         if query in p_name.lower():

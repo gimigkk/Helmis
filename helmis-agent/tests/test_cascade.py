@@ -186,3 +186,21 @@ def test_load_all_skills(monkeypatch: pytest.MonkeyPatch) -> None:
         assert "Task management guidelines and rules." in skills_text
         assert "### SKILL: vault-manager" in skills_text
         assert "Vault document preservation rules." in skills_text
+
+
+def test_model_cooldown_demotes_failed_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A model marked unavailable is demoted (not dropped) in cascade ordering."""
+    monkeypatch.setattr(cascade, "GEMINI_MODELS", ["gemini-a", "gemini-b", "gemini-c"])
+
+    cascade.mark_model_unavailable("gemini-a", seconds=60)
+    ordered = cascade.get_cascade_models_with_cooldown(is_video=False)
+    assert ordered == ["gemini-b", "gemini-c", "gemini-a"]
+
+
+def test_model_cooldown_expires(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cooldown is transient — the model returns to front position once expired."""
+    monkeypatch.setattr(cascade, "GEMINI_MODELS", ["gemini-a", "gemini-b"])
+
+    cascade.mark_model_unavailable("gemini-a", seconds=-1)
+    ordered = cascade.get_cascade_models_with_cooldown(is_video=False)
+    assert ordered == ["gemini-a", "gemini-b"]
