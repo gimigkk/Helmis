@@ -157,10 +157,15 @@ def collect_snapshot(kind: str) -> str:
     if kind == "tasks":
         from ..memory.store import list_tasks
 
-        tasks = list_tasks(status="pending")
+        tasks = list_tasks(status="pending", include_routine=False)
+        routine_tasks = list_tasks(status="pending", include_routine=True)
+        routine_count = len(routine_tasks) - len(tasks)
         if not tasks:
-            return "DATA (pending tasks): TIDAK ADA."
-        lines = ["DATA (pending tasks, urut deadline):"]
+            base = "DATA (pending tasks): TIDAK ADA."
+            if routine_count > 0:
+                base += f" ({routine_count} routine absen/attendance tersembunyi — sebut hanya jika user eksplisit tanya absen.)"
+            return base
+        lines = [f"DATA (pending tasks, urut deadline — routine absen disembunyikan, ada {routine_count} item):"]
         for t in tasks[:25]:
             line = f"- {t.get('title', '?')}{_fmt_due(str(t.get('due') or ''))}"
             line += _fmt_recurrence(t.get("recurrence"))

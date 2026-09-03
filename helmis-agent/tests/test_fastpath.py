@@ -138,3 +138,26 @@ class TestVisionAlignment:
 
         await run_fastpath("ada tugas apa?", "tasks", "Gilang", fake_completion)
         assert "proaktif" in captured["sys"].lower()
+
+
+class TestRoutineFiltering:
+    """Routine absen pings are hidden from task overviews."""
+
+    @pytest.mark.asyncio
+    async def test_routine_tasks_counted_but_not_listed(self, monkeypatch, tmp_path) -> None:
+        import src.memory as memory
+        from src.agent import fastpath
+
+        data_dir = tmp_path / "data"
+        monkeypatch.setenv("DATA_DIR", str(data_dir))
+
+        memory.add_task(title="Absen Kuliah Statistika", due="", assignee="Bunga", recurrence={"type": "weekly", "weekdays": ["senin"], "time": "09:00", "timezone": "Asia/Jakarta"})
+        memory.add_task(title="Bikin laporan mingguan", due="Besok 10:00 WIB", assignee="Gilang")
+        memory.add_task(title="Bayar listrik", due="Jumat 12:00 WIB", assignee="Gilang")
+
+        snap = fastpath.collect_snapshot("tasks")
+        assert "Absen Kuliah Statistika" not in snap
+        assert "Bikin laporan mingguan" in snap
+        assert "Bayar listrik" in snap
+        assert "routine absen disembunyikan" in snap
+        assert "ada 1 item" in snap
