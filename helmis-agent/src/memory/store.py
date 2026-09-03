@@ -257,10 +257,18 @@ _ROUTINE_TITLE_PATTERN = re.compile(
     r"absen(?:\s+\w+)*|"
     r"kehadiran|attendance|"
     r"\babsensi\b|"
-    r"kuliah\b|kelas\b|class\b|"
+    r"(?<!mata\s)(?<!kuliah\s)\bkuliah\b|kelas\b|class\b|"
     r"check[- ]?in\b|checkin\b|"
     r"presensi\b"
     r")",
+    re.IGNORECASE,
+)
+
+# Real-work verbs: "membuat PPT untuk mata kuliah X" is work even though it
+# mentions a course; "Kuliah X" (attendance) is routine.
+_WORK_VERB_PATTERN = re.compile(
+    r"\b(?:membuat|buat(?:in|kan)?|bikin(?:in|kan)?|mengerjakan|kerjakan|"
+    r"mengisi|isi(?:n|in)?|menyelesaikan|mengumpulkan|membaca|mempelajari)\b",
     re.IGNORECASE,
 )
 
@@ -271,8 +279,12 @@ def _detect_task_category(title: str, recurrence: dict[str, Any] | None) -> str:
     Routine = recurring attendance/check-in pings (absen kuliah, weekly
     check-ins). Everything else is real work. Recurrence alone does NOT make
     a task routine — a recurring work item ("rekap mingguan") stays work.
+    Work verbs (buat/kerjakan/isi...) beat routine keywords: "membuat PPT
+    untuk mata kuliah X" is an assignment, not attendance.
     """
     title_l = (title or "").strip()
+    if _WORK_VERB_PATTERN.search(title_l):
+        return "work"
     if _ROUTINE_TITLE_PATTERN.search(title_l):
         return "routine"
     return "work"
