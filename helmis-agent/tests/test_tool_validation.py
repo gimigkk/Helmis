@@ -132,7 +132,8 @@ async def test_multiple_function_calls_in_one_response_all_execute() -> None:
 
     with patch("httpx.AsyncClient.post", mock_post), \
          patch("src.agent.cascade.GEMINI_KEYS", ["test_key"]), \
-         patch("src.agent.loop.get_cascade_models", return_value=["gemini-test-model"]):
+         patch("src.agent.loop.get_cascade_models", return_value=["gemini-test-model"]), \
+         patch("src.agent.fastpath.classify_fastpath", return_value=""):
         reply = await run_agentic_react_loop(
             client=mock_client,
             sender_name="Gilang",
@@ -179,7 +180,8 @@ async def test_text_and_function_call_same_turn_preserves_text() -> None:
 
     with patch("httpx.AsyncClient.post", mock_post), \
          patch("src.agent.cascade.GEMINI_KEYS", ["test_key"]), \
-         patch("src.agent.loop.get_cascade_models", return_value=["gemini-test-model"]):
+         patch("src.agent.loop.get_cascade_models", return_value=["gemini-test-model"]), \
+         patch("src.agent.fastpath.classify_fastpath", return_value=""):
         reply = await run_agentic_react_loop(
             client=mock_client,
             sender_name="Gilang",

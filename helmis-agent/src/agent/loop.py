@@ -253,6 +253,54 @@ async def run_agentic_react_loop(
     from ..memory.store import get_memory_context_summary
     from ..tools import GEMINI_TOOLS, execute_tool_call
     from ..whatsapp.history import build_multi_turn_contents
+    from .fastpath import classify_fastpath, run_fastpath
+
+    # --- Fast path: trivial turns skip the full agent loop entirely ---
+    # "halo" / "ada tugas apa" do not need the 9k-token manual, tools,
+    # semantic search, or chat history. Classify + answer with one tiny
+    # call, or fall through to the full loop on any doubt.
+    if not media_data and len(message_text) <= 200:
+        fast_kind = classify_fastpath(message_text)
+        if fast_kind:
+            candidate_models = get_cascade_models(is_video=False)
+            keys_count = len(getattr(cascade, "GEMINI_KEYS", [])) or 1
+
+            async def _plain_completion(payload: dict[str, Any]) -> str | None:
+                """One plain generateContent call (no tools), hedged across
+                the cascade. Returns text or None."""
+                small_payload = dict(payload)
+                small_payload.pop("tools", None)
+                won = await _hedged_cascade_call(
+                    candidate_models[:4],
+                    small_payload,
+                    timeout_secs=8.0,
+                    keys_count=keys_count,
+                )
+                if not won:
+                    return None
+                _model, data = won
+                cand = data.get("candidates", [])
+                if not cand:
+                    return None
+                parts = cand[0].get("content", {}).get("parts", []) or []
+                return "".join(p.get("text", "") for p in parts if isinstance(p.get("text"), str))
+
+            try:
+                fast_reply = await run_fastpath(
+                    text=message_text,
+                    kind=fast_kind,
+                    sender_name=sender_name,
+                    chat_completion_fn=_plain_completion,
+                )
+            except Exception as ex:
+                log.warning("Fast path failed (%s) — falling back to full agent", ex)
+                fast_reply = None
+            if fast_reply is not None:
+                if tracer:
+                    tracer.log_step(step=1, max_steps=1, model_name="fastpath", final_text=fast_reply)
+                log.info("Fast path '%s' served turn for [%s]", fast_kind, sender_name)
+                return fast_reply
+            log.info("Fast path '%s' declined — full agent loop for [%s]", fast_kind, sender_name)
 
     system_prompt = load_system_prompt()
     skills_context = load_all_skills()
