@@ -242,12 +242,18 @@ async def run_agentic_react_loop(
             }
             log.debug("Forced tool calling (mode=ANY) for action intent on step 0")
 
-        # Attempt call with Multi-Model & Multi-Key Cascade
+        # Attempt call with Multi-Model & Multi-Key Cascade.
+        # Budget: one attempt per model by default; a key rotation retry is
+        # spent only on 429 (quota is key-specific). Timeouts and 404s are
+        # model-level failures — retrying them on the same model burns the
+        # user's wall-clock time (measured ~8s per timeout on dead models).
         response_data: dict[str, Any] | None = None
         active_candidates = candidate_models[:4]
         for model in active_candidates:
-            keys_count = len(getattr(cascade, "GEMINI_KEYS", [])) or 1
-            for _ in range(min(keys_count, 2)):
+            max_attempts = min(len(getattr(cascade, "GEMINI_KEYS", [])) or 1, 2)
+            attempt = 0
+            while attempt < max_attempts:
+                attempt += 1
                 api_key = get_next_gemini_key()
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 try:
@@ -267,8 +273,10 @@ async def run_agentic_react_loop(
                             log.error("Gemini API error (%d) on %s: %s", resp.status_code, model, resp.text[:400])
                             continue
                 except Exception as ex:
-                    log.warning("Timeout or connection error on %s: %s", model, ex)
-                    continue
+                    # Timeout/connection refused is a model-level failure:
+                    # never re-try the same model on another key.
+                    log.warning("Timeout or connection error on %s: %s — next model", model, ex)
+                    break
 
             if response_data:
                 break
