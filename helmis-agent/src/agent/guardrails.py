@@ -361,8 +361,14 @@ def verify_action_fidelity(
         if all_not_found:
             last_res = mutation_tools[-1].get("result", {})
             msg = last_res.get("message") or last_res.get("error")
-            if msg and isinstance(msg, str):
-                final_text = msg
+            # Tool reported zero matches but shipped no verified message: never let
+            # the model's success claim stand. Substitute the ground-truth outcome.
+            if not (msg and isinstance(msg, str)):
+                msg = (
+                    "Tidak ada data yang cocok di database, jadi tidak ada yang dihapus. "
+                    "Coba sebutkan judul yang tepat."
+                )
+            final_text = msg
 
         # If all mutation tools returned 'error', enforce a clean, verified message
         all_errors = all(t.get("result", {}).get("status") == "error" for t in mutation_tools)

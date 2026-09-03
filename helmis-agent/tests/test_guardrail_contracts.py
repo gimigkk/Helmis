@@ -111,3 +111,26 @@ def test_chips_opt_in_never_applies_to_no_fluff(monkeypatch: pytest.MonkeyPatch)
     out = verify_action_fidelity("Tersimpan: belanja susu", tools, no_fluff=True)
     assert out == "Tersimpan: belanja susu"
     assert "↳" not in out
+
+
+def test_not_found_without_message_never_passes_model_success_claim() -> None:
+    """not_found result carrying no message must still block success language."""
+    tools = [{"name": "delete_task", "result": {"status": "not_found", "outcome": "not_found"}}]
+    # Claiming language gets blocked outright by the mutation-claim detector.
+    out = verify_action_fidelity("Sip, 3 task sudah Helmis hapus ya.", tools)
+    assert "belum berhasil diproses" in out
+    # Innocent text still gets replaced by the ground-truth no-match message.
+    out = verify_action_fidelity("Oke, sudah kucek datanya.", tools)
+    assert "Tidak ada data yang cocok" in out
+
+
+def test_not_found_delete_task_handler_message_used_verbatim() -> None:
+    """Tool-supplied not_found message is enforced verbatim."""
+    tools = [
+        {
+            "name": "delete_task",
+            "result": {"status": "not_found", "outcome": "not_found", "message": "Tidak ditemukan task dengan nama 'X'."},
+        }
+    ]
+    out = verify_action_fidelity("Sudah terhapus semua.", tools)
+    assert out == "Tidak ditemukan task dengan nama 'X'."
