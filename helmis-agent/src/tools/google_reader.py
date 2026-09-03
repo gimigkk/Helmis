@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+from ..memory.ocr import perform_vision_ocr
 from ..memory.sandbox import get_cached_url_snapshot, save_to_sandbox
 
 log = logging.getLogger("helmis-google-reader")
@@ -261,8 +262,6 @@ def format_csv_to_markdown_table(csv_text: str, query: str = "", max_rows: int =
         log.warning("CSV table formatting error: %s", e)
         return csv_text[:4000]
 
-
-from ..memory.ocr import perform_vision_ocr
 
 log = logging.getLogger("helmis-google-reader")
 TZ = ZoneInfo("Asia/Jakarta")
