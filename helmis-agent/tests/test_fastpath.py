@@ -59,6 +59,19 @@ class TestClassify:
         # 'jadwal' + 'tugas' both present -> ambiguous, no fast path
         assert classify_fastpath("cek tugas dan jadwal") == ""
 
+    def test_qualified_query_reaches_agent(self) -> None:
+        """Filters and requested transformations must not be silently ignored."""
+        for text in [
+            "tugas Bunga",
+            "tugas yang jatuh tempo besok",
+            "tugas belum selesai",
+            "tugas dalam format tabel",
+            "rangkum task list jadi 3 prioritas",
+            "tugas tanpa deadline",
+            "semua tugas termasuk absen",
+        ]:
+            assert classify_fastpath(text) == "", text
+
 
 class TestRun:
     @pytest.mark.asyncio
