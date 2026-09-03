@@ -313,6 +313,7 @@ async def run_case(case: dict[str, Any], models: list[str], runs: int) -> list[d
                 name,
                 args,
                 sender,
+                *,
                 client=client,
                 media_data=None,
                 chat_id=None,
@@ -335,11 +336,12 @@ async def run_case(case: dict[str, Any], models: list[str], runs: int) -> list[d
             connection_error_reply = "Maaf, Helmis sedang mengalami gangguan koneksi ke AI provider. Mohon coba sesaat lagi ya."
             for attempt in range(3):
                 try:
+                    message_text = INPUT_OVERRIDES.get(case["id"], case["input_text"])
                     final_reply = await run_agentic_react_loop(
                         client=client,
                         sender_name="Gilang",
                         chat_id="628222000000@c.us",
-                        message_text=INPUT_OVERRIDES.get(case["id"], case["input_text"]),
+                        message_text=message_text,
                         max_steps=6,
                     )
                     error = None
