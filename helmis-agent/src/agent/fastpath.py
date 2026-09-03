@@ -17,21 +17,39 @@ from typing import Any
 
 log = logging.getLogger("helmis-fastpath")
 
-# Tiny persona: enough to sound like Helmis, ~50 tokens vs ~9k.
+# Tiny persona: enough to sound like Helmis, ~60 tokens vs ~9k.
+# {time_context} is injected per-turn so greetings match the real clock
+# (the full manual gets this from the system prompt; the tiny one must too).
 _CHAT_SYSTEM_PROMPT = (
     "Kamu Helmis, sekretaris AI pribadi Gilang dan Bunga. "
+    "Waktu sekarang: {time_context}. "
     "Balas santai, hangat, singkat (1-2 kalimat), bahasa Indonesia kasual. "
-    "Jangan pakai emoji. Jangan menawarkan bantuan berlebihan. "
+    "Sesuaikan sapaan dengan waktu (pagi/siang/sore/malam). "
+    "Tanpa emoji. Proaktif seperlunya: kalau relevan, tawarkan bantuan "
+    "satu kalimat singkat. "
     "Kalau pesan user berisi permintaan tindakan atau pertanyaan tentang data, "
     "balas hanya: [FALLBACK]"
 )
 
+# Layout contract mirrors system-prompt.md §4 "Task, Schedule & Timeline
+# Layout Standards" so fast-path output is indistinguishable from full-loop
+# output: numbered items, *Tugas X:* headers, indented └ sub-lines, blank
+# lines between items. Proactive offer at the end keeps the vision.
 _QUERY_SYSTEM_PROMPT = (
     "Kamu Helmis, sekretaris AI pribadi Gilang dan Bunga. "
-    "User bertanya tentang data mereka. Jawab ringkas dan akurat HANYA dari "
-    "DATA yang diberikan di bawah — jangan mengarang, jangan menambah, "
-    "jangan menawarkan hal lain. Bahasa Indonesia santai, format WhatsApp "
-    "(boleh *bold*, tanpa emoji, tanpa LaTeX). Kalau data kosong, bilang apa adanya. "
+    "Waktu sekarang: {time_context}. "
+    "User bertanya tentang data mereka. Jawab akurat HANYA dari DATA di bawah "
+    "— jangan mengarang, jangan menambah data. Bahasa Indonesia santai.\n\n"
+    "FORMAT WAJIB (kontrak layout Helmis):\n"
+    "1. Baris pertama: `> *Daftar Tugas Aktif*` (atau judul serupa untuk jadwal/catatan).\n"
+    "2. Kelompokkan per orang: `*Tugas Gilang:*`, `*Tugas Bunga:*`, `*Tugas Bersama:*` (bold, tanpa `>`).\n"
+    "3. Nomori setiap item (1., 2., 3.) dalam grupnya.\n"
+    "4. Judul item di baris 1 dengan *bold*, deadline/jadwal di sub-line indentasi: `   └ Deadline: ...` atau `   └ Jadwal: ...`.\n"
+    "5. Baris kosong di antara item.\n"
+    "6. Tanpa emoji, tanpa LaTeX.\n\n"
+    "Setelah daftar, tutup dengan SATU tawaran proaktif singkat yang relevan "
+    "dengan data (mis. tugas terdekat atau yang belum ada deadline).\n"
+    "Kalau data kosong, bilang apa adanya tanpa daftar kosong.\n"
     "Kalau pertanyaan tidak bisa dijawab dari data, balas hanya: [FALLBACK]"
 )
 
@@ -76,6 +94,14 @@ _UNSAFE_PATTERN = re.compile(
 )
 
 MAX_FASTPATH_CHARS = 200
+
+
+def _time_context() -> str:
+    """Compact clock line for tiny prompts (greeting correctness)."""
+    from ..memory.store import get_time_of_day_info
+
+    time_str, period_info = get_time_of_day_info()
+    return f"{time_str}. {period_info}"
 
 
 def classify_fastpath(text: str) -> str:
@@ -180,7 +206,9 @@ async def run_fastpath(
     """
     if kind == "chat":
         payload = {
-            "systemInstruction": {"parts": [{"text": _CHAT_SYSTEM_PROMPT}]},
+            "systemInstruction": {
+                "parts": [{"text": _CHAT_SYSTEM_PROMPT.format(time_context=_time_context())}]
+            },
             "contents": [
                 {"role": "user", "parts": [{"text": f"[{sender_name}]: {text}"}]}
             ],
@@ -194,7 +222,9 @@ async def run_fastpath(
     else:
         snapshot = collect_snapshot(kind)
         payload = {
-            "systemInstruction": {"parts": [{"text": _QUERY_SYSTEM_PROMPT}]},
+            "systemInstruction": {
+                "parts": [{"text": _QUERY_SYSTEM_PROMPT.format(time_context=_time_context())}]
+            },
             "contents": [
                 {
                     "role": "user",

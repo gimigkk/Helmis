@@ -93,3 +93,48 @@ class TestRun:
         assert reply == "Ada 1 tugas pending."
         assert "DATA (pending tasks" in captured["text"]
         assert "PERTANYAAN: ada tugas apa?" in captured["text"]
+
+
+class TestVisionAlignment:
+    """Fast-path output must honor system-prompt.md contracts."""
+
+    @pytest.mark.asyncio
+    async def test_query_prompt_carries_layout_contract(self) -> None:
+        """Manual §4: numbered items, section headers, └ sub-lines, no emoji."""
+        captured: dict[str, Any] = {}
+
+        async def fake_completion(payload: dict[str, Any]) -> str:
+            captured["sys"] = payload["systemInstruction"]["parts"][0]["text"]
+            return "> *Daftar Tugas Aktif*"
+
+        await run_fastpath("ada tugas apa?", "tasks", "Gilang", fake_completion)
+        sys = captured["sys"]
+        assert "*Tugas Gilang:*" in sys
+        assert "└ Deadline" in sys
+        assert "Nomori" in sys
+        assert "tanpa emoji" in sys.lower()
+
+    @pytest.mark.asyncio
+    async def test_chat_prompt_has_clock(self) -> None:
+        """Greetings must match the real time of day, not assume morning."""
+        captured: dict[str, Any] = {}
+
+        async def fake_completion(payload: dict[str, Any]) -> str:
+            captured["sys"] = payload["systemInstruction"]["parts"][0]["text"]
+            return "Sip."
+
+        await run_fastpath("halo", "chat", "Gilang", fake_completion)
+        assert "WIB" in captured["sys"]
+        assert "Sapaan" in captured["sys"] or "sapaan" in captured["sys"]
+
+    @pytest.mark.asyncio
+    async def test_query_prompt_ends_with_proactive_offer(self) -> None:
+        """Vision: anticipate needs — list answers close with one offer."""
+        captured: dict[str, Any] = {}
+
+        async def fake_completion(payload: dict[str, Any]) -> str:
+            captured["sys"] = payload["systemInstruction"]["parts"][0]["text"]
+            return "> *Daftar Tugas Aktif*\n\n1. *Absen Senin*"
+
+        await run_fastpath("ada tugas apa?", "tasks", "Gilang", fake_completion)
+        assert "proaktif" in captured["sys"].lower()
