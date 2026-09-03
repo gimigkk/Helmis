@@ -6,12 +6,10 @@ for downloaded Google Docs/Sheets exports, temporary file conversions, and web c
 Guarantees zero database pollution of the permanent Document Vault.
 """
 
-import fcntl
 import hashlib
 import json
 import logging
 import os
-import shutil
 import time
 import uuid
 from datetime import datetime

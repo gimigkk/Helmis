@@ -44,6 +44,7 @@ services:
       WHATSAPP_HOOK_URL: http://agent:${AGENT_WEBHOOK_PORT:-${HERMES_WEBHOOK_PORT:-8644}}/webhooks/waha
       WHATSAPP_HOOK_EVENTS: "message"
       TZ: ${TZ}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET:-}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/ping"]
       interval: 10s
@@ -79,6 +80,8 @@ services:
       MCP_WAHA_PORT: ${MCP_WAHA_PORT:-8765}
       AGENT_WEBHOOK_PORT: ${AGENT_WEBHOOK_PORT:-${HERMES_WEBHOOK_PORT:-8644}}
       HERMES_WEBHOOK_PORT: ${AGENT_WEBHOOK_PORT:-${HERMES_WEBHOOK_PORT:-8644}}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET:-}
+      SCHEDULER_WEBHOOK_SECRET: ${SCHEDULER_WEBHOOK_SECRET:-}
       GEMINI_KEY_1: ${GEMINI_KEY_1:-}
       GEMINI_KEY_2: ${GEMINI_KEY_2:-}
       GEMINI_KEY_3: ${GEMINI_KEY_3:-}
@@ -90,7 +93,7 @@ services:
       waha:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${AGENT_WEBHOOK_PORT:-${HERMES_WEBHOOK_PORT:-8644}}/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${AGENT_WEBHOOK_PORT:-${HERMES_WEBHOOK_PORT:-8644}}/ready')"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -111,6 +114,7 @@ services:
     environment:
       AGENT_WEBHOOK_URL: http://agent:${AGENT_WEBHOOK_PORT:-${HERMES_WEBHOOK_PORT:-8644}}/webhooks/scheduler
       HERMES_WEBHOOK_URL: http://agent:${AGENT_WEBHOOK_PORT:-${HERMES_WEBHOOK_PORT:-8644}}/webhooks/scheduler
+      SCHEDULER_WEBHOOK_SECRET: ${SCHEDULER_WEBHOOK_SECRET:-}
       TZ: ${TZ}
     depends_on:
       - agent

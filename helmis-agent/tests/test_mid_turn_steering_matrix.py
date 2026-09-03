@@ -15,8 +15,9 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from src.agent.loop import drain_and_inject_mid_turn_mailbox, run_agentic_react_loop
-from src.memory import semantic as semantic_memory, store as memory
+from src.memory import store as memory
 from src.whatsapp.client import WahaClient
 from src.whatsapp.queue import ChatQueueManager, ChatQueueWorker, IncomingMessageEvent
 
@@ -201,6 +202,7 @@ async def test_hard_safety_ceiling_against_infinite_injection_loops(
 ) -> None:
     """Edge Case 16: Constant spam injection terminates at ABSOLUTE_MAX_STEPS (18)."""
     monkeypatch.setattr("src.agent.cascade.GEMINI_KEYS", ["test_key_12345"])
+    monkeypatch.setenv("HELMIS_AUTHORIZED_SENDERS", "Spammer")
 
     mailbox: asyncio.Queue[IncomingMessageEvent] = asyncio.Queue()
     mock_client = AsyncMock(spec=WahaClient)
@@ -334,7 +336,7 @@ async def test_concurrent_brain_memory_mutations_without_race_conditions() -> No
 
     # Clean up test tasks
     for t in concurrent_tasks:
-        memory.delete_task(t["title"])
+        memory.bulk_delete_tasks(task_id=str(t["task_id"]), status="all")
 
 
 

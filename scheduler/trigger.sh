@@ -12,6 +12,7 @@
 #
 # Environment variables (set in docker-compose.yml):
 #   HERMES_WEBHOOK_URL — full URL to Hermes's scheduler webhook endpoint
+#   SCHEDULER_WEBHOOK_SECRET — optional shared secret for scheduler ingress
 # =============================================================================
 
 TARGET_URL="${AGENT_WEBHOOK_URL:-${HELMIS_WEBHOOK_URL:-${HERMES_WEBHOOK_URL}}}"
@@ -24,16 +25,19 @@ fi
 # Send the trigger with a timestamp so Hermes knows when the check ran
 PAYLOAD=$(printf '{"event":"scheduler.tick","timestamp":"%s","source":"cron"}' "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
 
-RESPONSE=$(curl \
+set -- \
   --silent \
   --show-error \
   --max-time 10 \
   --write-out "%{http_code}" \
   --output /dev/null \
   --request POST \
-  --header "Content-Type: application/json" \
-  --data "${PAYLOAD}" \
-  "${TARGET_URL}" 2>&1)
+  --header "Content-Type: application/json"
+if [ -n "${SCHEDULER_WEBHOOK_SECRET:-}" ]; then
+  set -- "$@" --header "X-Scheduler-Webhook-Secret: ${SCHEDULER_WEBHOOK_SECRET}"
+fi
+set -- "$@" --data "${PAYLOAD}" "${TARGET_URL}"
+RESPONSE=$(curl "$@" 2>&1)
 
 if [ "${RESPONSE}" = "200" ] || [ "${RESPONSE}" = "202" ]; then
   echo "[trigger] Proactive check triggered successfully (HTTP ${RESPONSE})"

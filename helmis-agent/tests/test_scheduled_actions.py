@@ -3,33 +3,25 @@ test_scheduled_actions.py — Unit Tests for Polymorphic Scheduled Bot Actions,
 ToolJobExecutor, AgentLoopJobExecutor, Expiration, and Human Reminder Isolation.
 """
 
-from collections.abc import Generator
 from datetime import datetime
-from typing import Any
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from src.agent.proactive import handle_proactive_scheduler_tick
-from src.memory.store import add_task, list_tasks, load_memory, save_memory, update_task
+from src.memory.store import add_person, add_task, list_tasks, load_memory
 from src.whatsapp.client import WahaClient
 
 TZ = ZoneInfo("Asia/Jakarta")
 
 
 @pytest.fixture(autouse=True)
-def clean_memory_fixture() -> Generator[None, None, None]:
-    """Ensure clean memory for each test run."""
-    empty_mem: dict[str, Any] = {
-        "tasks": [],
-        "activity_log": [],
-        "notes": [],
-        "people": {},
-    }
-    save_memory(empty_mem)
-    yield
-    save_memory(empty_mem)
+def people_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Recipient resolution comes from directory data."""
+    monkeypatch.delenv("TRIO_GROUP_JID", raising=False)
+    add_person("Gilang", phone="+628123456789")
+    add_person("Bunga", phone="+628987654321")
 
 
 @pytest.mark.asyncio
@@ -228,3 +220,88 @@ async def test_near_horizon_timer_direct_execution() -> None:
     mem = load_memory()
     assert mem["tasks"][0]["status"] == "completed"
     assert mem["tasks"][0]["execution_status"] == "dispatched"
+
+
+@pytest.mark.asyncio
+async def test_unknown_job_kind_quarantined_not_reinterpreted() -> None:
+    """Malformed/unknown scheduled jobs are quarantined, never fall through to generic send."""
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(
+        title="Mystery job",
+        due="2026-08-27 15:00 WIB",
+        assignee="Helmis",
+        task_type="scheduled_action",
+        job={"kind": "shell", "command": "rm -rf /"},
+    )
+
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 27, 15, 0, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+
+    assert not mock_client.send_message.called
+    task = load_memory()["tasks"][0]
+    assert task["status"] == "quarantined"
+    assert "Unknown scheduled job kind 'shell'" in task["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_undeclared_tool_job_quarantined() -> None:
+    """Tool jobs referencing unregistered/undeclared tools are quarantined."""
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(
+        title="Bad tool job",
+        due="2026-08-27 15:00 WIB",
+        assignee="Helmis",
+        task_type="scheduled_action",
+        job={"kind": "tool", "tool_name": "drop_database", "tool_args": {}},
+    )
+
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 27, 15, 0, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+
+    assert not mock_client.send_message.called
+    task = load_memory()["tasks"][0]
+    assert task["status"] == "quarantined"
+    assert "drop_database" in task["error_message"]
+
+
+@pytest.mark.asyncio
+async def test_message_job_without_text_quarantined() -> None:
+    """'message' jobs must carry text explicitly; no title-sniffing reinterpretation."""
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(
+        title="Ambiguous job",
+        due="2026-08-27 15:00 WIB",
+        assignee="Helmis",
+        task_type="scheduled_action",
+        job={"kind": "message"},
+    )
+
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 27, 15, 0, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+
+    assert not mock_client.send_message.called
+    assert load_memory()["tasks"][0]["status"] == "quarantined"
+
+
+@pytest.mark.asyncio
+async def test_message_job_explicit_text_dispatches() -> None:
+    """'message' jobs with explicit text dispatch through the normal path."""
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(
+        title="Explicit message",
+        due="2026-08-27 15:00 WIB",
+        assignee="Helmis",
+        task_type="scheduled_action",
+        job={"kind": "message", "text": "halo dunia"},
+    )
+
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 27, 15, 0, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+
+    call_args = mock_client.send_message.call_args[1]
+    assert "halo dunia" in call_args["text"]
+    assert load_memory()["tasks"][0]["status"] == "completed"

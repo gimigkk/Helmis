@@ -3,23 +3,9 @@ test_agent.py — Tests for tool dispatching and tool schema declarations.
 """
 
 import os
-import tempfile
-from collections.abc import Generator
-
-import pytest
 
 import src.agent as agent
 import src.memory as memory
-
-
-@pytest.fixture(autouse=True)
-def temp_memory_file(monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, None]:
-    """Use temporary file for memory testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_file = os.path.join(tmpdir, "test_memory.json")
-        monkeypatch.setattr(memory, "MEMORY_FILE", tmp_file)
-        monkeypatch.setattr(memory, "DATA_DIR", tmpdir)
-        yield tmp_file
 
 
 def test_gemini_tools_schema_valid() -> None:
@@ -344,7 +330,7 @@ def test_verify_action_fidelity_enforces_not_found_message() -> None:
         }
     ]
     corrected = agent.verify_action_fidelity("Sip, sudah saya hapus.", tools_failed)
-    assert "↳ `delete_memory`" in corrected
+    assert "↳ `delete_memory`" not in corrected  # chips are opt-in (default off)
     assert "Tidak ditemukan memori yang cocok di database." in corrected
 
 
@@ -357,7 +343,7 @@ def test_verify_action_fidelity_passes_successful_turns() -> None:
         }
     ]
     verified = agent.verify_action_fidelity("Sip, sudah saya hapus ya.", tools_success)
-    assert verified == "Sip, sudah saya hapus ya.\n\n↳ `delete_memory`"
+    assert verified == "Sip, sudah saya hapus ya."  # chips opt-in: default off
 
 
 def test_format_tool_chips_deduplicates_and_orders() -> None:
@@ -505,7 +491,6 @@ async def test_multistep_react_loop_with_status_update() -> None:
             # Assert final response was correctly returned
             assert final_reply is not None
             assert "Tagihan listrik berhasil dihitung" in final_reply
-
 
 
 

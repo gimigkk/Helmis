@@ -3,7 +3,6 @@ test_queue.py — Tests for Per-Chat FIFO Queue and Burst Debouncing.
 """
 
 import asyncio
-
 from typing import Any
 
 import pytest
@@ -212,9 +211,10 @@ async def test_active_turn_mailbox_routes_messages_mid_turn() -> None:
 @pytest.mark.asyncio
 async def test_drain_and_inject_mid_turn_mailbox() -> None:
     """Verify drain_and_inject_mid_turn_mailbox injects steering text into conversation contents."""
+    from unittest.mock import AsyncMock
+
     from src.agent.loop import drain_and_inject_mid_turn_mailbox
     from src.whatsapp.client import WahaClient
-    from unittest.mock import AsyncMock
 
     mock_client = AsyncMock(spec=WahaClient)
     mailbox: asyncio.Queue[IncomingMessageEvent] = asyncio.Queue()

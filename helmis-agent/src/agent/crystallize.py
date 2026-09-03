@@ -11,7 +11,6 @@ Zero-Latency: Runs as a fire-and-forget background task after the response
 has already been returned to the user via WhatsApp.
 """
 
-import asyncio
 import json
 import logging
 import re
@@ -21,7 +20,6 @@ import httpx
 
 from ..memory.store import log_activity
 from .cascade import GEMINI_KEYS, get_next_gemini_key
-
 
 log = logging.getLogger("helmis-crystallize")
 

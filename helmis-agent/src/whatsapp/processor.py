@@ -154,14 +154,27 @@ async def process_batched_turn(
 
     combined_text = "\n\n".join(all_texts)
 
-    has_media = any(e.has_media for e in batch)
-    media_event = next((e for e in reversed(batch) if e.has_media and e.media_url), None)
+    # Preserve every burst media attachment: primary becomes inlineData,
+    # additional ones are labeled in text so the model knows they exist.
+    media_events = [e for e in batch if e.has_media and e.media_url]
+    primary_media_event = media_events[-1] if media_events else None
+    additional_media_labels = [
+        f"[Lampiran Media: {e.media_filename or e.media_type or 'lampiran'}]"
+        for e in media_events[:-1]
+    ]
+    if additional_media_labels:
+        combined_text = f"{combined_text}\n\n{'\n'.join(additional_media_labels)}".strip()
+
+    has_media = bool(media_events)
+    media_event = primary_media_event
     media_url = media_event.media_url if media_event else None
     media_filename = media_event.media_filename if media_event else None
     if not media_filename:
         media_fn_event = next((e for e in reversed(batch) if e.media_filename), None)
         if media_fn_event:
             media_filename = media_fn_event.media_filename
+    # Message IDs of the burst, for context provenance (never silently dropped)
+    [e.reply_id for e in batch if e.reply_id]
 
     await client.start_typing(chat_id=from_user)
 

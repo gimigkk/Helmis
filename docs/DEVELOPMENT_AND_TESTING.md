@@ -1,6 +1,6 @@
 # Development & Testing Guide
 
-This guide covers local environment setup, architecture principles, writing tests, and running the 15 pytest test suites (116 tests).
+This guide covers local environment setup, architecture principles, writing tests, and running the pytest test suites.
 
 ---
 
@@ -45,7 +45,7 @@ pytest --cov=src tests/
 
 ---
 
-## 3. Test Suite Breakdown (21 Modules, 179 Tests)
+## 3. Test Suite Breakdown
 
 The test suite consists of 21 comprehensive test modules covering edge cases, adversarial inputs, data integrity, and multimodal integrations:
 
@@ -60,7 +60,7 @@ The test suite consists of 21 comprehensive test modules covering edge cases, ad
 | `test_google_reader.py` | 13 | Google Workspace reader (Docs, Sheets, Slides, Drive), published sheets (`pubhtml`) multi-tab parser, SSRF protection & sandbox caching |
 | `test_guardrails_fidelity.py` | 12 | Two-step anti-hallucination guardrail, mutation claim detection, WhatsApp LaTeX to Unicode math conversion, extraction_mode badges, turn interception |
 | `test_history.py` | 3 | Message deduplication, multi-turn history formatting |
-| `test_memory.py` | 9 | Task creation, updating, completion, note storage, temporal context isolation |
+| `test_memory.py` | 14 | Task creation, updating, completion, note storage, temporal context isolation |
 | `test_mid_turn_steering_matrix.py` | 9 | Dynamic mid-turn user steering, binary media synchronization & multimodal inlineData |
 | `test_pdf_tools.py` | 15 | PDF merge (zero-margin/A4), split, render image (PNG/JPG), images to PDF, PDF ⇄ DOCX, compression |
 | `test_proactive_engine.py` | 6 | Scheduler evaluations, 2-stage lead-time buffers, nag loops |
@@ -70,6 +70,11 @@ The test suite consists of 21 comprehensive test modules covering edge cases, ad
 | `test_search.py` | 3 | DuckDuckGo and Tavily web search integration |
 | `test_semantic_memory.py` | 4 | Gemini vector embeddings, cosine search, temporal supersession |
 | `test_skills.py` | 6 | Dynamic on-demand skill discovery, playbook loading, prompt segregation |
+| `test_skill_proposals.py` | 1 | Generated skill proposal isolation |
+| `test_task_repository.py` | 3 | SQLite task, occurrence, lease, and outbox contracts |
+| `test_migration.py` | 1 | Legacy JSON migration and source archiving |
+| `test_production_contracts.py` | 4 | Sanitized production regression invariants |
+| `test_webhook_security.py` | 2 | Webhook authentication and status-event isolation |
 | `test_vault.py` | 21 | Document Vault catalog, categories, link bookmark disambiguation, PDF text layer, force_ocr Vision mode & Office extractors (.docx, .pptx, .xlsx) |
 | `test_vision_ocr.py` | 6 | Multimodal Gemini Vision OCR for raster scan PDFs, picture slides & image caching |
 

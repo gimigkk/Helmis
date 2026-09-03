@@ -15,7 +15,6 @@ from src.agent.guardrails import (
 )
 from src.agent.loop import run_agentic_react_loop
 
-
 # ---------------------------------------------------------------------------
 # 1. Detection of Unexecuted Mutation Claims
 # ---------------------------------------------------------------------------
@@ -85,7 +84,7 @@ def test_verify_action_fidelity_passes_verified_mutation():
     tools = [{"name": "complete_task", "result": {"status": "success"}}]
     res = verify_action_fidelity(text, tools)
     assert "Sip, tugas Nge-chat anak murid" in res
-    assert "↳ `complete_task`" in res
+    assert "↳" not in res  # chips are opt-in (default off)
 
 
 def test_strip_hallucinated_tool_chips():
@@ -129,7 +128,7 @@ async def test_loop_intercepts_unexecuted_mutation_claim():
                         {
                             "functionCall": {
                                 "name": "complete_task",
-                                "args": {"task_id_or_title": "nge-chat murid"},
+                                "args": {"title": "nge-chat murid"},
                             }
                         }
                     ]
@@ -168,8 +167,8 @@ async def test_loop_intercepts_unexecuted_mutation_claim():
 
     with patch("httpx.AsyncClient.post", side_effect=mock_post), \
          patch("src.agent.loop.get_next_gemini_key", return_value="dummy_key_123"), \
-         patch("src.tools.tasks.complete_task", return_value={"status": "success", "task_id": "1", "title": "nge-chat murid"}):
-        
+         patch("src.tools.tasks.complete_task_result", return_value={"status": "applied", "task": {"task_id": "1", "title": "nge-chat murid"}}):
+
         final_reply = await run_agentic_react_loop(
             client=mock_client,
             chat_id="120363411261097957@g.us",
@@ -182,7 +181,7 @@ async def test_loop_intercepts_unexecuted_mutation_claim():
         assert call_count >= 2
         assert final_reply is not None
         assert "berhasil ditandai selesai" in final_reply
-        assert "complete_task" in final_reply
+        assert "complete_task" not in final_reply  # chips are opt-in (default off)
 
 
 def test_sanitize_latex_for_whatsapp():

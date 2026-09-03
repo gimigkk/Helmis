@@ -1,8 +1,10 @@
 """
-memory.py — Persistent JSON store for Helmis memory (tasks, schedule, people, notes).
+memory.py — Persistent store for Helmis memory.
 
-Persists data to /app/data/helmis_memory.json so it survives restarts.
-Provides clean Python methods to query and update memory.
+Tasks live in SQLite (WAL) via :mod:`src.memory.task_repository`. People,
+notes, and the activity log remain JSON-backed in the ``helmis_memory.json``
+sidecar until the second bounded migration. Traces stay append-only JSONL
+and are not part of this module.
 """
 
 import json
@@ -10,35 +12,68 @@ import logging
 import os
 import re
 import threading
+import unicodedata
+import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
+from .task_repository import TaskRepository
+
 log = logging.getLogger("helmis-memory")
 
 DATA_DIR = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else "./data")
-MEMORY_FILE = os.path.join(DATA_DIR, "helmis_memory.json")
 TZ = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
 
 _memory_lock = threading.RLock()
+TASK_SCHEMA_VERSION = 1
+
+_repository: TaskRepository | None = None
+_repository_lock = threading.Lock()
+
+
+def _resolve_data_dir() -> str:
+    return os.environ.get("DATA_DIR", DATA_DIR)
+
+
+def _resolve_db_path() -> str:
+    override = os.environ.get("HELMIS_DB_PATH")
+    if override:
+        return str(override)
+    return os.path.join(_resolve_data_dir(), "helmis.db")
+
+
+def get_repository() -> TaskRepository:
+    """Return the process-wide task repository."""
+    global _repository
+    db_path = _resolve_db_path()
+    with _repository_lock:
+        if _repository is None or _repository.database_path != db_path:
+            _repository = TaskRepository(db_path)
+    return _repository
+
+
+def identity_key(value: str) -> str:
+    """Return a stable, generic semantic key for a task identity."""
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    normalized = re.sub(r"[^\w\s]+", " ", normalized, flags=re.UNICODE)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _new_task_id() -> str:
+    return str(uuid.uuid4())
+
+
+def _bump_task_version(task: dict[str, Any]) -> None:
+    """Advance the optimistic-concurrency version after a mutation."""
+    task["version"] = max(1, int(task.get("version") or 1)) + 1
+    task["updated_at"] = get_current_time_str()
 
 
 def _get_memory_file() -> str:
-    import sys
-    default_f = globals().get("MEMORY_FILE") or os.path.join(DATA_DIR, "helmis_memory.json")
-    if "src.memory" in sys.modules:
-        pkg = sys.modules["src.memory"]
-        pkg_f = getattr(pkg, "MEMORY_FILE", None)
-        if pkg_f and pkg_f != default_f:
-            return pkg_f
-    if "src.memory.store" in sys.modules:
-        mod = sys.modules["src.memory.store"]
-        mod_f = getattr(mod, "MEMORY_FILE", None)
-        if mod_f and mod_f != default_f:
-            return mod_f
-    if "src.memory" in sys.modules and hasattr(sys.modules["src.memory"], "MEMORY_FILE"):
-        return sys.modules["src.memory"].MEMORY_FILE
-    return default_f
+    """Return the deferred JSON sidecar path from the current data directory."""
+    return os.path.join(_resolve_data_dir(), "helmis_memory.json")
 
 
 def _ensure_data_dir() -> None:
@@ -47,10 +82,9 @@ def _ensure_data_dir() -> None:
 
 
 def load_memory() -> dict[str, Any]:
-    """Load persistent memory from disk with thread-safety."""
+    """Load memory: tasks from SQLite, people/notes/activity from JSON."""
     _ensure_data_dir()
     default_memory: dict[str, Any] = {
-        "tasks": [],
         "schedules": [],
         "people": {
             "Gilang": {
@@ -68,31 +102,25 @@ def load_memory() -> dict[str, Any]:
     }
 
     mem_path = _get_memory_file()
-    with _memory_lock:
-        if not os.path.exists(mem_path):
-            # Save default memory atomically
-            _save_memory_unlocked(default_memory)
-            return default_memory
-
+    json_data: dict[str, Any] = {}
+    if os.path.exists(mem_path):
         try:
             with open(mem_path, encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, dict):
-                    for k, v in default_memory.items():
-                        if k not in data:
-                            data[k] = v
-                    return cast(dict[str, Any], data)
-                return default_memory
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                json_data = loaded
         except Exception as e:
             log.error("Failed to load memory file (%s): %s", mem_path, e)
-            return default_memory
+
+    mem: dict[str, Any] = {**default_memory, **json_data}
+    mem["tasks"] = get_repository().list_tasks()
+    return cast(dict[str, Any], mem)
 
 
 def save_memory(data: dict[str, Any]) -> None:
-    """Save persistent memory atomically to disk."""
-    _ensure_data_dir()
-    with _memory_lock:
-        _save_memory_unlocked(data)
+    """Persist deferred JSON records; task state is SQLite-only."""
+    json_data = {k: v for k, v in data.items() if k not in ("tasks", "version")}
+    _save_json_records(**json_data)
 
 
 def _save_memory_unlocked(data: dict[str, Any]) -> None:
@@ -141,13 +169,45 @@ def get_current_time_str() -> str:
     return time_str
 
 
+def _load_json_records(key: str, default: Any) -> Any:
+    """Read one non-task record collection from the JSON sidecar file."""
+    mem_path = _get_memory_file()
+    if not os.path.exists(mem_path):
+        return default
+    try:
+        with open(mem_path, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data.get(key, default)
+    except Exception as e:
+        log.error("Failed to read %s from memory file (%s): %s", key, mem_path, e)
+    return default
+
+
+def _save_json_records(**updates: Any) -> None:
+    """Merge non-task record collections into the JSON sidecar file."""
+    mem_path = _get_memory_file()
+    with _memory_lock:
+        existing: dict[str, Any] = {}
+        if os.path.exists(mem_path):
+            try:
+                with open(mem_path, encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    existing = loaded
+            except Exception as e:
+                log.error("Failed to read memory file for merge (%s): %s", mem_path, e)
+        existing.update(updates)
+        _save_memory_unlocked(existing)
+
+
 def get_memory_context_summary() -> str:
     """Format temporal context for the agent prompt without leaking static database dumps."""
-    mem = load_memory()
+    activity_log = cast(
+        list[dict[str, Any]], _load_json_records("activity_log", [])
+    )
     now_str, period_info = get_time_of_day_info()
 
-    # Activity log of recent messages/reminders sent by Helmis
-    activity_log = mem.get("activity_log", [])
     recent_activities = activity_log[-4:]
     activity_summary = (
         "\n".join([f"- [{a.get('time', '')}] {a.get('summary', '')}" for a in recent_activities])
@@ -167,15 +227,15 @@ def get_memory_context_summary() -> str:
 
 def log_activity(summary: str) -> None:
     """Log an action or sent reminder into memory activity log."""
-    mem = load_memory()
     entry = {
         "time": get_current_time_str(),
         "summary": summary.strip(),
     }
-    log_list = mem.setdefault("activity_log", [])
+    log_list = cast(
+        list[dict[str, Any]], _load_json_records("activity_log", [])
+    )
     log_list.append(entry)
-    mem["activity_log"] = log_list[-50:]
-    save_memory(mem)
+    _save_json_records(activity_log=log_list[-50:])
 
 
 def add_task(
@@ -186,8 +246,19 @@ def add_task(
     lead_time_minutes: int = 0,
     task_type: str = "reminder",
     job: dict[str, Any] | None = None,
+    *,
+    identity_key_value: str | None = None,
+    recurrence: dict[str, Any] | None = None,
+    recurrence_policy: dict[str, Any] | None = None,
+    nag_interval_minutes: int = 10,
+    max_nags: int = 6,
+    nag_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Add a new task or scheduled action to memory (or update existing if same title and pending)."""
+    """Add a task, updating only an identical pending semantic key.
+
+    ``identity_key_value`` is optional for backwards compatibility and allows
+    callers to distinguish two tasks with the same display title.
+    """
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")
     clean_title = title.strip()
@@ -196,61 +267,121 @@ def add_task(
     clean_priority = priority.strip().lower() if priority else "normal"
     if clean_priority not in ("urgent", "normal", "low"):
         clean_priority = "normal"
-    clean_lead = lead_time_minutes or 0
+    clean_lead = max(0, int(lead_time_minutes or 0))
+    clean_identity = identity_key(identity_key_value or clean_title)
+    clean_recurrence = (
+        recurrence if isinstance(recurrence, dict)
+        else recurrence_policy if isinstance(recurrence_policy, dict)
+        else None
+    )
+    supplied_nag = nag_policy if isinstance(nag_policy, dict) else {}
+    try:
+        clean_nag_interval = max(
+            1,
+            int(supplied_nag.get("interval_minutes", nag_interval_minutes or 10)),
+        )
+        clean_max_nags = max(0, int(supplied_nag.get("max_nags", max_nags)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Nag interval and max_nags must be numeric") from exc
 
     clean_task_type = str(task_type).strip().lower() if task_type else "reminder"
     if clean_assignee.lower() == "helmis" or job or clean_task_type in ("scheduled_action", "action", "bot"):
         clean_task_type = "scheduled_action"
         clean_assignee = "Helmis"
-        clean_lead = 0  # Bot actions do not need human preparation lead-time buffers
+        clean_lead = 0
 
-    mem = load_memory()
-    tasks = mem.setdefault("tasks", [])
-
-    # Check if duplicate pending task exists with same title
-    for t in tasks:
-        if t.get("title", "").lower() == clean_title.lower() and t.get("status") == "pending":
-            t["due"] = clean_due
-            t["assignee"] = clean_assignee
-            t["priority"] = clean_priority
-            t["lead_time_minutes"] = clean_lead
-            t["task_type"] = clean_task_type
-            if job is not None:
-                t["job"] = job
-            t["updated_at"] = get_current_time_str()
-            save_memory(mem)
-            return cast(dict[str, Any], t)
-
-    new_task: dict[str, Any] = {
+    repo = get_repository()
+    now_str = get_current_time_str()
+    payload: dict[str, Any] = {
         "title": clean_title,
+        "identity_key": clean_identity,
         "due": clean_due,
         "assignee": clean_assignee,
         "priority": clean_priority,
         "lead_time_minutes": clean_lead,
         "task_type": clean_task_type,
-        "status": "pending",
-        "kickoff_reminded": False,
-        "due_reminded": False,
-        "nudge_count": 0,
-        "last_nudged_at": None,
-        "nudge_stopped": False,
-        "retry_count": 0,
-        "max_retries": 3,
-        "execution_status": "pending",
-        "created_at": get_current_time_str(),
-        "updated_at": None,
-        "completed_at": None,
+        "recurrence": clean_recurrence,
+        "recurrence_policy": clean_recurrence,
+        "nag_interval_minutes": clean_nag_interval,
+        "max_nags": clean_max_nags,
+        "nag_policy": {
+            **{k: v for k, v in supplied_nag.items() if k not in ("interval_minutes", "max_nags")},
+            "interval_minutes": clean_nag_interval,
+            "max_nags": clean_max_nags,
+        },
+        "nag_enabled": clean_priority == "urgent" or nag_policy is not None,
     }
-    if job:
-        new_task["job"] = job
+    if job is not None:
+        payload["job"] = job
 
-    tasks.append(new_task)
-    save_memory(mem)
-    return new_task
+    def matcher(candidate: dict[str, Any]) -> bool:
+        return identity_key(str(candidate.get("identity_key") or candidate.get("title", ""))) == clean_identity
+
+    def new_record() -> dict[str, Any]:
+        return {
+            **payload,
+            "task_id": _new_task_id(),
+            "status": "pending",
+            "version": TASK_SCHEMA_VERSION,
+            "schema_version": TASK_SCHEMA_VERSION,
+            "kickoff_reminded": False,
+            "due_reminded": False,
+            "nudge_count": 0,
+            "last_nudged_at": None,
+            "nudge_stopped": False,
+            "retry_count": 0,
+            "max_retries": 3,
+            "execution_status": "pending",
+            "created_at": now_str,
+            "updated_at": None,
+            "completed_at": None,
+        }
+
+    return repo.upsert_pending_identity(payload, matcher, new_record)
+
+
+def _matching_tasks(
+    tasks: list[dict[str, Any]],
+    *,
+    title: str = "",
+    task_id: str | None = None,
+    identity_key_value: str | None = None,
+    include_completed: bool = True,
+) -> list[dict[str, Any]]:
+    """Resolve task candidates without silently guessing across fuzzy matches."""
+    eligible = [
+        task
+        for task in tasks
+        if include_completed or str(task.get("status", "")).lower() != "completed"
+    ]
+    # An ID is an exact selector and does not require a title or identity key.
+    if task_id:
+        return [task for task in eligible if str(task.get("task_id")) == task_id]
+
+    selector = identity_key_value or title
+    if not selector or not selector.strip():
+        return []
+    query = identity_key(selector)
+
+    if identity_key_value:
+        return [
+            task
+            for task in eligible
+            if identity_key(str(task.get("identity_key") or task.get("title", ""))) == query
+        ]
+
+    exact = [task for task in eligible if identity_key(str(task.get("title", ""))) == query]
+    if exact:
+        return exact
+    return [
+        task
+        for task in eligible
+        if query in identity_key(str(task.get("title", "")))
+    ]
 
 
 def update_task(
-    title: str,
+    title: str = "",
     new_title: str | None = None,
     new_due: str | None = None,
     new_assignee: str | None = None,
@@ -259,24 +390,66 @@ def update_task(
     new_lead_time_minutes: int | None = None,
     new_task_type: str | None = None,
     new_job: dict[str, Any] | None = None,
+    *,
+    task_id: str | None = None,
+    expected_version: int | None = None,
+    identity_key_value: str | None = None,
+    recurrence: dict[str, Any] | None = None,
+    nag_interval_minutes: int | None = None,
+    max_nags: int | None = None,
+    nag_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Update existing task fields by title (exact match first, then substring)."""
-    mem = load_memory()
-    tasks = mem.get("tasks", [])
-    query = title.lower().strip()
+    """Update one task only when the selector resolves unambiguously."""
+    repo = get_repository()
+    result = repo.mutate_one(
+        lambda tasks: _matching_tasks(
+            tasks, title=title, task_id=task_id, identity_key_value=identity_key_value
+        ),
+        expected_version,
+        _apply_task_update(
+            new_title=new_title,
+            identity_key_value=identity_key_value,
+            new_due=new_due,
+            new_assignee=new_assignee,
+            new_status=new_status,
+            new_priority=new_priority,
+            new_lead_time_minutes=new_lead_time_minutes,
+            new_task_type=new_task_type,
+            new_job=new_job,
+            recurrence=recurrence,
+            nag_interval_minutes=nag_interval_minutes,
+            max_nags=max_nags,
+            nag_policy=nag_policy,
+        ),
+    )
+    return result.get("task") if result.get("outcome") == "committed" else None
 
-    # Pass 1: Exact match
-    target_task = next((t for t in tasks if t.get("title", "").lower().strip() == query), None)
-    # Pass 2: Substring match
-    if not target_task:
-        target_task = next((t for t in tasks if query in t.get("title", "").lower()), None)
 
-    if target_task:
+def _apply_task_update(
+    *,
+    new_title: str | None = None,
+    identity_key_value: str | None = None,
+    new_due: str | None = None,
+    new_assignee: str | None = None,
+    new_status: str | None = None,
+    new_priority: str | None = None,
+    new_lead_time_minutes: int | None = None,
+    new_task_type: str | None = None,
+    new_job: dict[str, Any] | None = None,
+    recurrence: dict[str, Any] | None = None,
+    nag_interval_minutes: int | None = None,
+    max_nags: int | None = None,
+    nag_policy: dict[str, Any] | None = None,
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Build a mutator that applies field updates to one task record."""
+
+    def mutator(target_task: dict[str, Any]) -> dict[str, Any]:
         if new_title:
             target_task["title"] = new_title.strip()
+            if not identity_key_value:
+                target_task["identity_key"] = identity_key(target_task["title"])
         if new_due:
             target_task["due"] = new_due.strip()
-            # Reset reminder lifecycle on reschedule / snooze
             target_task["kickoff_reminded"] = False
             target_task["due_reminded"] = False
             target_task["reminded"] = False
@@ -292,19 +465,194 @@ def update_task(
             if new_status.strip().lower() == "completed" and not target_task.get("completed_at"):
                 target_task["completed_at"] = get_current_time_str()
         if new_priority:
-            p = new_priority.strip().lower()
-            if p in ("urgent", "normal", "low"):
-                target_task["priority"] = p
+            target_task["priority"] = new_priority.strip().lower()
+            target_task["nag_enabled"] = target_task["priority"] == "urgent"
         if new_lead_time_minutes is not None:
-            target_task["lead_time_minutes"] = new_lead_time_minutes
+            target_task["lead_time_minutes"] = max(0, new_lead_time_minutes)
         if new_task_type:
             target_task["task_type"] = new_task_type.strip().lower()
         if new_job is not None:
             target_task["job"] = new_job
+        if recurrence is not None:
+            target_task["recurrence"] = recurrence
+            target_task["recurrence_policy"] = recurrence
+        if nag_interval_minutes is not None:
+            target_task["nag_interval_minutes"] = max(1, nag_interval_minutes)
+        if max_nags is not None:
+            target_task["max_nags"] = max(0, max_nags)
+        if nag_policy is not None:
+            target_task["nag_policy"] = dict(nag_policy)
         target_task["updated_at"] = get_current_time_str()
-        save_memory(mem)
-        return cast(dict[str, Any], target_task)
-    return None
+        return target_task
+
+    return mutator
+
+
+def update_task_result(**kwargs: Any) -> dict[str, Any]:
+    """Return a lossless, model-facing result for a single task mutation."""
+    title = str(kwargs.get("title") or "")
+    task_id = str(kwargs.get("task_id") or "").strip() or None
+    identity_value = kwargs.get("identity_key_value")
+    identity_value = str(identity_value).strip() if identity_value else None
+    if not task_id and not title.strip() and not identity_value:
+        return {
+            "status": "error",
+            "outcome": "failed",
+            "error": "A non-empty task selector is required.",
+        }
+
+    new_priority = kwargs.get("new_priority")
+    if new_priority is not None and str(new_priority).strip().lower() not in ("urgent", "normal", "low"):
+        return {
+            "status": "error",
+            "outcome": "failed",
+            "error": "Priority must be urgent, normal, or low.",
+        }
+
+    expected_version = kwargs.get("expected_version")
+    expected_version = int(expected_version) if expected_version is not None else None
+
+    result = get_repository().mutate_one(
+        lambda tasks: _matching_tasks(
+            tasks, title=title, task_id=task_id, identity_key_value=identity_value
+        ),
+        expected_version,
+        _apply_task_update(
+            new_title=kwargs.get("new_title"),
+            identity_key_value=identity_value,
+            new_due=kwargs.get("new_due"),
+            new_assignee=kwargs.get("new_assignee"),
+            new_status=kwargs.get("new_status"),
+            new_priority=new_priority,
+            new_lead_time_minutes=kwargs.get("new_lead_time_minutes"),
+            new_task_type=kwargs.get("new_task_type"),
+            new_job=kwargs.get("new_job") if isinstance(kwargs.get("new_job"), dict) else None,
+            recurrence=kwargs.get("recurrence") if isinstance(kwargs.get("recurrence"), dict) else None,
+            nag_interval_minutes=kwargs.get("nag_interval_minutes"),
+            max_nags=kwargs.get("max_nags"),
+            nag_policy=kwargs.get("nag_policy") if isinstance(kwargs.get("nag_policy"), dict) else None,
+        ),
+    )
+    outcome = str(result.get("outcome"))
+    if outcome == "committed":
+        task = cast(dict[str, Any], result.get("task"))
+        return {
+            "status": "applied",
+            "outcome": "committed",
+            "task_id": result.get("task_id"),
+            "affected_ids": result.get("affected_ids"),
+            "before": result.get("before"),
+            "after": task,
+            "task": task,
+        }
+    status = {"not_found": "not_found", "ambiguous": "ambiguous", "conflict": "conflict"}.get(
+        outcome, "failed"
+    )
+    return {"status": status, "outcome": outcome, **result}
+
+
+def bulk_delete_tasks(
+    *,
+    task_id: str | None = None,
+    identity_key_value: str | None = None,
+    title_query: str | None = None,
+    assignee: str | None = None,
+    task_type: str | None = None,
+    status: str = "pending",
+) -> dict[str, Any]:
+    """Delete explicitly scoped tasks and report every affected record."""
+    if not (task_id or identity_key_value or (title_query and title_query.strip())):
+        return {
+            "status": "error",
+            "outcome": "failed",
+            "error": "A non-empty task scope is required.",
+        }
+
+    def resolver(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if task_id:
+            return [task for task in tasks if str(task.get("task_id")) == task_id]
+        query = identity_key(identity_key_value or title_query or "")
+        matches: list[dict[str, Any]] = []
+        for task in tasks:
+            if status and status.lower() != "all" and str(task.get("status", "pending")).lower() != status.lower():
+                continue
+            candidate = identity_key(str(task.get("identity_key") or task.get("title", "")))
+            # Canonical identities are exact scopes; title queries retain keyword matching.
+            if identity_key_value:
+                if candidate != query:
+                    continue
+            elif query not in candidate:
+                continue
+            if assignee and str(task.get("assignee", "")).casefold() != assignee.casefold():
+                continue
+            if task_type and str(task.get("task_type", "reminder")).casefold() != task_type.casefold():
+                continue
+            matches.append(task)
+        return matches
+
+    result = get_repository().delete_matching(resolver)
+    outcome = str(result.get("outcome"))
+    if outcome == "committed":
+        return {
+            "status": "applied",
+            "outcome": "committed",
+            "deleted_count": result.get("deleted_count", 0),
+            "affected_ids": result.get("affected_ids", []),
+            "deleted": result.get("deleted", []),
+        }
+    return {"status": outcome, "outcome": outcome, **result}
+
+
+def complete_task_result(
+    *,
+    task_id: str | None = None,
+    title: str = "",
+    identity_key_value: str | None = None,
+    expected_version: int | None = None,
+) -> dict[str, Any]:
+    """Complete one task only when the selector is unambiguous and current."""
+    if not task_id and not title.strip() and not (identity_key_value and identity_key_value.strip()):
+        return {
+            "status": "error",
+            "outcome": "failed",
+            "error": "A non-empty task selector is required.",
+        }
+
+    result = get_repository().mutate_one(
+        lambda tasks: _matching_tasks(
+            tasks,
+            title=title,
+            task_id=task_id,
+            identity_key_value=identity_key_value,
+            include_completed=False,
+        ),
+        expected_version,
+        _complete_task_mutator,
+    )
+    outcome = str(result.get("outcome"))
+    if outcome == "committed":
+        task = cast(dict[str, Any], result.get("task"))
+        return {
+            "status": "applied",
+            "outcome": "committed",
+            "task_id": result.get("task_id"),
+            "affected_ids": result.get("affected_ids"),
+            "before": result.get("before"),
+            "after": task,
+            "task": task,
+        }
+    status = {"not_found": "not_found", "ambiguous": "ambiguous", "conflict": "conflict"}.get(
+        outcome, "failed"
+    )
+    return {"status": status, "outcome": outcome, **result}
+
+
+def _complete_task_mutator(task: dict[str, Any]) -> dict[str, Any]:
+    """Mark one task completed inside the repository transaction."""
+    task["status"] = "completed"
+    task["completed_at"] = get_current_time_str()
+    task["updated_at"] = get_current_time_str()
+    return task
 
 
 def parse_due_timestamp(due_str: str) -> float:
@@ -508,8 +856,7 @@ def list_tasks(
     List tasks filtered by status ('pending', 'completed', 'all') and task_type ('all', 'reminder', 'scheduled_action').
     Default sort order is by urgency (earliest deadline first, no-deadline items last).
     """
-    mem = load_memory()
-    tasks = cast(list[dict[str, Any]], mem.get("tasks", []))
+    tasks = get_repository().list_tasks()
     filtered = tasks if status == "all" else [t for t in tasks if t.get("status") == status]
 
     if task_type != "all":
@@ -525,77 +872,41 @@ def list_tasks(
     return filtered
 
 
-def complete_task(title: str) -> dict[str, Any] | None:
-    """Mark a task as completed by title (exact match first, then substring)."""
-    mem = load_memory()
-    tasks = mem.get("tasks", [])
-    query = title.lower().strip()
-
-    # Pass 1: Exact match on active tasks
-    target_task = next(
-        (t for t in tasks if t.get("title", "").lower().strip() == query and t.get("status") != "completed"),
-        None,
-    )
-    # Pass 2: Substring match
-    if not target_task:
-        target_task = next(
-            (t for t in tasks if query in t.get("title", "").lower() and t.get("status") != "completed"),
-            None,
-        )
-
-    if target_task:
-        target_task["status"] = "completed"
-        target_task["completed_at"] = get_current_time_str()
-        save_memory(mem)
-        return cast(dict[str, Any], target_task)
-    return None
+def fetch_tickable_tasks() -> list[dict[str, Any]]:
+    """Return scheduler-eligible tasks directly from the task repository."""
+    return get_repository().fetch_tickable_tasks()
 
 
-def delete_task(title: str) -> bool:
-    """Delete a single task by title (exact match first, then best substring match)."""
-    mem = load_memory()
-    tasks = mem.get("tasks", [])
-    query = title.lower().strip()
+def update_task_fields(
+    task_id: str,
+    fields: dict[str, Any],
+    *,
+    expected_version: int | None = None,
+) -> dict[str, Any]:
+    """Persist scheduler lifecycle fields with exact-ID optimistic concurrency."""
+    return get_repository().update_task_fields(task_id, fields, expected_version=expected_version)
 
-    # Pass 1: Exact match
-    target_idx = next(
-        (i for i, t in enumerate(tasks) if t.get("title", "").lower().strip() == query),
-        None,
-    )
-    # Pass 2: Substring match (delete only the single matched item, never bulk)
-    if target_idx is None:
-        target_idx = next(
-            (i for i, t in enumerate(tasks) if query in t.get("title", "").lower()),
-            None,
-        )
-
-    if target_idx is not None:
-        tasks.pop(target_idx)
-        save_memory(mem)
-        return True
-    return False
 
 
 def add_person(name: str, phone: str = "", role: str = "", notes: str = "") -> dict[str, Any]:
     """Add or update person in directory."""
     if not name or not name.strip():
         raise ValueError("Person name cannot be empty")
-    mem = load_memory()
+    people = cast(dict[str, Any], _load_json_records("people", {}))
     person_data = {
         "phone": phone.strip(),
         "role": role.strip(),
         "notes": notes.strip(),
         "updated_at": get_current_time_str(),
     }
-    mem.setdefault("people", {})[name.strip()] = person_data
-    save_memory(mem)
+    people[name.strip()] = person_data
+    _save_json_records(people=people)
     return {"name": name.strip(), **person_data}
 
 
 def get_person(name: str) -> dict[str, Any] | None:
     """Find a person in directory by name substring."""
-    mem = load_memory()
-    people = mem.get("people", {})
+    people = cast(dict[str, Any], _load_json_records("people", {}))
     query = name.lower().strip()
     for p_name, p_data in people.items():
         if query in p_name.lower():
@@ -612,15 +923,14 @@ def save_note(title: str, content: str) -> dict[str, Any]:
 
     clean_title = title.strip()
     clean_content = content.strip()
-    mem = load_memory()
-    notes = mem.setdefault("notes", [])
+    notes = cast(list[dict[str, Any]], _load_json_records("notes", []))
 
     # Update existing note if same title
     for n in notes:
         if n.get("title", "").lower() == clean_title.lower():
             n["content"] = clean_content
             n["updated_at"] = get_current_time_str()
-            save_memory(mem)
+            _save_json_records(notes=notes)
             return cast(dict[str, Any], n)
 
     note_data = {
@@ -630,7 +940,7 @@ def save_note(title: str, content: str) -> dict[str, Any]:
         "updated_at": get_current_time_str(),
     }
     notes.append(note_data)
-    save_memory(mem)
+    _save_json_records(notes=notes)
     return note_data
 
 
@@ -638,8 +948,7 @@ def get_note(title: str) -> dict[str, Any] | None:
     """Find a note in memory by title keyword or substring match."""
     if not title or not title.strip():
         return None
-    mem = load_memory()
-    notes = mem.get("notes", [])
+    notes = cast(list[dict[str, Any]], _load_json_records("notes", []))
     q = title.lower().strip()
     for n in notes:
         if q in n.get("title", "").lower():
@@ -649,8 +958,7 @@ def get_note(title: str) -> dict[str, Any] | None:
 
 def list_notes() -> list[dict[str, Any]]:
     """List all stored notes with their titles and full contents."""
-    mem = load_memory()
-    return cast(list[dict[str, Any]], mem.get("notes", []))
+    return cast(list[dict[str, Any]], _load_json_records("notes", []))
 
 
 def append_to_note(title: str, addition: str) -> dict[str, Any]:
@@ -662,8 +970,7 @@ def append_to_note(title: str, addition: str) -> dict[str, Any]:
 
     clean_title = title.strip()
     clean_addition = addition.strip()
-    mem = load_memory()
-    notes = mem.setdefault("notes", [])
+    notes = cast(list[dict[str, Any]], _load_json_records("notes", []))
 
     for n in notes:
         if clean_title.lower() in n.get("title", "").lower():
@@ -673,7 +980,7 @@ def append_to_note(title: str, addition: str) -> dict[str, Any]:
             else:
                 n["content"] = clean_addition
             n["updated_at"] = get_current_time_str()
-            save_memory(mem)
+            _save_json_records(notes=notes)
             return cast(dict[str, Any], n)
 
     # Note did not exist, create new
@@ -684,7 +991,7 @@ def append_to_note(title: str, addition: str) -> dict[str, Any]:
         "updated_at": get_current_time_str(),
     }
     notes.append(note_data)
-    save_memory(mem)
+    _save_json_records(notes=notes)
     return note_data
 
 
@@ -692,14 +999,12 @@ def delete_note(title: str) -> dict[str, Any]:
     """Delete a note from memory by title substring."""
     if not title or not title.strip():
         return {"status": "error", "error": "Judul catatan tidak boleh kosong."}
-    mem = load_memory()
-    notes = mem.get("notes", [])
+    notes = cast(list[dict[str, Any]], _load_json_records("notes", []))
     q = title.lower().strip()
     initial_len = len(notes)
     kept = [n for n in notes if q not in n.get("title", "").lower()]
     if len(kept) < initial_len:
-        mem["notes"] = kept
-        save_memory(mem)
+        _save_json_records(notes=kept)
         return {"status": "success", "message": f"Catatan '{title}' berhasil dihapus."}
     return {"status": "not_found", "error": f"Catatan dengan judul '{title}' tidak ditemukan."}
 

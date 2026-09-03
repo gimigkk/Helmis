@@ -550,9 +550,10 @@ async def test_save_and_send_vault_file_tools_use_original_filename() -> None:
 def test_read_vault_file_office_parsers() -> None:
     """Verify read_vault_file extracts clean structured text from DOCX, PPTX, and XLSX."""
     import io
+
     import docx
-    import pptx
     import openpyxl
+    import pptx
 
     # 1. Test DOCX
     doc = docx.Document()
@@ -635,8 +636,8 @@ def test_read_vault_file_office_parsers() -> None:
 @pytest.mark.asyncio
 async def test_save_vault_file_link_auto_routes_to_notes() -> None:
     """Verify saving a URL without binary attachment automatically routes to shared notes."""
-    from src.tools.files import handle_save_vault_file
     from src.memory.store import get_note
+    from src.tools.files import handle_save_vault_file
 
     args = {
         "filename": "Presentasi Algoritma.md",
@@ -657,8 +658,9 @@ async def test_save_vault_file_link_auto_routes_to_notes() -> None:
 async def test_send_vault_file_link_stub_and_note_fallback() -> None:
     """Verify send_vault_file delivers clickable text message when target is a link stub or note."""
     from unittest.mock import AsyncMock
-    from src.tools.files import handle_send_vault_file
+
     from src.memory.store import save_note
+    from src.tools.files import handle_send_vault_file
 
     mock_client = AsyncMock()
 

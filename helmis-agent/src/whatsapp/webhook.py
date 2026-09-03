@@ -3,7 +3,10 @@ webhook.py — Starlette HTTP Webhook Controller for WAHA and Scheduler events.
 """
 
 import asyncio
+import contextlib
+import hmac
 import logging
+import os
 import time
 
 from starlette.applications import Starlette
@@ -11,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from ..agent.delivery import outbox_drain_lifespan
 from ..memory import get_vault_file_by_id, get_vault_file_by_name
 from .client import WahaClient
 from .history import is_duplicate_message
@@ -23,10 +27,30 @@ from .parser import (
     extract_quoted_info,
     resolve_sender_identity,
 )
+from .policy import (
+    decide_group_admission,
+    is_group_chat,
+)
 from .processor import process_batched_turn
 from .queue import ChatQueueManager, IncomingMessageEvent
 
 log = logging.getLogger("helmis-whatsapp-webhook")
+
+# Durable replay window (seconds). Rows older than this are pruned on access.
+_REPLAY_DEDUP_WINDOW_SECONDS = 3600.0
+
+
+def _is_replayed_message(message_id: str) -> bool:
+    """Check the durable processed-messages table; ignores store failures."""
+    try:
+        from ..memory.store import get_repository
+
+        return get_repository().register_seen_message(
+            message_id, window_seconds=_REPLAY_DEDUP_WINDOW_SECONDS
+        )
+    except Exception as e:  # pragma: no cover - degraded mode must not drop messages
+        log.warning("Durable dedup unavailable, allowing message %s: %s", message_id, e)
+        return False
 
 
 def create_webhook_app(client: WahaClient) -> Starlette:
@@ -38,12 +62,29 @@ def create_webhook_app(client: WahaClient) -> Starlette:
     queue_manager = ChatQueueManager(turn_handler=turn_runner, debounce_seconds=1.0)
 
     async def handle_health(request: Request) -> JSONResponse:
+        return JSONResponse({"status": "ok"})
+
+    async def handle_ready(request: Request) -> JSONResponse:
         waha_ok = await client.is_reachable()
         return JSONResponse(
             {"status": "ok", "waha_reachable": waha_ok}, status_code=200 if waha_ok else 503
         )
 
     async def handle_waha_webhook(request: Request) -> JSONResponse:
+        expected_secret = (
+            os.environ.get("SCHEDULER_WEBHOOK_SECRET", "").strip()
+            if request.url.path.endswith("/scheduler")
+            else os.environ.get("WAHA_WEBHOOK_SECRET", "").strip()
+        )
+        if expected_secret:
+            supplied_secret = request.headers.get(
+                "x-scheduler-webhook-secret"
+                if request.url.path.endswith("/scheduler")
+                else "x-waha-webhook-secret",
+                "",
+            )
+            if not hmac.compare_digest(supplied_secret, expected_secret):
+                return JSONResponse({"status": "unauthorized"}, status_code=401)
         try:
             body = await request.json()
         except Exception:
@@ -55,6 +96,8 @@ def create_webhook_app(client: WahaClient) -> Starlette:
         # Handle incoming message events
         if event in ("message", "message.any"):
             from_user = str(payload.get("from", "")).strip()
+            if from_user == "status@broadcast" or str(payload.get("to", "")).strip() == "status@broadcast":
+                return JSONResponse({"status": "ignored_status_event"})
             from_me = payload.get("fromMe", False)
             text = str(payload.get("body") or payload.get("caption") or "").strip()
             has_media = bool(payload.get("hasMedia") or payload.get("media"))
@@ -74,10 +117,13 @@ def create_webhook_app(client: WahaClient) -> Starlette:
             elif isinstance(raw_id, str):
                 reply_id = raw_id
 
-            # Check duplicate event
+            # Check duplicate event (in-memory short window + durable replay window)
             if is_duplicate_message(reply_id):
                 log.debug("Ignoring duplicate message event: %s", reply_id)
                 return JSONResponse({"status": "ignored_duplicate"})
+            if reply_id and _is_replayed_message(reply_id):
+                log.info("Ignoring replayed message (durable dedup): %s", reply_id)
+                return JSONResponse({"status": "ignored_replayed_message"})
 
             # Resolve sender identity
             author = str(
@@ -103,7 +149,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
                 )
                 return JSONResponse({"status": "ignored_unauthorized_sender"})
 
-            is_group = from_user.endswith("@g.us")
+            is_group = is_group_chat(from_user)
             if is_group and TRIO_GROUP_JID and from_user != TRIO_GROUP_JID:
                 log.debug("Silently ignoring message from unauthorized group: %s", from_user)
                 return JSONResponse({"status": "ignored_non_whitelisted_group"})
@@ -130,45 +176,15 @@ def create_webhook_app(client: WahaClient) -> Starlette:
 
             # STRICT FILTER 3: Group chat discretion — do NOT interrupt human banter
             if is_group:
-                text_lower = text.lower()
-                bot_clean = BOT_PHONE.replace("+", "").replace(" ", "").replace("-", "")
-                gilang_clean = GILANG_PHONE.replace("+", "").replace(" ", "").replace("-", "")
-                bunga_clean = BUNGA_PHONE.replace("+", "").replace(" ", "").replace("-", "")
-
-                _data_dict = payload.get("_data") if isinstance(payload.get("_data"), dict) else {}
-                mentioned = (
-                    payload.get("mentionedIds")
-                    or payload.get("mentions")
-                    or payload.get("mentionedJidList")
-                    or _data_dict.get("mentionedJidList")
-                    or _data_dict.get("mentions")
-                    or []
+                decision = decide_group_admission(
+                    text,
+                    payload,
+                    bot_phone=BOT_PHONE,
+                    owner_phone=GILANG_PHONE,
+                    partner_phone=BUNGA_PHONE,
+                    quoted_sender=quoted_sender,
                 )
-
-                is_quoting_bot = (quoted_sender == "Helmis")
-                has_bot_mention = (
-                    is_quoting_bot
-                    or "helmis" in text_lower
-                    or text_lower.startswith("mis ")
-                    or text_lower.startswith("mis,")
-                    or text_lower.startswith("mis?")
-                    or "@helmis" in text_lower
-                    or (bool(bot_clean) and any(bot_clean in str(m) for m in mentioned))
-                )
-
-                mentions_other = (
-                    any(
-                        (bool(gilang_clean) and gilang_clean in str(m))
-                        or (bool(bunga_clean) and bunga_clean in str(m))
-                        for m in mentioned
-                    )
-                    or "@bunga" in text_lower
-                    or "@gilang" in text_lower
-                    or (bool(gilang_clean) and f"@{gilang_clean}" in text_lower)
-                    or (bool(bunga_clean) and f"@{bunga_clean}" in text_lower)
-                ) and not has_bot_mention
-
-                if mentions_other:
+                if decision == "ignored_directed_to_other":
                     log.info("Group message addressed to other person (@mention), ignoring: %s", text[:40])
                     return JSONResponse({"status": "ignored_directed_to_other"})
 
@@ -236,9 +252,16 @@ def create_webhook_app(client: WahaClient) -> Starlette:
     routes = [
         Route("/health", handle_health, methods=["GET"]),
         Route("/ping", handle_health, methods=["GET"]),
+        Route("/ready", handle_ready, methods=["GET"]),
         Route("/vault/file/{file_id}", handle_vault_file, methods=["GET"]),
         Route("/webhooks/waha", handle_waha_webhook, methods=["POST"]),
         Route("/webhooks/scheduler", handle_waha_webhook, methods=["POST"]),
     ]
 
-    return Starlette(debug=False, routes=routes)
+    @contextlib.asynccontextmanager
+    async def _app_lifespan(app):
+        async with contextlib.AsyncExitStack() as stack:
+            await stack.enter_async_context(outbox_drain_lifespan(client))
+            yield
+
+    return Starlette(debug=False, routes=routes, lifespan=_app_lifespan)

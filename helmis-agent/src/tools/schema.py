@@ -15,11 +15,31 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                     "properties": {
                         "title": {
                             "type": "STRING",
-                            "description": "The task, reminder, or scheduled action description",
+                            "description": "Display title for any task, event, reminder, or scheduled action",
                         },
                         "due": {
                             "type": "STRING",
-                            "description": "Date and time in WIB, e.g. '2026-08-26 18:00 WIB' or relative time like '30 menit lagi'",
+                            "description": "Initial date/time in the configured timezone, e.g. '2026-08-26 18:00 WIB' or '30 menit lagi'",
+                        },
+                        "identity_key": {
+                            "type": "STRING",
+                            "description": "Stable generic identity for the logical work item/event. Use the same key when updating an existing logical item under a different display title.",
+                        },
+                        "recurrence": {
+                            "type": "OBJECT",
+                            "description": "Optional generic recurrence policy: weekly with weekdays/time/timezone, or interval with every/interval and unit. Omit for one-shot tasks.",
+                        },
+                        "nag_interval_minutes": {
+                            "type": "INTEGER",
+                            "description": "Optional follow-up interval after the due reminder, in minutes. Used only with an explicit nag policy.",
+                        },
+                        "max_nags": {
+                            "type": "INTEGER",
+                            "description": "Maximum number of follow-up reminders before automatic stand-down.",
+                        },
+                        "nag_policy": {
+                            "type": "OBJECT",
+                            "description": "Optional generic reminder policy with interval_minutes and max_nags.",
                         },
                         "assignee": {
                             "type": "STRING",
@@ -68,27 +88,50 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
             },
             {
                 "name": "complete_task",
-                "description": "Mark an active task as finished/completed when user says it is done ('sudah selesai', 'udah beres', 'done').",
+                "description": "Mark one active task as completed. Prefer task_id; title is a compatibility selector and may be ambiguous.",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
+                        "task_id": {
+                            "type": "STRING",
+                            "description": "Exact stable task ID returned by list_tasks or a previous mutation",
+                        },
+                        "identity_key": {
+                            "type": "STRING",
+                            "description": "Exact canonical identity key when task_id is unavailable",
+                        },
+                        "expected_version": {
+                            "type": "INTEGER",
+                            "description": "Expected current task version; prevents completing a concurrent change",
+                        },
                         "title": {
                             "type": "STRING",
-                            "description": "Task title or keyword to mark completed",
-                        }
+                            "description": "Task title or keyword; use only when it resolves to one task",
+                        },
                     },
-                    "required": ["title"],
                 },
             },
             {
                 "name": "update_task",
-                "description": "Update or reassign an existing task (change assignee, deadline, priority, lead time, title, or scheduled job descriptor).",
+                "description": "Update one existing task. Prefer task_id and expected_version; title is a compatibility selector and may be ambiguous.",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
+                        "task_id": {
+                            "type": "STRING",
+                            "description": "Exact stable task ID returned by list_tasks or a previous mutation",
+                        },
+                        "identity_key": {
+                            "type": "STRING",
+                            "description": "Exact canonical identity key when task_id is unavailable",
+                        },
+                        "expected_version": {
+                            "type": "INTEGER",
+                            "description": "Expected current task version; prevents overwriting a concurrent change",
+                        },
                         "title": {
                             "type": "STRING",
-                            "description": "Existing task title or keyword to find",
+                            "description": "Existing task title or keyword; use only when it resolves to one task",
                         },
                         "new_assignee": {
                             "type": "STRING",
@@ -118,22 +161,56 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                             "type": "OBJECT",
                             "description": "Updated polymorphic job execution descriptor",
                         },
+                        "new_status": {
+                            "type": "STRING",
+                            "description": "New status: 'pending' or 'completed'. Prefer complete_task for completion.",
+                        },
+                        "recurrence": {
+                            "type": "OBJECT",
+                            "description": "Replacement generic recurrence policy (same shape as add_task). Omit to keep existing.",
+                        },
+                        "nag_interval_minutes": {
+                            "type": "INTEGER",
+                            "description": "New follow-up reminder interval in minutes",
+                        },
+                        "max_nags": {
+                            "type": "INTEGER",
+                            "description": "New maximum number of follow-up reminders before stand-down",
+                        },
                     },
-                    "required": ["title"],
                 },
             },
             {
                 "name": "delete_task",
-                "description": "Delete or cancel a task from storage entirely.",
+                "description": "Delete explicitly scoped tasks. Prefer task_id for one task; title/identity_key may delete multiple matches only when the scope is explicit.",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
+                        "task_id": {
+                            "type": "STRING",
+                            "description": "Exact stable task ID for deleting one task",
+                        },
+                        "identity_key": {
+                            "type": "STRING",
+                            "description": "Canonical identity scope for related tasks",
+                        },
                         "title": {
                             "type": "STRING",
-                            "description": "Task title or keyword to delete",
-                        }
+                            "description": "Title or keyword scope; report the exact affected count",
+                        },
+                        "assignee": {
+                            "type": "STRING",
+                            "description": "Optional assignee scope",
+                        },
+                        "task_type": {
+                            "type": "STRING",
+                            "description": "Optional task type scope: reminder or scheduled_action",
+                        },
+                        "status": {
+                            "type": "STRING",
+                            "description": "Optional status scope: pending, completed, or all",
+                        },
                     },
-                    "required": ["title"],
                 },
             },
             {
@@ -235,8 +312,38 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                             "type": "STRING",
                             "description": "Target person: 'Gilang', 'Bunga', or 'Both'",
                         },
+                        "scope": {
+                            "type": "STRING",
+                            "description": "Memory scope: 'private' (default) or 'shared'",
+                        },
+                        "source_turn_id": {
+                            "type": "STRING",
+                            "description": "Optional WhatsApp message ID of the turn that produced this fact, for provenance",
+                        },
                     },
                     "required": ["fact"],
+                },
+            },
+            {
+                "name": "correct_fact",
+                "description": "Apply an explicit user correction to memory. Use when the user corrects a previously stored fact about themselves (e.g. 'bukan, aku suka kopi manis'). Marks the old claim superseded and stores the corrected version.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {
+                            "type": "STRING",
+                            "description": "The old claim being corrected (text or topic description)",
+                        },
+                        "corrected_fact": {
+                            "type": "STRING",
+                            "description": "The corrected fact as stated by the user",
+                        },
+                        "user_id": {
+                            "type": "STRING",
+                            "description": "Optional: 'Gilang', 'Bunga', or 'Both'",
+                        },
+                    },
+                    "required": ["query", "corrected_fact"],
                 },
             },
             {
@@ -283,6 +390,39 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         }
                     },
                     "required": ["query"],
+                },
+            },
+            {
+                "name": "list_memory_candidates",
+                "description": "List uncertain memory candidates (model-extracted claims) that are waiting for the user to confirm or reject before they become retrievable memory.",
+                "parameters": {"type": "OBJECT", "properties": {}},
+            },
+            {
+                "name": "confirm_memory_candidate",
+                "description": "Confirm a candidate memory by ID after the user explicitly acknowledges it. The candidate becomes active, authoritative memory.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "memory_id": {
+                            "type": "STRING",
+                            "description": "Stable ID of the candidate memory to confirm",
+                        }
+                    },
+                    "required": ["memory_id"],
+                },
+            },
+            {
+                "name": "reject_memory_candidate",
+                "description": "Reject a candidate memory by ID after the user says it is wrong or should not be remembered. The candidate stays on disk for audit but is never retrieved.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "memory_id": {
+                            "type": "STRING",
+                            "description": "Stable ID of the candidate memory to reject",
+                        }
+                    },
+                    "required": ["memory_id"],
                 },
             },
             {
@@ -474,8 +614,11 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                             "type": "STRING",
                             "description": "Optional text/markdown content ONLY when creating a brand new text file from scratch. DO NOT supply this if the user uploaded an attachment or document, because the actual incoming binary file is saved automatically.",
                         },
+                        "original_filename": {
+                            "type": "STRING",
+                            "description": "Original uploaded filename as received, preserved separately from the vault display filename.",
+                        },
                     },
-                    "required": ["filename"],
                 },
             },
             {
@@ -682,6 +825,78 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         },
                     },
                     "required": ["action", "target_files"],
+                },
+            },
+            {
+                "name": "list_schedules",
+                "description": "List generic schedule/event records (the source of truth for schedule questions). Use this instead of listing tasks when the user asks about jadwal, agenda, events, or class/meeting times.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "task_id": {
+                            "type": "STRING",
+                            "description": "Optional: only schedules linked to this task ID",
+                        },
+                        "include_inactive": {
+                            "type": "BOOLEAN",
+                            "description": "Set true to also list cancelled/expired schedules. Default false.",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "create_schedule",
+                "description": "Persist a generic schedule/event record with timezone-aware start time and optional recurrence. Use for class schedules, meetings, appointments — anything that has a time, as opposed to a todo item.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "starts_at": {
+                            "type": "NUMBER",
+                            "description": "Start time as Unix epoch seconds (UTC). Convert the user's local time in the given timezone first.",
+                        },
+                        "timezone": {
+                            "type": "STRING",
+                            "description": "IANA timezone of the event as spoken by the user, e.g. 'Asia/Jakarta'",
+                        },
+                        "task_id": {
+                            "type": "STRING",
+                            "description": "Optional linked task ID",
+                        },
+                        "recurrence": {
+                            "type": "OBJECT",
+                            "description": "Optional recurrence rule, same shape as add_task recurrence (weekly with weekdays/time/timezone, or interval)",
+                        },
+                        "owner": {
+                            "type": "STRING",
+                            "description": "Owner: 'Gilang', 'Bunga', or 'Both'",
+                        },
+                        "source": {
+                            "type": "STRING",
+                            "description": "Where this schedule came from, e.g. 'user_message' or a document reference",
+                        },
+                        "location": {
+                            "type": "STRING",
+                            "description": "Optional location of the event",
+                        },
+                    },
+                    "required": ["starts_at", "timezone"],
+                },
+            },
+            {
+                "name": "list_reminder_policies",
+                "description": "List reminder policies (lead time, nag interval, acknowledgment rules) attached to a task or schedule. Use to answer questions about how often and how Helmis will remind someone.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "task_id": {
+                            "type": "STRING",
+                            "description": "Filter by task ID",
+                        },
+                        "schedule_id": {
+                            "type": "STRING",
+                            "description": "Filter by schedule ID",
+                        },
+                    },
                 },
             },
             {

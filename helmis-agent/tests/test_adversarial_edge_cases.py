@@ -11,7 +11,6 @@ import pytest
 
 import src.memory.semantic as sem_mem
 from src import memory
-from src.agent.cascade import GEMINI_KEYS
 from src.agent.guardrails import verify_action_fidelity
 from src.agent.loop import run_agentic_react_loop
 from src.memory.vault import save_file_to_vault
@@ -22,15 +21,11 @@ from src.whatsapp.models import WahaHistoryMessage
 @pytest.fixture(autouse=True)
 def isolated_test_env(monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, None]:
     with tempfile.TemporaryDirectory() as tmpdir:
-        mem_file = os.path.join(tmpdir, "helmis_memory.json")
         sem_file = os.path.join(tmpdir, "semantic_memories.json")
 
-        monkeypatch.setattr(memory, "MEMORY_FILE", mem_file)
-        monkeypatch.setattr(memory, "DATA_DIR", tmpdir)
         monkeypatch.setattr(sem_mem, "SEMANTIC_MEMORY_FILE", sem_file)
         monkeypatch.setattr(sem_mem, "DATA_DIR", tmpdir)
 
-        os.environ["DATA_DIR"] = tmpdir
         os.environ["GILANG_PHONE"] = "6287796728527"
         os.environ["BUNGA_PHONE"] = "6285111111111"
         os.environ["BOT_PHONE"] = "6289999999999"
@@ -237,9 +232,8 @@ def test_verify_action_fidelity_strips_fake_tool_chips() -> None:
     assert "↳" not in sanitized
     assert "add_task" not in sanitized
 
-    # If another tool actually ran, only the authentic tool is appended
+    # If another tool actually ran, authentic chips are opt-in (default off)
     real_tools = [{"name": "list_tasks", "args": {}, "result": {"status": "success"}}]
     sanitized_real = verify_action_fidelity(fake_response, executed_tools=real_tools)
-    assert "↳ `list_tasks`" in sanitized_real
+    assert "↳" not in sanitized_real
     assert "add_task" not in sanitized_real
-

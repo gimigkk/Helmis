@@ -194,7 +194,7 @@ def load_all_skills() -> str:
                     with open(full_path, encoding="utf-8") as f:
                         content = f.read()
                         skill_name = os.path.basename(os.path.dirname(full_path))
-                        
+
                         # Check if skill is on-demand toolkit
                         if skill_name.endswith("-toolkit") or "on-demand" in content.lower():
                             import re

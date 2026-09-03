@@ -2,33 +2,33 @@
 test_proactive_engine.py — Unit Tests for 2-Stage Lead Buffer, Urgent Nag Escalation, and Snooze Resets.
 """
 
-from collections.abc import Generator
 from datetime import datetime
-from typing import Any
 from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.memory.store import add_task, complete_task, load_memory, save_memory, update_task
 from src.agent.proactive import handle_proactive_scheduler_tick
+from src.memory.store import (
+    add_person,
+    add_task,
+    complete_task_result,
+    get_repository,
+    load_memory,
+    update_task,
+    update_task_fields,
+)
 from src.whatsapp.client import WahaClient
 
 TZ = ZoneInfo("Asia/Jakarta")
 
 
 @pytest.fixture(autouse=True)
-def clean_memory_fixture() -> Generator[None, None, None]:
-    """Ensure clean memory for each test run."""
-    empty_mem: dict[str, Any] = {
-        "tasks": [],
-        "activity_log": [],
-        "notes": [],
-        "people": {},
-    }
-    save_memory(empty_mem)
-    yield
-    save_memory(empty_mem)
+def people_directory(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Recipient resolution must come from directory data, not hard-coded names."""
+    monkeypatch.delenv("TRIO_GROUP_JID", raising=False)
+    add_person("Gilang", phone="+628123456789")
+    add_person("Bunga", phone="+628987654321")
 
 
 @pytest.mark.asyncio
@@ -89,6 +89,17 @@ async def test_proactive_stage2_due_reminder() -> None:
     task = mem["tasks"][0]
     assert task["due_reminded"] is True
     assert task["nudge_count"] == 1
+    with get_repository()._connect() as connection:
+        occurrence = connection.execute(
+            "SELECT occurrence_id, state FROM task_occurrences WHERE task_id=?",
+            (task["task_id"],),
+        ).fetchone()
+        outbox = connection.execute(
+            "SELECT occurrence_id, idempotency_key FROM outbox WHERE idempotency_key LIKE ?",
+            (f"reminder:{task['task_id']}:due:%",),
+        ).fetchone()
+    assert occurrence["state"] == "completed"
+    assert outbox["occurrence_id"] == occurrence["occurrence_id"]
 
 
 @pytest.mark.asyncio
@@ -102,6 +113,7 @@ async def test_proactive_urgent_nag_loop_and_partner_escalation() -> None:
         assignee="Gilang",
         priority="urgent",
         lead_time_minutes=0,
+        nag_policy={"cross_alert_recipient": "Bunga"},
     )
 
     # 1. Initial due at 15:00
@@ -122,7 +134,8 @@ async def test_proactive_urgent_nag_loop_and_partner_escalation() -> None:
 
     assert mock_client.send_message.called
     call_text = mock_client.send_message.call_args[1]["text"]
-    assert "belum ada konfirmasi (10 menit lalu)" in call_text
+    assert "pengingat ke-2" in call_text
+    assert "(10 menit lewat)" in call_text
     mem = load_memory()
     assert mem["tasks"][0]["nudge_count"] == 2
     mock_client.send_message.reset_mock()
@@ -130,23 +143,29 @@ async def test_proactive_urgent_nag_loop_and_partner_escalation() -> None:
     # 3. Fast forward to 30 minutes later (15:30) with nudge_count=3 -> Nudge #4 + Cross-alert
     mem["tasks"][0]["nudge_count"] = 3
     mem["tasks"][0]["last_nudged_at"] = mock_dt_1510.timestamp()
-    save_memory(mem)
+    update_task_fields(
+        mem["tasks"][0]["task_id"],
+        {"nudge_count": 3, "last_nudged_at": mock_dt_1510.timestamp()},
+    )
 
     mock_dt_1530 = datetime(2026, 8, 26, 15, 30, 0, tzinfo=TZ)
     with patch("src.agent.proactive.datetime") as mock_datetime:
         mock_datetime.now.return_value = mock_dt_1530
         await handle_proactive_scheduler_tick(mock_client)
 
-    # Dispatches to Gilang AND cross-alerts Bunga
+    # Cross-alert fires at mid-budget (nudge 3 of 5) when policy carries a recipient
     assert mock_client.send_message.call_count >= 2
     mem = load_memory()
     assert mem["tasks"][0]["nudge_count"] == 4
     mock_client.send_message.reset_mock()
 
-    # 4. Stand down at 60 minutes (nudge_count=6)
+    # 4. Stand down after policy budget exhausted (nudge_count=6 > max_repeats 5)
     mem["tasks"][0]["nudge_count"] = 6
     mem["tasks"][0]["last_nudged_at"] = mock_dt_1530.timestamp()
-    save_memory(mem)
+    update_task_fields(
+        mem["tasks"][0]["task_id"],
+        {"nudge_count": 6, "last_nudged_at": mock_dt_1530.timestamp()},
+    )
 
     mock_dt_1600 = datetime(2026, 8, 26, 16, 0, 0, tzinfo=TZ)
     with patch("src.agent.proactive.datetime") as mock_datetime:
@@ -156,7 +175,6 @@ async def test_proactive_urgent_nag_loop_and_partner_escalation() -> None:
     assert mock_client.send_message.called
     call_text = mock_client.send_message.call_args[1]["text"]
     assert "menghentikan pengingat otomatis" in call_text
-    assert "sudah 60 menit tanpa respon" in call_text
     mem = load_memory()
     assert mem["tasks"][0]["nudge_stopped"] is True
 
@@ -171,13 +189,16 @@ def test_task_snooze_resets_reminder_flags() -> None:
         lead_time_minutes=30,
     )
     mem = load_memory()
-    t = mem["tasks"][0]
-    t["kickoff_reminded"] = True
-    t["due_reminded"] = True
-    t["reminded"] = True
-    t["nudge_count"] = 4
-    t["nudge_stopped"] = True
-    save_memory(mem)
+    update_task_fields(
+        mem["tasks"][0]["task_id"],
+        {
+            "kickoff_reminded": True,
+            "due_reminded": True,
+            "reminded": True,
+            "nudge_count": 4,
+            "nudge_stopped": True,
+        },
+    )
 
     # User snoozes task: update due to 18:00 WIB
     updated = update_task("Review PR Backend", new_due="2026-08-26 18:00 WIB")
@@ -200,7 +221,7 @@ async def test_completed_task_skips_all_reminders() -> None:
         due="2026-08-26 15:00 WIB",
         assignee="Gilang",
     )
-    complete_task("Beli Susu Oat")
+    complete_task_result(title="Beli Susu Oat")
 
     mock_dt = datetime(2026, 8, 26, 15, 0, 0, tzinfo=TZ)
     with patch("src.agent.proactive.datetime") as mock_datetime:
@@ -208,6 +229,38 @@ async def test_completed_task_skips_all_reminders() -> None:
         await handle_proactive_scheduler_tick(mock_client)
 
     assert not mock_client.send_message.called
+
+
+@pytest.mark.asyncio
+async def test_recurring_scheduled_action_uses_durable_occurrence_and_advances() -> None:
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(
+        title="Recurring report",
+        due="2026-08-26 15:00 WIB",
+        assignee="Helmis",
+        task_type="scheduled_action",
+        recurrence={
+            "type": "weekly",
+            "weekdays": ["Wednesday"],
+            "time": "15:00",
+            "timezone": "Asia/Jakarta",
+        },
+    )
+
+    mock_dt = datetime(2026, 8, 26, 15, 0, tzinfo=TZ)
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = mock_dt
+        await handle_proactive_scheduler_tick(mock_client)
+
+    task = load_memory()["tasks"][0]
+    assert task["status"] == "pending"
+    assert task["due"] == "2026-09-02 15:00 WIB"
+    with get_repository()._connect() as connection:
+        occurrences = connection.execute(
+            "SELECT state FROM task_occurrences WHERE task_id=? ORDER BY scheduled_for",
+            (task["task_id"],),
+        ).fetchall()
+    assert [row["state"] for row in occurrences] == ["completed"]
 
 
 @pytest.mark.asyncio
@@ -234,3 +287,115 @@ async def test_proactive_ancient_overdue_task_silently_marked() -> None:
     t = mem["tasks"][0]
     assert t["due_reminded"] is True
     assert t["nudge_stopped"] is True
+
+
+@pytest.mark.asyncio
+async def test_policy_row_drives_nag_cadence_and_recipient(sqlite_db) -> None:
+    """Repository reminder policy row overrides defaults: 20m interval, 1 repeat, no cross-alert."""
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(title="Selesaikan Laporan", due="2026-08-26 15:00 WIB", assignee="Gilang", priority="normal")
+    task_id = load_memory()["tasks"][0]["task_id"]
+    get_repository().create_reminder_policy(
+        f"policy-{task_id}", task_id=task_id, lead_minutes=0,
+        repeat_interval_minutes=20, max_repeats=1,
+        acknowledgment_required=True, stand_down_after_minutes=45,
+    )
+
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 26, 15, 0, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+    mock_client.send_message.reset_mock()
+
+    # 15:10 -> below 20m interval, no nag
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 26, 15, 10, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+    assert not mock_client.send_message.called
+
+    # 15:20 -> nag #2 (budget 1 repeat), 20 menit lewat
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 26, 15, 20, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+    call_text = mock_client.send_message.call_args[1]["text"]
+    assert "pengingat ke-2" in call_text and "(20 menit lewat)" in call_text
+    mock_client.send_message.reset_mock()
+
+    # 15:40 -> budget exhausted -> stand-down after 45m per policy
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 26, 15, 40, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+    call_text = mock_client.send_message.call_args[1]["text"]
+    assert "menghentikan pengingat otomatis" in call_text and "45 menit" in call_text
+    assert load_memory()["tasks"][0]["nudge_stopped"] is True
+
+
+@pytest.mark.asyncio
+async def test_recurring_human_reminder_advances_after_due_reminder() -> None:
+    """Weekly human reminder must survive its own due reminder (previously died after first miss)."""
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(
+        title="Rapat Mingguan",
+        due="2026-08-26 15:00 WIB",  # Wednesday
+        assignee="Gilang",
+        recurrence={"type": "weekly", "weekdays": ["Wednesday"], "time": "15:00", "timezone": "Asia/Jakarta"},
+    )
+
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 26, 15, 0, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+
+    assert mock_client.send_message.called  # due reminder sent
+    task = load_memory()["tasks"][0]
+    assert task["status"] == "pending"
+    assert task["due"] == "2026-09-02 15:00 WIB"
+    assert task["due_reminded"] is False and task["nudge_count"] == 0
+
+    # Old occurrence completed, next week pending
+    with get_repository()._connect() as connection:
+        rows = connection.execute(
+            "SELECT state FROM task_occurrences WHERE task_id=? ORDER BY scheduled_for",
+            (task["task_id"],),
+        ).fetchall()
+    assert [r["state"] for r in rows] == ["completed"]
+
+
+@pytest.mark.asyncio
+async def test_downtime_skips_occurrence_but_advances_recurrence() -> None:
+    """>2h overdue recurring task: occurrence skipped, series advances, no expiry."""
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(
+        title="Laporan Rutin",
+        due="2026-08-24 15:00 WIB",  # Monday, now is Wednesday 16:00 (>2h late)
+        assignee="Gilang",
+        recurrence={"type": "weekly", "weekdays": ["Monday"], "time": "15:00", "timezone": "Asia/Jakarta"},
+    )
+
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 26, 16, 0, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+
+    task = load_memory()["tasks"][0]
+    assert not mock_client.send_message.called  # missed occurrence silently skipped
+    assert task["status"] == "pending"
+    assert task["due"] == "2026-08-31 15:00 WIB"  # next Monday, series alive
+    assert task["due_reminded"] is False
+
+
+@pytest.mark.asyncio
+async def test_downtime_nonrecurring_action_still_expires() -> None:
+    """One-shot scheduled action >2h overdue still expires (no recurrence to preserve)."""
+    mock_client = AsyncMock(spec=WahaClient)
+    add_task(
+        title="Kirim lama",
+        due="2026-08-26 10:00 WIB",
+        assignee="Helmis",
+        task_type="scheduled_action",
+        job={"kind": "tool", "tool_name": "send_whatsapp_message", "tool_args": {"recipient": "Gilang", "text": "x"}},
+    )
+
+    with patch("src.agent.proactive.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 26, 16, 0, 0, tzinfo=TZ)
+        await handle_proactive_scheduler_tick(mock_client)
+
+    assert not mock_client.send_message.called
+    assert load_memory()["tasks"][0]["status"] == "expired"

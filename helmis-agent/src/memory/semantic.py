@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import threading
+import uuid
 from datetime import datetime
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -20,25 +21,33 @@ from ..agent.cascade import GEMINI_KEYS, GEMINI_MODELS, get_next_gemini_key
 
 log = logging.getLogger("helmis-semantic-memory")
 
-DATA_DIR = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else "./data")
-SEMANTIC_MEMORY_FILE = os.path.join(DATA_DIR, "semantic_memories.json")
+def _semantic_memory_file() -> str:
+    """Resolve the semantic memory path per call so DATA_DIR env changes
+    (tests, config reload) take effect without process restart."""
+    data_dir = os.environ.get("DATA_DIR", "/app/data" if os.path.exists("/app") else "./data")
+    return os.path.join(data_dir, "semantic_memories.json")
+
+
+SEMANTIC_MEMORY_FILE = _semantic_memory_file()
+DATA_DIR = os.path.dirname(SEMANTIC_MEMORY_FILE)
 TZ = ZoneInfo(os.environ.get("TZ", "Asia/Jakarta"))
 
 _semantic_lock = threading.RLock()
 
 
 def _ensure_dir() -> None:
-    os.makedirs(os.path.dirname(SEMANTIC_MEMORY_FILE), exist_ok=True)
+    os.makedirs(os.path.dirname(_semantic_memory_file()), exist_ok=True)
 
 
 def load_semantic_memories() -> list[dict[str, Any]]:
     """Load persistent memories from disk with thread-safety."""
     _ensure_dir()
+    path = _semantic_memory_file()
     with _semantic_lock:
-        if not os.path.exists(SEMANTIC_MEMORY_FILE):
+        if not os.path.exists(path):
             return []
         try:
-            with open(SEMANTIC_MEMORY_FILE, encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):
                     return cast(list[dict[str, Any]], data)
@@ -50,14 +59,15 @@ def load_semantic_memories() -> list[dict[str, Any]]:
 def save_semantic_memories(memories: list[dict[str, Any]]) -> None:
     """Save persistent memories atomically to disk."""
     _ensure_dir()
+    path = _semantic_memory_file()
     with _semantic_lock:
-        tmp_file = f"{SEMANTIC_MEMORY_FILE}.tmp.{os.getpid()}"
+        tmp_file = f"{path}.tmp.{os.getpid()}"
         try:
             with open(tmp_file, "w", encoding="utf-8") as f:
                 json.dump(memories, f, indent=2, ensure_ascii=False)
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_file, SEMANTIC_MEMORY_FILE)
+            os.replace(tmp_file, path)
         except Exception as e:
             log.error("Failed to save semantic memory file: %s", e)
             if os.path.exists(tmp_file):
@@ -107,30 +117,60 @@ def cosine_similarity(v1: list[float], v2: list[float]) -> float:
     return dot / (norm1 * norm2)
 
 
-async def add_memory(fact: str, user_id: str, category: str = "general") -> dict[str, Any] | None:
+async def add_memory(
+    fact: str,
+    user_id: str,
+    category: str = "general",
+    *,
+    source_turn_id: str | None = None,
+    provenance: str = "explicit_user_statement",
+    confidence: float = 1.0,
+    scope: str = "private",
+    authoritative: bool = True,
+    status: str = "active",
+) -> dict[str, Any] | None:
     """
     Store a new episodic fact or preference in semantic memory with vector embedding.
-    Automatically supersedes/updates existing memories if the fact updates a previously recorded topic
-    (similarity >= 0.88), preventing memory rot across semesters or changing routines.
+
+    ``status``: ``active`` (trusted, retrievable) or ``candidate`` (uncertain,
+    awaiting explicit user confirmation; never retrieved, never overwrites an
+    active record).
+
+    Active facts automatically supersede/update existing active memories on the
+    same topic (similarity >= 0.88). Candidates only deduplicate against other
+    candidates of the same fact.
     """
     clean_fact = fact.strip()
     if not clean_fact:
         return None
 
+    is_candidate = status == "candidate"
+
     # Check for exact duplicate text
     memories = load_semantic_memories()
     for m in memories:
-        if m.get("fact", "").lower() == clean_fact.lower() and m.get("user_id") == user_id:
+        if (
+            m.get("fact", "").lower() == clean_fact.lower()
+            and m.get("user_id") == user_id
+            and m.get("status", "active") == status
+        ):
             log.debug("Memory already exists: %s", clean_fact)
             return m
 
     embedding = await get_embedding(clean_fact)
     now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M WIB")
 
-    # Semantic supersession check: If a memory on the same topic exists with high similarity >= 0.88
-    if embedding:
+    # Semantic supersession check: If an active memory on the same topic exists
+    # with high similarity >= 0.88. Candidates must never overwrite active
+    # records (or each other); they wait in the review queue instead.
+    if embedding and not is_candidate:
         for m in memories:
-            if m.get("user_id") == user_id and m.get("embedding"):
+            if (
+                m.get("user_id") == user_id
+                and m.get("embedding")
+                and m.get("status", "active") == "active"
+                and not m.get("superseded_by")
+            ):
                 sim = cosine_similarity(embedding, m["embedding"])
                 if sim >= 0.88:
                     old_fact = m.get("fact")
@@ -138,6 +178,11 @@ async def add_memory(fact: str, user_id: str, category: str = "general") -> dict
                     m["category"] = category
                     m["created_at"] = now_str
                     m["embedding"] = embedding
+                    m["source_turn_id"] = source_turn_id
+                    m["provenance"] = provenance
+                    m["confidence"] = max(0.0, min(1.0, confidence))
+                    m["scope"] = scope
+                    m["superseded_at"] = now_str
                     save_semantic_memories(memories)
                     log.info(
                         "Superseded existing memory for [%s] (sim=%.2f): '%s' -> '%s'",
@@ -149,18 +194,197 @@ async def add_memory(fact: str, user_id: str, category: str = "general") -> dict
                     return m
 
     entry: dict[str, Any] = {
-        "id": f"mem_{int(datetime.now().timestamp() * 1000)}",
+        "id": f"mem_{uuid.uuid4().hex}",
         "fact": clean_fact,
         "user_id": user_id,
         "category": category,
         "created_at": now_str,
         "embedding": embedding,
+        "source_turn_id": source_turn_id,
+        "provenance": provenance,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "scope": scope,
+        "authoritative": authoritative,
+        "status": "candidate" if is_candidate else "active",
     }
 
     memories.append(entry)
     save_semantic_memories(memories)
     log.info("Saved new semantic memory for [%s]: %s", user_id, clean_fact)
     return entry
+
+
+async def correct_memory(
+    query: str,
+    corrected_fact: str,
+    user_id: str | None = None,
+    *,
+    source_turn_id: str | None = None,
+) -> dict[str, Any]:
+    """
+    Apply an explicit user correction: mark matching memory superseded (kept
+    for audit) and append the corrected fact as an authoritative claim.
+
+    The old record is NOT deleted: it stays with authoritative=False,
+    confidence=0.0, superseded_by=<new id>, superseded_at=<timestamp> so
+    reconciliation history remains inspectable and search filters skip it.
+    """
+    clean_old = query.strip()
+    clean_new = corrected_fact.strip()
+    if not clean_old:
+        return {"status": "error", "error": "Query koreksi tidak boleh kosong."}
+    if not clean_new:
+        return {"status": "error", "error": "Fakta koreksi tidak boleh kosong."}
+    if clean_new.lower() == clean_old.lower():
+        return {"status": "error", "error": "Fakta koreksi identik dengan memori lama."}
+
+    memories = load_semantic_memories()
+    now_str = datetime.now(TZ).strftime("%Y-%m-%d %H:%M WIB")
+
+    # Pass 1: exact/substring match (strongest evidence, no embedding needed).
+    targets = [
+        m
+        for m in memories
+        if (not user_id or m.get("user_id") in (user_id, "Both", "all"))
+        and m.get("authoritative", True)
+        and clean_old.lower() in str(m.get("fact", "")).lower()
+    ]
+
+    # Pass 2: embedding similarity fallback when text match empty.
+    if not targets:
+        q_vec = await get_embedding(clean_old)
+        if q_vec:
+            for m in memories:
+                if user_id and m.get("user_id") not in (user_id, "Both", "all"):
+                    continue
+                if not m.get("authoritative", True):
+                    continue
+                vec = m.get("embedding")
+                if vec and cosine_similarity(q_vec, vec) >= 0.78:
+                    targets.append(m)
+
+    if not targets:
+        return {
+            "status": "not_found",
+            "superseded_count": 0,
+            "message": f"Tidak ditemukan memori aktif yang cocok dengan '{clean_old}'. Tidak ada koreksi diterapkan.",
+        }
+    if any(str(m.get("fact", "")).strip().lower() == clean_new.lower() for m in targets):
+        return {
+            "status": "error",
+            "superseded_count": 0,
+            "message": "Fakta koreksi identik dengan memori yang tersimpan. Tidak ada perubahan.",
+        }
+
+    new_vec = await get_embedding(clean_new)
+    new_id = f"mem_{uuid.uuid4().hex}"
+    target_ids = [str(m.get("id")) for m in targets]
+
+    for m in targets:
+        m["authoritative"] = False
+        m["confidence"] = 0.0
+        m["superseded_by"] = new_id
+        m["superseded_at"] = now_str
+
+    corrected: dict[str, Any] = {
+        "id": new_id,
+        "fact": clean_new,
+        "user_id": user_id or str(targets[0].get("user_id", "")),
+        "category": str(targets[0].get("category", "general")),
+        "created_at": now_str,
+        "embedding": new_vec,
+        "source_turn_id": source_turn_id,
+        "provenance": "explicit_user_correction",
+        "confidence": 1.0,
+        "scope": str(targets[0].get("scope", "private")),
+        "authoritative": True,
+        "supersedes": target_ids,
+        "corrected_at": now_str,
+    }
+    memories.append(corrected)
+    save_semantic_memories(memories)
+    log.info(
+        "Corrected %d memory record(s) for [%s]: '%s' -> '%s'",
+        len(targets),
+        corrected["user_id"],
+        clean_old,
+        clean_new,
+    )
+    return {
+        "status": "success",
+        "superseded_count": len(targets),
+        "superseded_facts": [str(m.get("fact", "")) for m in targets],
+        "corrected_fact": clean_new,
+        "message": f"Koreksi diterapkan: {len(targets)} memori lama ditandai superseded, fakta baru disimpan.",
+    }
+
+
+def list_memory_candidates(user_id: str | None = None) -> list[dict[str, Any]]:
+    """Return uncertain memory candidates awaiting explicit user confirmation."""
+    memories = load_semantic_memories()
+    candidates = [
+        m
+        for m in memories
+        if m.get("status") == "candidate"
+        and (not user_id or m.get("user_id") in (user_id, "Both", "all"))
+    ]
+    return [
+        {
+            "id": m.get("id"),
+            "fact": m.get("fact"),
+            "user_id": m.get("user_id"),
+            "provenance": m.get("provenance"),
+            "confidence": m.get("confidence"),
+            "created_at": m.get("created_at"),
+        }
+        for m in candidates
+    ]
+
+
+def resolve_memory_candidate(memory_id: str, *, accept: bool, user_id: str | None = None) -> dict[str, Any]:
+    """Confirm or reject a candidate memory by stable ID.
+
+    Accepted candidates become active and authoritative (confidence 0.9);
+    rejected candidates stay on disk for audit but are never retrieved.
+    """
+    memories = load_semantic_memories()
+    for m in memories:
+        if m.get("id") != memory_id:
+            continue
+        if user_id and m.get("user_id") not in (user_id, "Both", "all"):
+            return {
+                "status": "error",
+                "outcome": "unauthorized",
+                "error": "Kandidat memori ini milik user lain.",
+            }
+        if m.get("status") != "candidate":
+            return {
+                "status": "error",
+                "outcome": "not_found",
+                "error": "Kandidat memori tidak ditemukan atau sudah diproses.",
+            }
+        m["status"] = "active" if accept else "rejected"
+        if accept:
+            m["authoritative"] = True
+            m["confidence"] = max(float(m.get("confidence", 0.7)), 0.9)
+        m["resolved_at"] = datetime.now(TZ).strftime("%Y-%m-%d %H:%M WIB")
+        save_semantic_memories(memories)
+        return {
+            "status": "success",
+            "outcome": "accepted" if accept else "rejected",
+            "memory_id": memory_id,
+            "fact": m.get("fact"),
+            "message": (
+                f"Memori '{m.get('fact')}' dikonfirmasi dan aktif."
+                if accept
+                else f"Memori '{m.get('fact')}' ditolak dan tidak akan diingat."
+            ),
+        }
+    return {
+        "status": "error",
+        "outcome": "not_found",
+        "error": "Kandidat memori tidak ditemukan.",
+    }
 
 
 async def search_memories(
@@ -187,6 +411,12 @@ async def search_memories(
         # Filter by user if specified
         if user_id and m.get("user_id") not in (user_id, "Both", "all"):
             continue
+        if not m.get("authoritative", True) or float(m.get("confidence", 1.0)) < 0.7:
+            continue
+        if m.get("status", "active") == "candidate":
+            continue
+        if m.get("superseded_by"):
+            continue
 
         vec = m.get("embedding")
         if vec and q_vector:
@@ -205,6 +435,7 @@ async def search_memories(
                 "user_id": m.get("user_id"),
                 "category": m.get("category"),
                 "created_at": m.get("created_at"),
+                "provenance": m.get("provenance"),
                 "score": round(score, 3),
             }
             results.append((score, res_item))
@@ -280,6 +511,8 @@ async def extract_facts_from_turn_background(
     Passive background worker: Extracts durable facts, personal preferences,
     routines, and key context from a conversation turn and stores them in vector memory.
     """
+    if os.environ.get("HELMIS_ENABLE_AUTO_FACT_EXTRACTION", "0").lower() not in {"1", "true", "yes"}:
+        return
     if len(user_message.strip()) < 8:
         return
 
@@ -334,4 +567,13 @@ Example output:
             break
 
     for fact in extracted_facts:
-        await add_memory(fact=fact, user_id=sender_name)
+        # Model-extracted claims are uncertain: queue as candidates for explicit
+        # user confirmation instead of silently becoming retrievable memory.
+        await add_memory(
+            fact=fact,
+            user_id=sender_name,
+            provenance="model_extracted_from_turn",
+            confidence=0.7,
+            authoritative=False,
+            status="candidate",
+        )

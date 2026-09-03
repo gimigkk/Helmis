@@ -194,6 +194,7 @@ def test_pdf_to_docx_conversion() -> None:
 def test_pdf_to_docx_ilovepdf_api_mock(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify iLovePDF Cloud API integration when credentials are set."""
     from unittest.mock import MagicMock
+
     import httpx
 
     monkeypatch.setenv("ILOVEPDF_PUBLIC_KEY", "project_public_test_key")
@@ -202,7 +203,6 @@ def test_pdf_to_docx_ilovepdf_api_mock(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_docx_bytes = b"PK\x03\x04\x14\x00\x00\x00\x08\x00mocked_ilovepdf_word_docx"
 
     # Mock httpx.Client calls
-    orig_client = httpx.Client
 
     class MockHttpxClient:
         def __init__(self, *args, **kwargs):
