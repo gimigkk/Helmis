@@ -382,9 +382,9 @@ def verify_action_fidelity(
                 else:
                     final_text = err
 
-    # Tool chips footnote: transparency opt-in. Default off — chips append on
-    # every mutating turn otherwise, which is noise for non-no-fluff requests.
-    chips_enabled = os.environ.get("HELMIS_TOOL_CHIPS_ENABLED", "0").lower() in {"1", "true", "yes"}
+    # Tool chips footnote: transparency by default. Set HELMIS_TOOL_CHIPS_ENABLED=0
+    # to disable. No-fluff turns never get chips even when enabled.
+    chips_enabled = os.environ.get("HELMIS_TOOL_CHIPS_ENABLED", "1").lower() not in {"0", "false", "no"}
     if chips_enabled and not no_fluff:
         chips = format_tool_chips(executed_tools)
         if chips and chips not in final_text:

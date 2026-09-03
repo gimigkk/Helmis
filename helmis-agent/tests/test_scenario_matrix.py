@@ -371,15 +371,18 @@ class TestGuardrailMatrix:
         assert "Tidak ada data yang cocok" in out
 
     # -- claiming text x effective mutation: must pass
-    def test_delete_claim_after_real_delete_passes(self) -> None:
+    def test_delete_claim_after_real_delete_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HELMIS_TOOL_CHIPS_ENABLED", "0")
         out = verify_fidelity(CLAIM_DELETE, self._tools("delete_task", {"status": "success", "deleted_count": 2}))
         assert out == CLAIM_DELETE
 
-    def test_complete_claim_after_real_complete_passes(self) -> None:
+    def test_complete_claim_after_real_complete_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HELMIS_TOOL_CHIPS_ENABLED", "0")
         out = verify_fidelity(CLAIM_COMPLETE, self._tools("complete_task", {"status": "success", "task": {"task_id": "1"}}))
         assert out == CLAIM_COMPLETE
 
-    def test_add_claim_after_real_add_passes(self) -> None:
+    def test_add_claim_after_real_add_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HELMIS_TOOL_CHIPS_ENABLED", "0")
         out = verify_fidelity(CLAIM_ADD, self._tools("add_task", {"status": "success", "task_id": "t"}))
         assert out == CLAIM_ADD
 
