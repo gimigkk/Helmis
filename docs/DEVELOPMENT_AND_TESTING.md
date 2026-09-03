@@ -22,10 +22,15 @@ pip install -e ".[dev]"
 
 ## 2. Running Test Suites
 
-Run the entire test suite:
+Run from `helmis-agent/` using the project venv:
 
 ```bash
-pytest
+./.venv/bin/pytest -q
+```
+
+Lint:
+```bash
+./.venv/bin/ruff check src/ tests/
 ```
 
 Run with verbose output:
@@ -47,36 +52,51 @@ pytest --cov=src tests/
 
 ## 3. Test Suite Breakdown
 
-The test suite consists of 21 comprehensive test modules covering edge cases, adversarial inputs, data integrity, and multimodal integrations:
+The test suite consists of 41 test modules (466 cases) covering edge cases, adversarial inputs, data integrity, and multimodal integrations. Counts are asserted against the live suite:
 
 | Test File | Cases | Focus Area |
 |---|---|---|
-| `test_adversarial_edge_cases.py` | 7 | Malformed payloads, fake tool chip stripping, injection attempts, boundary errors |
-| `test_agent.py` | 18 | ReAct agent loop, tool execution, model cascade fallbacks |
-| `test_cascade.py` | 7 | Dynamic Gemini model discovery, Flash-Lite prioritization, key rotation, skill loaders |
-| `test_client.py` | 12 | WAHA HTTP client, retries, rate limiting, error responses |
-| `test_data_integrity.py` | 5 | Concurrent file writes, JSON corruption resilience, atomic locking |
-| `test_fuzz_vault.py` | 5 | Random fuzzing of filenames, paths, and document uploads |
-| `test_google_reader.py` | 13 | Google Workspace reader (Docs, Sheets, Slides, Drive), published sheets (`pubhtml`) multi-tab parser, SSRF protection & sandbox caching |
-| `test_guardrails_fidelity.py` | 12 | Two-step anti-hallucination guardrail, mutation claim detection, WhatsApp LaTeX to Unicode math conversion, extraction_mode badges, turn interception |
-| `test_history.py` | 3 | Message deduplication, multi-turn history formatting |
-| `test_memory.py` | 14 | Task creation, updating, completion, note storage, temporal context isolation |
-| `test_mid_turn_steering_matrix.py` | 9 | Dynamic mid-turn user steering, binary media synchronization & multimodal inlineData |
-| `test_pdf_tools.py` | 15 | PDF merge (zero-margin/A4), split, render image (PNG/JPG), images to PDF, PDF ⇄ DOCX, compression |
-| `test_proactive_engine.py` | 6 | Scheduler evaluations, 2-stage lead-time buffers, nag loops |
-| `test_queue.py` | 7 | FIFO per-chat debounce queue, 1.0s window burst batching |
-| `test_quoted_messages.py` | 5 | Quoted message extraction across GOWS, NOWEB, and WEBJS |
-| `test_scheduled_actions.py` | 6 | Polymorphic ToolJobExecutor, AgentLoopJobExecutor, near-horizon timers, expiration |
-| `test_search.py` | 3 | DuckDuckGo and Tavily web search integration |
-| `test_semantic_memory.py` | 4 | Gemini vector embeddings, cosine search, temporal supersession |
-| `test_skills.py` | 6 | Dynamic on-demand skill discovery, playbook loading, prompt segregation |
-| `test_skill_proposals.py` | 1 | Generated skill proposal isolation |
-| `test_task_repository.py` | 3 | SQLite task, occurrence, lease, and outbox contracts |
-| `test_migration.py` | 1 | Legacy JSON migration and source archiving |
+| `test_scenario_matrix.py` | 112 | 111-scenario matrix: recurrence series, nag ladders, guardrail fidelity, memory ops, scheduling, cascade ordering |
+| `test_intent_planning.py` | 25 | TurnPlan classification, destructive/ambiguity confirmation gates, forced tool calling |
+| `test_group_policy.py` | 22 | Group admission: bot-mention detection, human-directed suppression |
+| `test_vault.py` | 21 | Vault catalog, categories, link disambiguation, OCR mode, Office extractors |
+| `test_memory.py` | 20 | Tasks, notes, people-directory env fallback, task categories (routine/work), routine filtering |
+| `test_agent.py` | 18 | ReAct loop, tool execution, cascade fallbacks |
+| `test_guardrail_contracts.py` | 16 | Mutation fidelity, chips gating, not_found ground truth, success-language blocks |
+| `test_pdf_tools.py` | 15 | PDF merge/split/render, PDF⇄DOCX, compression |
+| `test_semantic_memory.py` | 13 | Embeddings, cosine search, candidate queue, correction/supersession |
+| `test_google_reader.py` | 13 | Google Workspace reader, pubhtml multi-tab parser, SSRF protection |
+| `test_client.py` | 12 | WAHA HTTP client, retries, rate limiting |
+| `test_guardrails_fidelity.py` | 12 | Two-step anti-hallucination, LaTeX conversion, turn interception |
+| `test_proactive_engine.py` | 11 | Scheduler ticks, lead buffers, nag ladders, recurrence advance |
+| `test_fastpath.py` | 11 | Chat/clock fast path, model escape hatch, provider-failure greeting |
+| `test_tool_validation.py` | 10 | Parallel functionCalls, interleaved text, empty parts |
+| `test_task_repository.py` | 10 | SQLite task/occurrence/lease/outbox contracts |
+| `test_scheduled_actions.py` | 10 | Polymorphic job executors, allowlist/quarantine, near-horizon timers |
+| `test_cascade.py` | 10 | Model discovery, cooldown demotion, hedged racing, key rotation |
+| `test_mid_turn_steering_matrix.py` | 9 | Mid-turn steering, binary media sync, hard step ceiling |
+| `test_compact_mode.py` | 8 | Compact query mode: domain tool subsets, core-prompt invariants |
+| `test_schedule_routing.py` | 7 | Schedule/reminder-policy tools vs task-list routing |
+| `test_queue.py` | 7 | FIFO per-chat debounce queue, burst batching |
+| `test_adversarial_edge_cases.py` | 7 | Malformed payloads, chip stripping, injection attempts |
+| `test_vision_ocr.py` | 6 | Vision OCR for raster PDFs/slides, caching |
+| `test_skills.py` | 6 | On-demand skill discovery, playbook loading |
+| `test_ingestion_policy.py` | 6 | Webhook admission + durable replay dedup window |
+| `test_authorization.py` | 4 | Caller/chat/private-memory scope enforcement |
+| `test_skill_proposals.py` | 5 | Skill proposal isolation and promotion |
+| `test_quoted_messages.py` | 5 | Quoted message extraction across engines |
+| `test_mcp_export.py` | 5 | MCP namespace delegation through internal registry |
+| `test_fuzz_vault.py` | 5 | Filename/path/upload fuzzing |
+| `test_data_integrity.py` | 5 | Concurrent writes, corruption resilience, atomic locking |
 | `test_production_contracts.py` | 4 | Sanitized production regression invariants |
-| `test_webhook_security.py` | 2 | Webhook authentication and status-event isolation |
-| `test_vault.py` | 21 | Document Vault catalog, categories, link bookmark disambiguation, PDF text layer, force_ocr Vision mode & Office extractors (.docx, .pptx, .xlsx) |
-| `test_vision_ocr.py` | 6 | Multimodal Gemini Vision OCR for raster scan PDFs, picture slides & image caching |
+| `test_webhook_security.py` | 3 | Webhook auth, status-event isolation |
+| `test_search.py` | 3 | DuckDuckGo/Tavily web search |
+| `test_history.py` | 3 | Message dedup, multi-turn formatting |
+| `test_delivery_recovery.py` | 3 | Outbox drain recovery after crashes |
+| `test_burst_media_preservation.py` | 3 | Burst attachment labeling, media-failure degradation |
+| `test_migration.py` | 1 | JSON→SQLite migration, source archiving |
+
+Counts drift with development; run `pytest -q` from `helmis-agent/` for the live number (466 as of this writing).
 
 ---
 

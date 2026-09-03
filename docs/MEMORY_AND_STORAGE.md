@@ -16,7 +16,8 @@ All user data is stored locally on the server volume (`./data` and `./config`) w
 
 ```
 data/
-├── helmis_memory.json        # Atomic JSON Store: tasks, contacts, shared notes, schedules
+├── helmis.db                 # SQLite/WAL: tasks, schedules, reminder_policies, occurrences, outbox, delivery_attempts
+├── helmis_memory.json        # Atomic JSON sidecar: people, notes, activity_log (tasks are SQLite-only)
 ├── file_catalog.json         # Document Vault metadata catalog
 ├── semantic_memories.json    # Vector Memory: episodic facts with Gemini 3072-dim embeddings
 ├── sandbox/                  # Ephemeral Temp Sandbox: downloaded URL snapshots, converted sheets (TTL 30m)
@@ -38,9 +39,10 @@ data/
 Handles structured records (tasks, people directory, notes, schedules) using atomic writes with file locking (`fcntl`) to guarantee zero corruption under concurrent read/writes.
 
 ### Data Schemas
-- **Tasks**: `id`, `title`, `assignee` (`"Gilang" | "Bunga" | "Both"`), `due_date`, `due_time`, `priority` (`"low" | "normal" | "urgent"`), `lead_time_minutes`, `status` (`"todo" | "in-progress" | "completed"`), `reminded_stages`.
-- **People**: `id`, `name`, `relationship`, `phone`, `email`, `notes`, `updated_at`.
-- **Notes**: `id`, `title`, `category`, `content`, `updated_at`.
+- **Tasks** (SQLite via `TaskRepository`): stable `task_id`, `identity_key`, `version`, `status` (`pending/completed`), `assignee`, `due`, `priority`, `task_type` (`reminder`/`scheduled_action`), `category` (`work`/`personal`/`shared`/`routine` — routine attendance pings hidden from default overviews), `recurrence` (weekly weekday-time in `Asia/Jakarta`), `nag_policy`.
+- **People** (JSON sidecar): `phone`, `role`, `notes`, `updated_at`. **Env fallback**: an empty sidecar `people` record falls back to env-seeded principals (`GILANG_PHONE`/`BUNGA_PHONE`) in `load_memory`/`get_person`/`add_person` — a wiped directory can never break reminder recipient resolution.
+- **Notes** (JSON sidecar): `title`, `content`, `updated_at`; carried into the live sidecar by `migrate_json_tasks` during JSON→SQLite migration (never trapped in the archive).
+- **Migration**: `migrate_json_tasks` imports tasks into SQLite with row verification, carries people/notes/schedules into the live sidecar, and archives the source as `helmis_memory.json.migrated-<ts>`; never deletes.
 
 ---
 

@@ -1,6 +1,6 @@
 # Agent Core & ReAct Execution Engine
 
-This document details the internal reasoning engine of Helmis: the autonomous **ReAct Agent Loop**, the **Gemini Multi-Key Cascade**, **Mid-Turn Mailbox Steering**, **State Fidelity Guardrails**, **Polymorphic Tool Execution**, and **Turn Tracing**.
+This document details the internal reasoning engine of Helmis: the autonomous **ReAct Agent Loop**, the **Gemini Multi-Key Cascade** (cooldowns + hedged racing), **Compact Query Mode**, the **Chat Fast Path**, **Mid-Turn Mailbox Steering**, **State Fidelity Guardrails**, **Polymorphic Tool Execution**, and **Turn Tracing**.
 
 ---
 
@@ -34,7 +34,7 @@ flowchart TD
 ```
 
 ### Iteration Limits & Safeguards
-- **Max Iterations**: Capped at 12 ReAct steps per turn to prevent infinite tool loops.
+- **Max Iterations**: Capped at 12 ReAct steps (absolute ceiling 18 including mid-turn steering rewinds) per turn to prevent infinite tool loops.
 - **Outcome Verification**: When tools mutate memory (e.g. `add_task`, `save_vault_file`), the agent inspects the returned status dictionary before stating success to the user.
 
 ---
@@ -75,18 +75,42 @@ Tools are registered declaratively using the `@register_tool` decorator and disp
 
 ## 3. Gemini Multi-Key Cascade (`src/agent/cascade.py`)
 
-To ensure 24/7 high availability, zero quota downtime, and rapid recovery from rate limits (`429`), Helmis implements dynamic API model discovery, multi-key rotation, and latency-optimized cascade sorting.
+To ensure 24/7 high availability, zero quota downtime, and rapid recovery from rate limits (`429`) and provider outages (`503`), Helmis implements dynamic API model discovery, multi-key rotation, model-level failure cooldowns, and hedged racing.
 
 ### Model Discovery & Tier Prioritization
-1. **Flash-Lite Tier (Sub-Second Latency)**: `gemini-flash-lite-latest`, `gemini-2.5-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite-preview`. (Prioritized first for instant WhatsApp replies).
-2. **Flash Tier (Standard Multimodal & Reasoning)**: `gemini-flash-latest`, `gemini-3.7-flash`, `gemini-2.5-flash`, `gemini-3.5-flash`.
-3. **Pro Tier (Complex Multimodal & Deep Extraction)**: `gemini-2.5-pro`, `gemini-pro-latest`.
-4. **Modality Filtering**: For video processing turns, `flash-lite` models are automatically bypassed in favor of full Flash/Pro models to guarantee multimodal video compliance.
+1. **Flash Tier (Newest First)**: `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash` (primary cascade window).
+2. **Flash-Lite Tier (Fallback)**: `gemini-2.5-flash-lite`, `gemini-3.1-flash-lite`; the dead alias `gemini-flash-lite-latest` sinks to the very end (repeat timeouts).
+3. **Pro Tier (Last Resort)**: `gemini-pro-latest` before dead aliases.
+4. **Modality Filtering**: For video turns, `flash-lite` models are bypassed in favor of full Flash/Pro models and the per-call timeout rises to 25s (12s standard).
 
 ### Multi-Key Round-Robin Rotation
-- Configured via `GEMINI_KEY_1`, `GEMINI_KEY_2`, `GEMINI_KEY_3`, etc.
-- Each key is assigned to independent Google Cloud quotas.
-- When an API key encounters a `ResourceExhausted` (`429`) or server error (`503`), the cascade immediately rotates to the next available key and model tier without failing the user request.
+- Configured via `GEMINI_KEY_1` … `GEMINI_KEY_8` (both `AIza...` and `AQ....` key formats accepted; placeholders rejected).
+- `429` (quota) and `503` (overload) rotate keys within a model; a model that `503`s on **every** key is model-level overloaded.
+- Timeout/404 are model-level failures: the model is skipped immediately, never retried on another key.
+
+### Model Cooldowns (`mark_model_unavailable`)
+- Models failing at the model level (timeout, 404, 503-on-all-keys) enter a **120s cooldown**.
+- Cooldown-aware ordering (`get_cascade_models_with_cooldown`) demotes (never drops) cooled models to the end, so subsequent ReAct steps start at healthy models instead of re-probing a dead head (a 503 storm previously cost 8 key attempts × ~1–3s per model per step).
+
+### Hedged Racing (`_hedged_cascade_call`, `src/agent/loop.py`)
+- The top-2 candidate models race with a staggered start: if the head has not answered within half the turn timeout, the second model fires and the **first 200-response wins**; the loser is cancelled.
+- A hung head model therefore costs at most ~half the timeout instead of the full timeout (a hung `3.8-flash` previously taxed every turn its full 12s).
+- A head that fails *fast* (503/timeout) falls straight to the sequential tail with no double wait.
+- Final-synthesis calls reuse the same hedged path; cascade helpers return `(winning_model, response)` so tracer logs report the model that actually answered.
+
+### Compact Mode (query turns)
+- Turn plans with `intent == "query"` and a known data domain (task/schedule/note/memory/person/vault) run with:
+  - **Compact system prompt** (`load_compact_system_prompt`): identity + §2 zero-assumption grounding + §4 formatting/layout contract + clock (~12k chars vs 19k full manual).
+  - **Domain-scoped skills** (`load_domain_skills`): only the playbooks for that domain (e.g. task queries load task-manager/recurring-reminders/reminder-engine).
+  - **Domain-scoped tools** (`get_compact_tools`, `src/tools/schema.py`): 8 relevant declarations vs 44 (31k → 9k chars), always including `load_skill`/`list_skills`/`execute_code` escape hatches.
+  - **No semantic search** (query turns don't need long-term fact retrieval).
+- Same model, same ReAct tool-calling contract: the model still decides filters, formatting, and follow-ups. Actions/chat/media turns keep the full manual and all 44 tools.
+
+### Chat Fast Path (`src/agent/fastpath.py`)
+- Pure greetings/acks ("halo", "makasih", "sip") run on a ~60-token prompt with the live clock; the model decides everything and may bail to the full loop via `[FALLBACK]`.
+- If the provider is completely down, a deterministic time-aware greeting answers instead of failing.
+- "jam berapa"/clock queries answer with **zero model calls**.
+- All data queries (tasks/schedules/notes, filtered or not) deliberately go through the full agent loop — no phrase whitelists, no deterministic rendering of user data — so the model retains authority over meaning and formatting.
 
 ---
 
@@ -134,6 +158,9 @@ To eliminate false confirmations where the model claims an action was performed 
      - **Office Native Parsers**: `↳ read_vault_file:pptx_parser`, `↳ read_vault_file:xlsx_parser`, `↳ read_vault_file:docx_parser`
      - **Direct Text / CSV**: `↳ read_google_sheet:csv_export`, `↳ read_google_doc:direct_text`
    - Strips synthetic or mimicked footnote chips produced hallucinated by the LLM.
+   - **Enabled by default**: `HELMIS_TOOL_CHIPS_ENABLED` defaults ON (transparency by default); set `0`/`false`/`no` to opt out. No-fluff turns and `not_found`/error paths never carry chips.
+5. **Honest Degraded Synthesis**:
+   - Final synthesis rotates models×keys on the same hedged path as the main turn; if it still fails, the reply is a per-tool-count honest summary (e.g. "Helmis selesai memproses (add_task×3), tapi gagal menyusun rangkuman akhir") — never a fabricated "N tindakan berhasil" for actions that didn't run.
 
 ---
 
@@ -145,6 +172,12 @@ All multi-item listings and timelines generated by Helmis follow strict WhatsApp
 3. **Double Spacing**: Blank lines (`\n\n`) between distinct items to prevent walls of text.
 4. **Default Assignee Separation**: Automatic grouping into `*Tugas Gilang:*`, `*Tugas Bunga:*`, `*Tugas Bersama:*`, and `*Tindakan Otomatis Helmis:*`.
 5. **Header Blockquote Consistency**: Only the single main document title uses `>`, while section headers use clean bold text.
+
+### Task Categories & Routine Filtering
+- `add_task` accepts `category`: `work` (default) / `personal` / `shared` / `routine`.
+- **Auto-detection** (`_detect_task_category`, `src/memory/store.py`): titles matching absen/kehadiran/kuliah/class/check-in/presensi → `routine`; work verbs (buat/kerjakan/isi/mengumpulkan…) override routine keywords (so "Membuat PPT untuk mata kuliah X" stays work). Recurrence alone never implies routine.
+- **`list_tasks(include_routine=False)` is the default**: "ada tugas apa" means real work; the 8 weekly attendance pings stay out of overviews. `include_routine=True` is reserved for explicit routine asks (schema description teaches the model when to set it). The scheduler always sees all tasks — filtering is display-only, reminders still fire.
+- The task tool schema and `config/skills/recurring-reminders/SKILL.md` document the category contract.
 
 ---
 

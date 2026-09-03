@@ -84,10 +84,12 @@ The agent codebase is organized into 4 distinct domain packages under `helmis-ag
 ```
 helmis-agent/src/
 ├── agent/                  # Brain, ReAct Loop, Crystallizer & Cascade Orchestration
-│   ├── cascade.py          # Gemini model fallback cascade & multi-key rotation
+│   ├── cascade.py          # Gemini model cascade: discovery, key rotation, cooldowns, compact prompt/skill loaders
 │   ├── crystallize.py      # Autonomous Auto-Crystallization & Background Reflection Engine
+│   ├── fastpath.py         # Chat/clock fast path (model-authoritative, [FALLBACK] escape)
 │   ├── guardrails.py       # Pre-emptive intent classification, anti-promissory guardrails & chips
-│   ├── loop.py             # Autonomous ReAct loop, forced tool calling (mode: ANY) & steering
+│   ├── intent.py           # Typed TurnPlan: intent/domain/action, confirmation gates, entity pre-resolution
+│   ├── loop.py             # Autonomous ReAct loop: hedged cascade racing, compact query mode, forced tool calling & steering
 │   ├── proactive.py        # Proactive reminder evaluator, 2-stage lead buffer & nag loops
 │   ├── tracer.py           # Structured execution tracer & ANSI debugging
 │   └── __init__.py
@@ -96,7 +98,9 @@ helmis-agent/src/
 │   ├── pdf_engine.py       # High-performance PDF & Document conversion engine
 │   ├── sandbox.py          # Temp Sandbox Workspace (TTL cache 30m, auto-cleanup LRU)
 │   ├── semantic.py         # Vector embeddings & semantic memory search
-│   ├── store.py            # JSON-backed tasks, people, schedules & notes
+│   ├── migrate.py          # JSON→SQLite migration with sidecar carry & source archiving
+│   ├── store.py            # SQLite TaskRepository boundary + JSON sidecar (people/notes/activity)
+│   ├── task_repository.py  # SQLite/WAL: tasks, schedules, policies, occurrences, outbox
 │   ├── vault.py            # Document vault, catalog, Office parsers (.docx, .pptx, .xlsx) & Vision OCR
 │   └── __init__.py
 ├── whatsapp/               # WhatsApp / WAHA Integration

@@ -101,6 +101,7 @@ Primary files: `agent/proactive.py`, `whatsapp/webhook.py`, `whatsapp/client.py`
 - Ambiguous completion/deletion should not guess: return candidates and ask, or apply only an explicitly scoped bulk operation with exact count/postcondition.
 - Use a SQLite/WAL repository as the transactional state boundary, preserving JSON/vault backups and a tested rollback path.
 - Keep the model dynamic: no hardcoded attendance/course code path. The model proposes generic typed intents; validators and domain engines resolve arbitrary entities, recurrence, reminder policies, and tool actions.
+  - **Session note (2026-09-03):** task categories are a *data layer* concern, not a hardcoded course path — `_detect_task_category` classifies routine attendance pings for display filtering only (scheduler unaffected), while the model retains full authority over interpretation and can override via explicit `category`. The earlier fast-path phrase whitelist + deterministic list renderer was removed as a violation of this principle; query turns now use compact mode (domain-scoped context) with the normal tool-calling loop.
 - Authorized WhatsApp chats/groups, status-event treatment, recurrence downtime policy, delivery guarantee, and migration maintenance window remain to be confirmed before implementation.
 
 ## Product direction

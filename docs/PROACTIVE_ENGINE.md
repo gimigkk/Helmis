@@ -91,17 +91,21 @@ For personal tasks belonging to Gilang, Bunga, or Both (`task_type="reminder"`):
 ### Stage 2: Final Deadline Alert
 - Dispatched when the deadline arrives.
 
-### Stage 3: Urgent 10-Minute Nag Loop & Partner Cross-Alert
-- For tasks marked `priority="urgent"`:
-  - **10m, 20m**: Direct follow-up nudges to the assignee.
-  - **30m**: **Cross-Partner Alert** (notifies the partner to help check or wake them up).
-  - **40m, 50m**: Final urgent follow-ups.
-  - **60m**: Automatic stand-down notice.
+### Stage 3: Policy-Driven Nag Loop & Partner Cross-Alert
+- Nag cadence resolves per task (`_resolve_reminder_policy`): `reminder_policies` row → task nag fields (`nag_policy`/`nag_interval_minutes`/`max_nags`) → urgent default (10m interval, 5 nags, 60m stand-down). Non-nag tasks (`nag_enabled=False`) never enter the ladder.
+- **Cross-partner alert** fires at the budget midpoint only when the policy carries `cross_alert_recipient`.
+- Recipients resolve through the people directory; an unresolvable recipient raises/quarantines instead of guessing. Empty sidecar `people` falls back to env-seeded principals (`GILANG_PHONE`/`BUNGA_PHONE` via `_default_people()`).
+
+### Weekly Recurrence (production contract)
+- Recurring tasks use `recurrence: {"type": "weekly", "weekdays": ["senin","kamis"], "time": "07:45", "timezone": "Asia/Jakarta"}` — local weekday-time, not fixed 7-day intervals.
+- The series advances itself to the next timezone-aware slot after each delivery/completion, for both bot actions and human reminders; downtime beyond 2h advances the series instead of replaying stale occurrences.
+- Attendance/class/check-in tasks auto-classify `category="routine"` — hidden from task overviews but always ticked by the scheduler (see AGENT_CORE.md §6).
+- Authoritative teaching lives in `config/skills/recurring-reminders/SKILL.md` and the `add_task` schema descriptions.
 
 ---
 
 ## 4. Downtime Catch-Up & Anti-Spam Expiration
 
 - **Overdue $< 2\text{ hours}$**: Dispatched with a subtle notice (`[Pesan Terjadwal Tertunda]`).
-- **Overdue $> 2\text{ hours}$**: Marked `expired` silently to prevent spamming stale messages upon long server downtime.
+- **Overdue $> 2\text{ hours}$**: Marked `expired` silently (recurring series advance to the next slot) to prevent spamming stale messages upon long server downtime.
 - **Anti-Interference**: Bot actions (`task_type="scheduled_action"`) strictly bypass human lead buffers and nag loops, auto-completing immediately upon execution.

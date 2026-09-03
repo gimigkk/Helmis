@@ -10,12 +10,12 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 
 ## Current Position
 
-- **Branch:** `feat/dynamic-secretary-foundation` (committed through 2026-09-03)
-- **Last commit:** `5631528` — Phase 5 ops tooling (CI, backup verify, rollback, health check)
-- **Last updated:** 2026-09-03
-- **Last verified:** `326 passed` (full suite, from `helmis-agent/`), Ruff clean on changed files
-- **Phase:** All rebuild phases (0–5) build complete; legacy task wrappers/JSON import path removed
-- **Step:** Next: push branch + deploy to VPS (sync → migrate → rebuild agent → health check)
+- **Branch:** `main` (feat/dynamic-secretary-foundation merged; deployed to production VPS `43.133.129.209`)
+- **Last commit:** `f1f133e` — compact mode for query turns
+- **Last updated:** 2026-09-03 (late)
+- **Last verified:** `466 passed` (full suite, from `helmis-agent/`), Ruff clean on src/ tests/
+- **Phase:** Deployed and production-hardened through a long live session (latency, UX, categories, routing)
+- **Step:** Monitor live turns; remaining ideas: context caching (provider-level), history compaction
 
 ## Phase Roadmap
 
@@ -26,7 +26,7 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | 2 | Conservative, grounded agent | **Complete** | Typed action plans with confirmation gates, deterministic routing, schema validation, group admission policy, durable replay dedup, replay benchmark harness (stronger-model arm pending provider capacity) |
 | 3 | Safe memory and learning | **Complete** | Provenance + auto-extraction off by default; correction/supersession workflow; skill proposal/version/rollback; uncertain claims queue as candidates until explicit confirm/reject |
 | 4 | Reliable scheduling and delivery | **Complete** | Durable occurrences + outbox; policy-driven nag engine with data recipients; recurrence survives downtime (bot + human); job allowlist/quarantine; MCP delegates to internal registry |
-| 5 | Production hygiene and rollout | **Complete (build)** | CI gate (ruff/import/pytest/compose), `verify_backup.sh`, `rollback.sh`, `health_check.sh`; VPS rollout itself pending deploy |
+| 5 | Production hygiene and rollout | **Complete** | CI gate (ruff/import/pytest/compose), `verify_backup.sh`, `rollback.sh`, `health_check.sh`; deployed to VPS (main `f1f133e`, agent healthy, 8 GEMINI keys live) |
 
 ## Done
 
@@ -72,23 +72,35 @@ Single status snapshot for the reliability rebuild. Overwrite this file in place
 | Backup restore verification | `scripts/verify_backup.sh`: extracts archive to `mktemp` dir, `PRAGMA integrity_check`, per-table row counts (`tasks`/`outbox`/`occurrences`/`reminder_policies`/`memory_candidates`), waha-session + catalog presence warnings; never touches live `data/` or `.env`; tested against synthetic archive |
 | One-command rollback | `scripts/rollback.sh`: safety backup → explicit migration-boundary warning/confirmation → `git checkout` target commit → rebuild agent only (waha/scheduler/volumes/data untouched) → healthy check with log tail |
 | Synthetic health check | `scripts/health_check.sh`: container run/healthy status for all 3 services, host-side `/health`, `/ready` (WAHA reachability), waha `/ping`, MCP tool-registration + outbox-drain log presence; non-zero exit on failure |
+| VPS deployment | Production live at `root@43.133.129.209:/opt/helmis` (SSH remote, main branch); 34 tasks migrated to SQLite; 8 GEMINI keys wired; deploy loop: merge feat→main → push → `git reset --hard origin/main` + `docker compose build agent` + `up -d agent` on VPS (`up -d` alone does NOT rebuild); safety backup at `/root/helmis_backup_20260903_054505.tar.gz`; `/opt/helmis/data/` and `.env` never touched |
+| Migration sidecar carry + data repair | `migrate_json_tasks` now carries notes/people/schedules from source JSON into the live `helmis_memory.json` sidecar before archiving (Bunga's jadwal note was trapped in the archive, agent went feral: 9× get_whatsapp_messages + 5× execute_code in one 75s turn); VPS data repaired post-deploy (6 notes restored); people directory: empty sidecar `people` falls back to env-seeded principals (`_default_people()`) in `load_memory`/`get_person`/`add_person` — fixes "No resolvable recipient for 'Bunga'" scheduler errors |
+| Honest degraded synthesis | Final synthesis rotates models×keys with the same hedged path as the main turn (was a single 5s call that failed under 503 storms and the fallback claimed "23 tindakan berhasil diproses" for actions that never ran); total failure now returns a per-tool-count honest summary |
+| Cascade resilience (production-hardened) | 12s/25s modality timeouts; per-model key rotation incl. 503; 503-on-all-keys/timeout/404 → 120s model cooldown with cooldown-aware ordering; **hedged racing** (top-2 models, staggered at half timeout, first 200 wins, loser cancelled) — a hung 3.8-flash head no longer taxes turns its full timeout ("halow" went 14.6s → ~3-5s worst case); tracer reports the model that actually answered; tests in `tests/test_cascade.py` |
+| Chat fast path | `src/agent/fastpath.py`: greetings/acks on a ~60-token prompt (live clock embedded, bare "Selamat sore" greeting hint) with `[FALLBACK]` escape to the full loop; deterministic time-aware greeting only when the provider is fully down; "jam berapa" answers with zero model calls; **all data queries deliberately run the full agent loop** — no phrase whitelists, no Python-rendered user data (an earlier whitelist+deterministic-renderer design was removed as vision-hostile) |
+| Compact query mode | Query turns load: extracted core prompt (~12k chars: identity + §2 zero-assumptions + §4 layout contract + clock), domain-scoped skills (task: 6.2k chars), domain-scoped tools (`get_compact_tools`: 8 declarations vs 44; `load_skill`/`list_skills`/`execute_code` always present as escape hatches), and skip semantic search. Same model + ReAct contract; actions/chat/media keep full manual. Verified live: 8 vs 44 tools, 11.9k vs 19.1k prompt |
+| UX liveness | Typing keepalive catches per-ping errors (one WAHA hiccup no longer kills typing for the whole turn); progress watchdog pings at 12s then every 30s and **states the actual activity** (current tool + key arg, e.g. "sedang memperbarui catatan tugas 'Absen Seminar Akuntansi'", or last completed tool between steps); `describe_intent_action` covers task/note/memory/web/vault/schedule/sandbox tools |
+| Task categories | `add_task(category=)`: work/personal/shared/routine; auto-detected from title (absen/kehadiran/kuliah/class/check-in/presensi → routine) with work verbs (buat/kerjakan/isi…) overriding routine keywords; `list_tasks(include_routine=False)` default hides attendance pings from overviews (schema + recurring-reminders skill teach the contract); scheduler unaffected (display-only filter); VPS backfilled (6 work visible + 8 routine hidden, verified live); tests in `tests/test_memory.py` + `tests/test_fastpath.py` |
+| Recurrence + chips production state | Weekly recurrence schema/skill teaching held up in production (8 absensi tasks created in one turn from notes); `HELMIS_TOOL_CHIPS_ENABLED` defaults ON (opt-out `0/false/no`); 111-scenario matrix (`tests/test_scenario_matrix.py`, 112 cases) guards the contracts |
 
 ## Not Started
 
 - Delivery duplicate-window: provider-side deduplication is not implemented (durable outbox + replay dedup suppress duplicates before send, but crash-after-provider-accept still relies on the provider)
 - Domain-specific authorization policy and outbound target allowlisting beyond the central caller/chat/private-memory boundary
-- Replay/A-B benchmark rerun with available stronger model/quota; current report is provider-inconclusive for arm B, so no model upgrade decision yet
-- VPS rollout: push branch → sync VPS to branch → `python -m src.memory.migrate` → rebuild agent → `scripts/health_check.sh` (CI run + canary against a test WAHA session happen at deploy time)
+- Replay/A-B benchmark rerun with available stronger model/quota; current report is provider-inconclusive for arm B (pro models 429/404 on current keys), so no model upgrade decision yet
+- Provider-level context caching (stable system prompt prefix) — next big latency lever after compact mode
+- Chat-history compaction (rolling summary instead of raw last-12 messages) for long conversations
+- Truncate `get_whatsapp_messages` tool results (50 full messages per call ballooned a 75s turn once)
 
 ## Blockers / Open Decisions
 
-Blocking occurrence semantics (need user/product answer, then proceed):
-1. Missed occurrences during downtime: skip / catch-up-once / replay? -> catch up or just ask for clarification
-2. Weekly recurrence: local weekday-time vs fixed 7-day interval? -> idk
-3. Reminder recipients, quiet hours, escalation defaults? -> if the user wants to
+Resolved this session (production-validated):
+- Missed occurrences during downtime → skip + advance recurring series to next slot (catch-up storms rejected)
+- Weekly recurrence → local weekday-time in Asia/Jakarta (`weekdays` + `time`), not fixed 7-day interval
+- Reminder recipients → resolved from people directory (env-seeded fallback); cross-alert via `cross_alert_recipient`
 
-Non-blocking (decide before Phase 5 only):
-- Authorized chat/group list; provider duplicate-detection window; migration maintenance window; backup RPO/RTO.
+Still open:
+- Quiet hours / escalation defaults beyond nag_policy (user hasn't requested)
+- Provider duplicate-detection window (see Not Started)
 
 ## Conventions
 

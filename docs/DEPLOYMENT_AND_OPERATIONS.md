@@ -77,16 +77,23 @@ To deploy new code changes without dropping WhatsApp sessions or losing data:
 cd /opt/helmis
 
 # 1. Pull latest changes
-git pull origin main
+git fetch origin && git reset --hard origin/main
 
-# 2. Rebuild and recreate only the agent and scheduler containers
-docker compose build agent scheduler
-docker compose up -d agent scheduler
+# 2. Rebuild and recreate ONLY the agent (waha/scheduler stay up; sessions preserved)
+docker compose build agent
+docker compose up -d agent
 
 # 3. Verify health
-sleep 3
-docker compose ps
+sleep 6
+docker compose ps agent
 ```
+
+**Production-validated notes:**
+- `docker compose up -d` **alone does NOT rebuild** — a stale container was shipped once because the build step was skipped; always run `build` before `up -d`.
+- Remote must be SSH (`git@github.com:gimigkk/Helmis.git`) — HTTPS lacks credentials on the VPS.
+- **NEVER touch `/opt/helmis/data/` or `/opt/helmis/.env`** — live memory sidecar, SQLite DB, WAHA session, and the 8 `GEMINI_KEY_*` secrets live there.
+- Full loop used in this session: local `git checkout main && git merge feat/... && git push origin main`, then VPS sync+build above.
+- Pre-deploy safety backup exists at `/root/helmis_backup_20260903_054505.tar.gz`; `scripts/rollback.sh` automates the rollback path.
 
 ---
 

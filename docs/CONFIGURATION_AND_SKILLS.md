@@ -32,6 +32,7 @@ Skills provide specialized domain knowledge and procedures. Each skill is define
 | `skills/reminder-engine/` | Time-based reminders | Setting one-shot and recurring reminders in WIB timezone |
 | `skills/people-directory/` | Contacts & relationship directory | Tracking roles, phone numbers, emails, notes for actors |
 | `skills/schedule-manager/` | Calendar events & class routines | Daily agendas, weekly schedules, class timetables in unified cards |
+| `skills/recurring-reminders/` | Weekly recurrence + nag policies | Exact `recurrence`/`nag_policy` JSON shapes, `category: "routine"` contract, series self-advance rules |
 
 ### Procedural Memory & Self-Learning Skills
 Helmis can learn new skills and behavioral playbooks during runtime:
@@ -55,8 +56,10 @@ To prevent prompt bloat and preserve sub-second response times, specialized tool
 | `PARTNER_NAME` | No | `Bunga` | Name of partner (for Duo mode; leave empty if Solo) |
 | `BOT_PHONE` | Yes | - | E.164 phone number for the Helmis bot WhatsApp account |
 | `TRIO_GROUP_JID` | No | - | JID for shared group chat (optional for Duo mode) |
-| `GEMINI_KEY_1` | Yes | - | Primary Google Gemini API key |
-| `GEMINI_KEY_2..N` | No | - | Secondary API keys for round-robin rotation & fallback |
+| `GEMINI_KEY_1` | Yes | - | Primary Google Gemini API key (`AIza...` or `AQ....` v2 format both accepted) |
+| `GEMINI_KEY_2..N` | No | - | Secondary API keys for round-robin rotation & fallback (production runs 8) |
+| `HELMIS_TOOL_CHIPS_ENABLED` | No | `1` | Transparent engine footnote chips in replies; `0`/`false`/`no` opts out |
+| `HELMIS_AUTHORIZED_SENDERS` | No | - | Optional sender allowlist for ingestion |
 | `WAHA_BASE_URL` | No | `http://waha:3000` | Internal WAHA REST API endpoint |
 | `WAHA_API_KEY` | Yes | - | Secret token securing WAHA API calls |
 | `WAHA_DASHBOARD_PASSWORD` | Yes | - | Password for WAHA web dashboard |

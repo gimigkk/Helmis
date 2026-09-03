@@ -66,6 +66,11 @@ The turn processor orchestrates the execution lifecycle and dispatches final res
 - Responses containing `---` on its own line are split into distinct bubbles sent sequentially with realistic human typing delays (0.8s to 1.5s).
 - **Rule**: Single cohesive structures (class schedules, task lists, code, tables) are never split with `---`.
 
+### Typing Presence & Progress Watchdog (long-turn UX)
+- **Typing keepalive** (`_keep_typing`): re-asserts typing presence every 7.5s; errors are caught **per ping** so one WAHA hiccup never kills typing for the rest of the turn.
+- **Progress watchdog**: at 12s and then every 30s while nothing has been dispatched, sends a liveness ping that **states the actual activity** — current tool + key argument (e.g. "_Helmis sedang memperbarui catatan tugas 'Absen Seminar Akuntansi' (42s)..._"), or the last completed tool between steps ("_`add_task` selesai (42s), Helmis sedang menyusun langkah berikutnya..._"), or an intent description before the first tool. Generic "masih diproses" filler is not used; `describe_intent_action` covers task/note/memory/web/vault/schedule/sandbox tool families.
+- Silence now has a floor: a user never stares at a dead chat for >30s without knowing what the agent is doing.
+
 ---
 
 ## 5. Group Chat Dynamics & Non-Intervention
