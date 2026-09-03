@@ -31,7 +31,7 @@ def _normalize(task: Any, index: int) -> dict[str, Any]:
 def migrate_json_tasks(
     source: str | os.PathLike[str], database: str | os.PathLike[str]
 ) -> dict[str, Any]:
-    """Import tasks, verify counts, and archive the JSON source without deleting it."""
+    """Import tasks, carry notes/people/schedules to the live sidecar, verify, archive source."""
     source_path = Path(source)
     if not source_path.exists():
         return {"status": "skipped", "reason": "source_missing", "imported": 0}
@@ -39,6 +39,28 @@ def migrate_json_tasks(
         payload = json.load(handle)
     raw_tasks = payload.get("tasks", []) if isinstance(payload, dict) else []
     tasks = [_normalize(task, index) for index, task in enumerate(raw_tasks)]
+
+    # Non-task records (notes, people, schedules) stay JSON-backed: carry them
+    # into the live sidecar so nothing is trapped in the archived source.
+    live_sidecar = database.parent / "helmis_memory.json"
+    carried: dict[str, Any] = {}
+    for key in ("notes", "people", "schedules"):
+        value = payload.get(key) if isinstance(payload, dict) else None
+        if value:
+            carried[key] = value
+    if carried:
+        live: dict[str, Any] = {}
+        if live_sidecar.exists():
+            try:
+                loaded = json.loads(live_sidecar.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    live = loaded
+            except Exception:
+                live = {}
+        for key, value in carried.items():
+            live.setdefault(key, value)
+        live_sidecar.write_text(json.dumps(live, indent=2, ensure_ascii=False), encoding="utf-8")
+
     repository = TaskRepository(str(database))
     before = repository.list_tasks()
     repository.load_or_migrate(tasks)

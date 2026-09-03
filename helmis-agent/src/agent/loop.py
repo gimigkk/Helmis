@@ -432,21 +432,37 @@ async def run_agentic_react_loop(
                 "contents": contents,
                 "generationConfig": {"temperature": 0.0, "maxOutputTokens": 256},
             }
-            try:
-                api_key = get_next_gemini_key()
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
-                async with httpx.AsyncClient(timeout=5.0) as http_client:
-                    resp = await http_client.post(url, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        cand = data.get("candidates", [])
-                        if cand:
-                            txt = cand[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                            if txt and txt.strip():
-                                return verify_action_fidelity(txt.strip(), executed_tools)
-            except Exception as ex:
-                log.warning("Final synthesis error: %s", ex)
-            return f"Sip, {len(success_tools)} tindakan berhasil diproses."
+            # Rotate keys/models: the synthesis call must be at least as
+            # reliable as the working turn that preceded it.
+            synthesis_payload = dict(payload)
+            for model in candidate_models[:4]:
+                for _ in range(len(getattr(cascade, "GEMINI_KEYS", [])) or 1):
+                    api_key = get_next_gemini_key()
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                    try:
+                        async with httpx.AsyncClient(timeout=timeout_secs) as http_client:
+                            resp = await http_client.post(url, json=synthesis_payload)
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                cand = data.get("candidates", [])
+                                if cand:
+                                    txt = cand[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                                    if txt and txt.strip():
+                                        return verify_action_fidelity(txt.strip(), executed_tools)
+                                continue
+                            log.warning("Final synthesis attempt failed (%d) on %s", resp.status_code, model)
+                    except Exception as ex:
+                        log.warning("Final synthesis error on %s: %s", model, ex)
+            # Honest degraded summary — never claim mutations that were not made.
+            tool_counts: dict[str, int] = {}
+            for t in executed_tools:
+                if t.get("result", {}).get("status") == "success":
+                    tool_counts[str(t.get("name"))] = tool_counts.get(str(t.get("name")), 0) + 1
+            summary = ", ".join(f"{n}×{c}" for n, c in sorted(tool_counts.items()))
+            return (
+                f"Helmis selesai memproses ({summary}), tapi gagal menyusun rangkuman akhir. "
+                "Coba tanya lagi untuk konfirmasi detailnya."
+            )
 
     log.debug("Agent finished execution steps silently without emitting chat message.")
     return None
