@@ -214,7 +214,8 @@ async def test_empty_parts_list_does_not_crash() -> None:
 
     with patch("httpx.AsyncClient.post", always_empty), \
          patch("src.agent.cascade.GEMINI_KEYS", ["test_key"]), \
-         patch("src.agent.loop.get_cascade_models", return_value=["gemini-test-model"]):
+         patch("src.agent.loop.get_cascade_models", return_value=["gemini-test-model"]), \
+         patch("src.agent.fastpath.classify_fastpath", return_value=""):
         reply = await run_agentic_react_loop(
             client=mock_client,
             sender_name="Gilang",

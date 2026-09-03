@@ -35,24 +35,6 @@ _CHAT_SYSTEM_PROMPT = (
 # Layout Standards" so fast-path output is indistinguishable from full-loop
 # output: numbered items, *Tugas X:* headers, indented └ sub-lines, blank
 # lines between items. Proactive offer at the end keeps the vision.
-_QUERY_SYSTEM_PROMPT = (
-    "Kamu Helmis, sekretaris AI pribadi Gilang dan Bunga. "
-    "Waktu sekarang: {time_context}. "
-    "User bertanya tentang data mereka. Jawab akurat HANYA dari DATA di bawah "
-    "— jangan mengarang, jangan menambah data. Bahasa Indonesia santai.\n\n"
-    "FORMAT WAJIB (kontrak layout Helmis):\n"
-    "1. Baris pertama: `> *Daftar Tugas Aktif*` (atau judul serupa untuk jadwal/catatan).\n"
-    "2. Kelompokkan per orang: `*Tugas Gilang:*`, `*Tugas Bunga:*`, `*Tugas Bersama:*` (bold, tanpa `>`).\n"
-    "3. Nomori setiap item (1., 2., 3.) dalam grupnya.\n"
-    "4. Judul item di baris 1 dengan *bold*, deadline/jadwal di sub-line indentasi: `   └ Deadline: ...` atau `   └ Jadwal: ...`.\n"
-    "5. Baris kosong di antara item.\n"
-    "6. Tanpa emoji, tanpa LaTeX.\n\n"
-    "Setelah daftar, tutup dengan SATU tawaran proaktif singkat yang relevan "
-    "dengan data (mis. tugas terdekat atau yang belum ada deadline).\n"
-    "Kalau data kosong, bilang apa adanya tanpa daftar kosong.\n"
-    "Kalau pertanyaan tidak bisa dijawab dari data, balas hanya: [FALLBACK]"
-)
-
 # Casual chat: short, no digits/time, no action verbs, no question about data.
 _CHAT_PATTERN = re.compile(
     r"^(?:"
@@ -138,64 +120,84 @@ def classify_fastpath(text: str) -> str:
     return ""
 
 
-def _fmt_due(due: str) -> str:
-    return f" — due {due}" if due else ""
+def _fmt_due_line(due: str) -> str:
+    d = (due or "").strip()
+    if not d or d.lower() == "no deadline":
+        return "   └ Deadline: —"
+    return f"   └ Deadline: {d}"
 
 
-def _fmt_recurrence(rec: Any) -> str:
-    if not isinstance(rec, dict):
-        return ""
-    if rec.get("type") == "weekly" and rec.get("weekdays"):
-        days = "/".join(str(d) for d in rec.get("weekdays", []))
-        t = rec.get("time", "")
-        return f" (mingguan: {days} {t})" if t else f" (mingguan: {days})"
-    return ""
+def _render_tasks_reply(tasks: list[dict[str, Any]], routine_count: int) -> str:
+    """Render the §4 layout contract in Python. Zero model calls."""
+    if not tasks:
+        if routine_count > 0:
+            return (
+                f"Tidak ada tugas aktif selain {routine_count} jadwal absen rutin. "
+                "Mau dilihat jadwal absennya?"
+            )
+        return "Tidak ada tugas aktif. Bersih!"
+    lines = ["> *Daftar Tugas Aktif*", ""]
+    groups: dict[str, list[dict[str, Any]]] = {}
+    order = ["Gilang", "Bunga", "Both"]
+    for t in tasks:
+        a = str(t.get("assignee") or "Gilang")
+        if a.lower() in ("both", "bersama", "kita"):
+            key = "Both"
+        else:
+            key = a.split()[0].title() if a else "Gilang"
+        groups.setdefault(key, []).append(t)
+    ordered_keys = [k for k in order if k in groups] + [k for k in groups if k not in order]
+    for key in ordered_keys:
+        label = {"Gilang": "*Tugas Gilang:*", "Bunga": "*Tugas Bunga:*", "Both": "*Tugas Bersama:*"}.get(key, f"*Tugas {key}:*")
+        lines.append(label)
+        lines.append("")
+        for i, t in enumerate(groups[key], 1):
+            title = str(t.get("title", "?")).strip()
+            lines.append(f"{i}. *{title}*")
+            lines.append(_fmt_due_line(str(t.get("due") or "")))
+            rec = t.get("recurrence")
+            if isinstance(rec, dict) and rec.get("type") == "weekly":
+                days = "/".join(str(d) for d in rec.get("weekdays", []))
+                tm = rec.get("time", "")
+                sched = f"{days} {tm}" if tm else days
+                lines.append(f"   └ Jadwal: mingguan {sched}")
+            lines.append("")
+    # Proactive footer per vision: closest deadline + hidden routine note
+    with_due = [t for t in tasks if t.get("due") and str(t.get("due", "")).lower() != "no deadline"]
+    if with_due:
+        nxt = with_due[0]
+        lines.append(f"Terdekat: *{nxt.get('title', '?')}* — {nxt.get('due', '')}")
+        lines.append("")
+    if routine_count > 0:
+        lines.append(f"(+{routine_count} jadwal absen rutin disembunyikan — bilang 'absen apa aja' buat lihat.)")
+    return "\n".join(lines).strip()
 
 
-def collect_snapshot(kind: str) -> str:
-    """Build a compact data snapshot for the query prompt."""
-    if kind == "tasks":
-        from ..memory.store import list_tasks
+def _render_notes_reply(notes: list[dict[str, Any]]) -> str:
+    if not notes:
+        return "Tidak ada catatan tersimpan."
+    lines = ["> *Daftar Catatan*", ""]
+    for i, n in enumerate(notes[:15], 1):
+        title = str(n.get("title", "?")).strip()
+        content_raw = str(n.get("content", ""))
+        preview = content_raw.strip().replace("\n", " ")[:80]
+        suffix = f" — {preview}..." if len(content_raw) > 80 else (f" — {preview}" if preview else "")
+        lines.append(f"{i}. *{title}*{suffix}")
+        lines.append("")
+    return "\n".join(lines).strip()
 
-        tasks = list_tasks(status="pending", include_routine=False)
-        routine_tasks = list_tasks(status="pending", include_routine=True)
-        routine_count = len(routine_tasks) - len(tasks)
-        if not tasks:
-            base = "DATA (pending tasks): TIDAK ADA."
-            if routine_count > 0:
-                base += f" ({routine_count} routine absen/attendance tersembunyi — sebut hanya jika user eksplisit tanya absen.)"
-            return base
-        lines = [f"DATA (pending tasks, urut deadline — routine absen disembunyikan, ada {routine_count} item):"]
-        for t in tasks[:25]:
-            line = f"- {t.get('title', '?')}{_fmt_due(str(t.get('due') or ''))}"
-            line += _fmt_recurrence(t.get("recurrence"))
-            if t.get("assignee") and t.get("assignee") != "Gilang":
-                line += f" [{t['assignee']}]"
-            lines.append(line)
-        return "\n".join(lines)
-    if kind == "schedules":
-        from ..memory.store import get_repository
 
-        rows = get_repository().list_schedules(active_only=True)
-        if not rows:
-            return "DATA (schedules): TIDAK ADA."
-        lines = ["DATA (schedules aktif):"]
-        for s in rows[:25]:
-            lines.append(f"- {s.get('title', '?')} — {s.get('starts_at', '?')}")
-        return "\n".join(lines)
-    if kind == "notes":
-        from ..memory.store import list_notes
-
-        notes = list_notes()
-        if not notes:
-            return "DATA (notes): TIDAK ADA."
-        lines = ["DATA (notes):"]
-        for n in notes[:15]:
-            title = n.get("title", "?")
-            content = str(n.get("content", ""))[:300]
-            lines.append(f"- {title}: {content}")
-        return "\n".join(lines)
-    return ""
+def _render_schedules_reply(rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return "Tidak ada jadwal aktif."
+    lines = ["> *Daftar Jadwal Aktif*", ""]
+    for i, s in enumerate(rows[:25], 1):
+        title = str(s.get("title", "?")).strip()
+        starts = str(s.get("starts_at", "?")).strip()
+        lines.append(f"{i}. *{title}*")
+        lines.append(f"   └ Jadwal: {starts}")
+        lines.append("")
+    return "\n".join(lines).strip()
 
 
 async def run_fastpath(
@@ -206,8 +208,9 @@ async def run_fastpath(
 ) -> str | None:
     """Execute a fast-path turn. Returns reply text, or None to fall back.
 
-    chat_completion_fn(payload) -> str must issue one plain generateContent
-    call (no tools) and return the reply text, raising on total failure.
+    Data queries (tasks/schedules/notes) render deterministically in Python —
+    zero model calls, zero provider dependence. Only chat pings the model;
+    if it fails, a deterministic greeting keeps the turn alive.
     """
     if kind == "chat":
         payload = {
@@ -219,32 +222,37 @@ async def run_fastpath(
             ],
             "generationConfig": {"temperature": 0.4, "maxOutputTokens": 120},
         }
-    elif kind == "time":
+        try:
+            reply = await chat_completion_fn(payload)
+        except Exception:
+            reply = None
+        if reply:
+            cleaned = reply.strip()
+            if "[FALLBACK]" not in cleaned and len(cleaned) <= 1200:
+                return cleaned
+        # Deterministic greeting fallback — never dead, never slow.
+        from ..memory.store import get_time_of_day_info
+
+        time_str, _ = get_time_of_day_info()
+        period = "pagi" if "Pagi" in time_str else "siang" if "Siang" in time_str else "sore" if "Sore" in time_str else "malam"
+        return f"Halo {sender_name}, selamat {period}. Ada yang bisa dibantu?"
+    if kind == "time":
         from ..memory.store import get_time_of_day_info
 
         time_str, _ = get_time_of_day_info()
         return f"Sekarang {time_str}."
-    else:
-        snapshot = collect_snapshot(kind)
-        payload = {
-            "systemInstruction": {
-                "parts": [{"text": _QUERY_SYSTEM_PROMPT.format(time_context=_time_context())}]
-            },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {"text": f"{snapshot}\n\nPERTANYAAN: {text}"}
-                    ],
-                }
-            ],
-            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 700},
-        }
+    if kind == "tasks":
+        from ..memory.store import list_tasks
 
-    reply = await chat_completion_fn(payload)
-    if not reply or not reply.strip():
-        return None
-    cleaned = reply.strip()
-    if "[FALLBACK]" in cleaned or len(cleaned) > 1200:
-        return None  # model thinks it needs the full agent — respect that
-    return cleaned
+        work = list_tasks(status="pending", include_routine=False)
+        routine_count = len(list_tasks(status="pending", include_routine=True)) - len(work)
+        return _render_tasks_reply(work, routine_count)
+    if kind == "schedules":
+        from ..memory.store import get_repository
+
+        return _render_schedules_reply(get_repository().list_schedules(active_only=True))
+    if kind == "notes":
+        from ..memory.store import list_notes
+
+        return _render_notes_reply(list_notes())
+    return None
