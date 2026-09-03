@@ -995,3 +995,50 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
         ]
     }
 ]
+
+
+# ---------------------------------------------------------------------------
+# Compact mode: query turns carry only the declarations they can plausibly
+# use. Cuts prefill massively vs the full 49-tool payload.
+# ---------------------------------------------------------------------------
+_TOOL_DOMAIN_MAP: dict[str, str] = {
+    "add_task": "task", "list_tasks": "task", "complete_task": "task",
+    "update_task": "task", "delete_task": "task",
+    "create_schedule": "schedule", "list_schedules": "schedule",
+    "list_reminder_policies": "schedule",
+    "save_note": "note", "get_note": "note", "list_notes": "note",
+    "append_to_note": "note", "delete_note": "note",
+    "remember_fact": "memory", "correct_fact": "memory", "delete_memory": "memory",
+    "recall_memory": "memory", "search_memory": "memory",
+    "list_memory_candidates": "memory", "confirm_memory_candidate": "memory",
+    "reject_memory_candidate": "memory",
+    "add_person": "person", "get_person": "person",
+    "send_status_update": "whatsapp", "send_whatsapp_message": "whatsapp",
+    "get_whatsapp_messages": "whatsapp", "send_whatsapp_media": "whatsapp",
+    "web_search": "web", "search_web": "web", "read_url": "web",
+    "read_vault_file": "vault", "save_vault_file": "vault",
+    "search_vault_files": "vault", "list_vault_files": "vault",
+    "send_vault_file": "vault", "move_vault_files": "vault",
+    "delete_vault_files": "vault", "create_vault_directory": "vault",
+    "delete_vault_directory": "vault", "load_skill": "skills",
+    "create_skill": "skills", "update_skill": "skills", "list_skills": "skills",
+    "process_pdf": "vault", "execute_code": "compute",
+}
+
+# Universal tools available in every compact payload.
+_COMPACT_ALWAYS = {"get_current_time", "execute_code"}
+
+# Cross-domain escape hatches: model can load missing tool families itself.
+_COMPACT_META = {"load_skill", "list_skills"}
+
+
+def get_compact_tools(domain: str) -> list[dict[str, Any]]:
+    """Tool declarations for one domain + universal + meta escape hatches."""
+    wanted = _COMPACT_ALWAYS | _COMPACT_META
+    if domain in _TOOL_DOMAIN_MAP.values():
+        wanted |= {name for name, dom in _TOOL_DOMAIN_MAP.items() if dom == domain}
+    declarations = GEMINI_TOOLS[0]["function_declarations"]
+    compact = [d for d in declarations if str(d.get("name")) in wanted]
+    if not compact:  # safety: never return an empty tool set
+        return GEMINI_TOOLS
+    return [{"function_declarations": compact}]

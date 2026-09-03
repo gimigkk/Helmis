@@ -260,3 +260,100 @@ def load_all_skills() -> str:
     if not output_sections:
         return ""
     return "\n\n".join(output_sections)
+
+
+# ---------------------------------------------------------------------------
+# Compact mode: slim system instruction for query turns.
+# Core identity + zero-assumption grounding + §4 formatting contract + clock.
+# Skill selection is domain-scoped by the caller.
+# ---------------------------------------------------------------------------
+_COMPACT_PROMPT_CACHE: str | None = None
+
+
+def load_compact_system_prompt() -> str:
+    """Extract the non-negotiable core from the full manual.
+
+    Identity (§1 head) + Mandatory Tool Calling (§2) + WhatsApp formatting
+    (§4, incl. task layout contract). Omits memory-management doctrine,
+    vault specifics, proactive-engine rules that query turns can't use.
+    """
+    global _COMPACT_PROMPT_CACHE
+    if _COMPACT_PROMPT_CACHE is not None:
+        return _COMPACT_PROMPT_CACHE
+    text = load_system_prompt()
+    lines = text.split("\n")
+
+    def _section(header_prefix: str, next_prefixes: list[str]) -> str:
+        try:
+            start = next(i for i, line in enumerate(lines) if line.startswith(header_prefix))
+        except StopIteration:
+            return ""
+        end = len(lines)
+        for np in next_prefixes:
+            try:
+                idx = next(i for i, line in enumerate(lines) if i > start and line.startswith(np))
+                end = min(end, idx)
+            except StopIteration:
+                continue
+        return "\n".join(lines[start:end]).strip()
+
+    parts = [
+        # Header + identity + group/DM engagement rules
+        "\n".join(lines[: lines.index("## 2. Mandatory Real-Time Tool Calling & Zero Assumptions (CRITICAL INVARIANT)")]).strip(),
+        _section("## 2. Mandatory Real-Time Tool Calling", ["## 3. Memory"]),
+        _section("## 4. Communication Style", ["## 5. Operational"]),
+    ]
+    combined = "\n\n---\n\n".join(p for p in parts if p)
+    combined += (
+        "\n\n---\n\n"
+        "### TIMEZONE\n"
+        "Asia/Jakarta (WIB, UTC+7). Relatif waktu ('besok', 'minggu depan') dihitung dari jam sekarang.\n"
+    )
+    _COMPACT_PROMPT_CACHE = combined
+    return combined
+
+
+_SKILL_DOMAIN_MAP: dict[str, list[str]] = {
+    "task": ["task-manager", "recurring-reminders", "reminder-engine"],
+    "schedule": ["schedule-manager", "reminder-engine", "recurring-reminders"],
+    "note": ["shared-notes"],
+    "memory": [],
+    "person": ["people-directory"],
+    "whatsapp": [],
+    "web": [],
+    "vault": ["vault-manager", "document-reader", "pdf-toolkit"],
+    "skills": [],
+    "compute": [],
+}
+
+
+def load_domain_skills(domain: str) -> str:
+    """Load only the skill playbooks relevant to a query domain."""
+    wanted = _SKILL_DOMAIN_MAP.get(domain)
+    if wanted is None:
+        return load_all_skills()
+    skills_dir = os.environ.get("SKILLS_DIR", "")
+    candidates = [skills_dir, "/app/config/skills", "/hermes-config/skills", "config/skills", "../config/skills"]
+    target_dir = ""
+    for d in candidates:
+        if d and os.path.exists(d):
+            target_dir = d
+            break
+    if not target_dir:
+        return ""
+    skill_texts = []
+    for root, _, files in sorted(os.walk(target_dir)):
+        for file in sorted(files):
+            if not file.endswith(".md"):
+                continue
+            full_path = os.path.join(root, file)
+            skill_name = os.path.basename(os.path.dirname(full_path))
+            if skill_name in wanted:
+                try:
+                    with open(full_path, encoding="utf-8") as f:
+                        skill_texts.append(f"### SKILL: {skill_name}\n{f.read()}")
+                except Exception as ex:
+                    log.warning("Could not load skill %s: %s", full_path, ex)
+    if not skill_texts:
+        return ""
+    return "## ACTIVE SKILLS & BEHAVIORAL PLAYBOOKS:\n" + "\n\n---\n\n".join(skill_texts)
