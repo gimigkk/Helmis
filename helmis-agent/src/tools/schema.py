@@ -66,6 +66,16 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                             "type": "STRING",
                             "description": "Type of task: 'reminder' (default for human todos/deadlines) or 'scheduled_action' (for actions Helmis executes autonomously when due).",
                         },
+                        "category": {
+                            "type": "STRING",
+                            "description": (
+                                "Task category: 'work' (real to-dos, default), 'personal', 'shared', or 'routine' "
+                                "(recurring attendance pings like absen kuliah, weekly check-ins). "
+                                "Routine tasks are hidden from default task overviews. "
+                                "Auto-detected from the title when omitted (absen/kehadiran/class → routine); "
+                                "pass explicitly only to override detection."
+                            ),
+                        },
                         "job": {
                             "type": "OBJECT",
                             "description": "Polymorphic job execution descriptor for scheduled actions. E.g. {'kind': 'tool', 'tool_name': 'waha_send_message', 'tool_args': {'chat_id': '...', 'text': '...'}} or {'kind': 'tool', 'tool_name': 'send_vault_file_to_chat', 'tool_args': {'filename': '...', 'chat_id': '...'}} or {'kind': 'agent', 'prompt': '...', 'target_chat': '...'}",
@@ -76,7 +86,7 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
             },
             {
                 "name": "list_tasks",
-                "description": "List current tasks, reminders, and scheduled actions from storage. By default, items are sorted by urgency (earliest deadline first).",
+                "description": "List current tasks, reminders, and scheduled actions from storage. By default, items are sorted by urgency (earliest deadline first) and routine attendance pings (absen kuliah, recurring check-ins) are EXCLUDED — 'list tasks' means real work. Set include_routine=true only when the user explicitly asks about routine/attendance items (e.g. 'absen apa aja minggu ini', 'jadwal absen bunga').",
                 "parameters": {
                     "type": "OBJECT",
                     "properties": {
@@ -91,6 +101,10 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         "task_type": {
                             "type": "STRING",
                             "description": "Filter by task type: 'all' (default), 'reminder' (human todos only), or 'scheduled_action' (Helmis bot jobs only)",
+                        },
+                        "include_routine": {
+                            "type": "BOOLEAN",
+                            "description": "Include routine attendance pings (absen kuliah, weekly check-ins). Default false: 'ada tugas apa' shows only real work. Only set true when the user explicitly asks about absen/routine/check-in items.",
                         },
                     },
                 },

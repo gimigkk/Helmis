@@ -61,6 +61,7 @@ async def handle_add_task(
             nag_interval_minutes=nag_interval,
             max_nags=max_nags,
             nag_policy=nag_policy if isinstance(nag_policy, dict) else None,
+            category=str(args.get("category", "")).strip().lower(),
         )
     except ValueError as exc:
         return {"status": "error", "outcome": "failed", "error": str(exc)}
@@ -88,8 +89,16 @@ def handle_list_tasks(args: dict[str, Any]) -> dict[str, Any]:
     status = str(args.get("status", "pending"))
     sort_by = str(args.get("sort_by", "urgency"))
     task_type = str(args.get("task_type", "all"))
-    tasks = list_tasks(status=status, sort_by=sort_by, task_type=task_type)
-    return {"status": "success", "count": len(tasks), "sorted_by": sort_by, "task_type": task_type, "tasks": tasks}
+    include_routine = bool(args.get("include_routine", False))
+    tasks = list_tasks(status=status, sort_by=sort_by, task_type=task_type, include_routine=include_routine)
+    return {
+        "status": "success",
+        "count": len(tasks),
+        "sorted_by": sort_by,
+        "task_type": task_type,
+        "include_routine": include_routine,
+        "tasks": tasks,
+    }
 
 
 @register_tool("complete_task")

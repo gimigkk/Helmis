@@ -298,3 +298,48 @@ def test_load_memory_respects_saved_people(monkeypatch, tmp_path) -> None:
 
     mem = memory.load_memory()
     assert "Dr. Sarah" in mem["people"]
+
+
+def test_task_category_auto_detection(monkeypatch, tmp_path) -> None:
+    """Absen/class/check-in titles → 'routine'; everything else → 'work'."""
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+
+    t1 = memory.add_task(title="Absen Pengauditan Internal", due="", assignee="Bunga", recurrence={"type": "weekly", "weekdays": ["senin"], "time": "14:30", "timezone": "Asia/Jakarta"})
+    t2 = memory.add_task(title="Kuliah Ekonomi Syariah", due="", assignee="Bunga")
+    t3 = memory.add_task(title="Bikin laporan mingguan", due="Besok 10:00", assignee="Gilang", recurrence={"type": "weekly", "weekdays": ["jumat"], "time": "17:00", "timezone": "Asia/Jakarta"})
+    t4 = memory.add_task(title="Bayar tagihan listrik", due="Besok 12:00", assignee="Gilang")
+
+    assert t1["category"] == "routine"
+    assert t2["category"] == "routine"
+    # Recurring work stays work — recurrence alone ≠ routine
+    assert t3["category"] == "work"
+    assert t4["category"] == "work"
+
+
+def test_task_category_explicit_override(monkeypatch, tmp_path) -> None:
+    """Explicit category beats title detection both ways."""
+    data_dir = tmp_path / "data2"
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+
+    t1 = memory.add_task(title="Check-in mingguan tim", due="", assignee="Gilang", category="work")
+    t2 = memory.add_task(title="Beli kopi", due="", assignee="Gilang", category="routine")
+
+    assert t1["category"] == "work"
+    assert t2["category"] == "routine"
+
+
+def test_list_tasks_hides_routine_by_default(monkeypatch, tmp_path) -> None:
+    """'ada tugas apa' must show work, not attendance pings."""
+    data_dir = tmp_path / "data3"
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+
+    memory.add_task(title="Absen Pengauditan Internal", due="", assignee="Bunga", recurrence={"type": "weekly", "weekdays": ["senin"], "time": "14:30", "timezone": "Asia/Jakarta"})
+    memory.add_task(title="Absen Seminar Akuntansi", due="", assignee="Bunga", recurrence={"type": "weekly", "weekdays": ["kamis"], "time": "14:30", "timezone": "Asia/Jakarta"})
+    memory.add_task(title="Bikin laporan mingguan", due="Besok 10:00", assignee="Gilang")
+
+    default_view = memory.list_tasks(status="pending")
+    assert [t["title"] for t in default_view] == ["Bikin laporan mingguan"]
+
+    full_view = memory.list_tasks(status="pending", include_routine=True)
+    assert len(full_view) == 3

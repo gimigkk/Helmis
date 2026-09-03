@@ -33,6 +33,7 @@ Rules:
 - `weekdays` accepts Indonesian names: senin, selasa, rabu, kamis, jumat, sabtu, minggu (or English, or 0-6 with 0=Monday).
 - `time` = HH:MM local time. Set it at class START (absensi opens when class starts).
 - `timezone`: always `Asia/Jakarta` for us.
+- **Category**: attendance/class/check-in reminders get `category: "routine"` (auto-detected from absen/kehadiran/kuliah titles). Routine tasks are HIDDEN from default task overviews — "ada tugas apa" shows only real work. Recurring WORK (e.g. weekly report) stays category "work" and remains visible.
 
 For attendance reminders, set the due time AT class start (not 30 min early unless asked) and add a `nag_policy` so Helmis re-reminds every few minutes until the user confirms they filled it.
 

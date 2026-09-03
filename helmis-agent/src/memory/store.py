@@ -250,6 +250,34 @@ def log_activity(summary: str) -> None:
     _save_json_records(activity_log=log_list[-50:])
 
 
+# Routine/attendance titles: recurring check-ins that are not real work.
+# Matches Indonesian + English attendance/class/periodic-checkin patterns.
+_ROUTINE_TITLE_PATTERN = re.compile(
+    r"\b(?:"
+    r"absen(?:\s+\w+)*|"
+    r"kehadiran|attendance|"
+    r"\babsensi\b|"
+    r"kuliah\b|kelas\b|class\b|"
+    r"check[- ]?in\b|checkin\b|"
+    r"presensi\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _detect_task_category(title: str, recurrence: dict[str, Any] | None) -> str:
+    """Auto-classify a task into 'routine' vs 'work'.
+
+    Routine = recurring attendance/check-in pings (absen kuliah, weekly
+    check-ins). Everything else is real work. Recurrence alone does NOT make
+    a task routine — a recurring work item ("rekap mingguan") stays work.
+    """
+    title_l = (title or "").strip()
+    if _ROUTINE_TITLE_PATTERN.search(title_l):
+        return "routine"
+    return "work"
+
+
 def add_task(
     title: str,
     due: str = "",
@@ -265,11 +293,14 @@ def add_task(
     nag_interval_minutes: int = 10,
     max_nags: int = 6,
     nag_policy: dict[str, Any] | None = None,
+    category: str = "",
 ) -> dict[str, Any]:
     """Add a task, updating only an identical pending semantic key.
 
     ``identity_key_value`` is optional for backwards compatibility and allows
     callers to distinguish two tasks with the same display title.
+    ``category`` separates real work ('work'/'personal'/'shared') from
+    recurring attendance pings ('routine') so task overviews stay clean.
     """
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")
@@ -302,6 +333,10 @@ def add_task(
         clean_assignee = "Helmis"
         clean_lead = 0
 
+    clean_category = str(category or "").strip().lower()
+    if clean_category not in ("routine", "work", "personal", "shared"):
+        clean_category = _detect_task_category(clean_title, clean_recurrence)
+
     repo = get_repository()
     now_str = get_current_time_str()
     payload: dict[str, Any] = {
@@ -312,6 +347,7 @@ def add_task(
         "priority": clean_priority,
         "lead_time_minutes": clean_lead,
         "task_type": clean_task_type,
+        "category": clean_category,
         "recurrence": clean_recurrence,
         "recurrence_policy": clean_recurrence,
         "nag_interval_minutes": clean_nag_interval,
@@ -863,9 +899,16 @@ def list_tasks(
     status: str = "pending",
     sort_by: str = "urgency",
     task_type: str = "all",
+    include_routine: bool = False,
 ) -> list[dict[str, Any]]:
     """
     List tasks filtered by status ('pending', 'completed', 'all') and task_type ('all', 'reminder', 'scheduled_action').
+
+    By default routine attendance pings ('absen kuliah', recurring check-ins)
+    are EXCLUDED — "list my tasks" means real work. Pass
+    include_routine=True for the full roster (explicit routine asks,
+    scheduler ticks).
+
     Default sort order is by urgency (earliest deadline first, no-deadline items last).
     """
     tasks = get_repository().list_tasks()
@@ -874,6 +917,9 @@ def list_tasks(
     if task_type != "all":
         clean_tt = task_type.strip().lower()
         filtered = [t for t in filtered if t.get("task_type", "reminder") == clean_tt]
+
+    if not include_routine:
+        filtered = [t for t in filtered if _detect_task_category(str(t.get("title", "")), t.get("recurrence")) == "work"]
 
     if sort_by == "urgency":
         return sorted(filtered, key=lambda t: parse_due_timestamp(t.get("due", "")))
