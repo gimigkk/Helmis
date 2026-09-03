@@ -188,16 +188,18 @@ async def process_batched_turn(
 
     turn_state: dict[str, Any] = {"current_tool": None, "tool_args": None}
 
-    # Keepalive typing status for long-running / multi-step steered turns
+    # Keepalive typing status for long-running / multi-step steered turns.
+    # Failures are caught *per ping* so one WAHA hiccup never kills typing
+    # for the rest of the turn (previously the whole task died on first error).
     async def _keep_typing() -> None:
-        try:
-            while True:
-                await asyncio.sleep(7.5)
+        while True:
+            await asyncio.sleep(7.5)
+            try:
                 await client.start_typing(chat_id=from_user)
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pass
 
     typing_keepalive_task = asyncio.create_task(_keep_typing())
 
@@ -333,29 +335,43 @@ async def process_batched_turn(
                 combined_text = f"{doc_banner}\n\n{combined_text}" if combined_text else doc_banner
                 tracer.message_text = combined_text
 
-        # Dynamic Progress Watchdog: reassure after 12.0s only if agent is genuinely stalled
+        # Dynamic Progress Watchdog: reassure at 12s, then every 30s while the
+        # agent is still working. Long 503-storm turns previously went silent
+        # after one message, looking like a crash.
         async def progress_watchdog() -> None:
             try:
-                await asyncio.sleep(12.0)
-                if turn_state.get("dispatched_items", 0) > 0:
-                    return
-                cur_tool = turn_state.get("current_tool")
-                if cur_tool:
-                    reassurance_msg = f"_Menjalankan `{cur_tool}`..._"
-                else:
-                    action_desc = describe_intent_action(
-                        text=combined_text,
-                        has_media=has_media,
-                        media_data=media_data,
-                        is_voice_note=is_voice_note,
-                        current_tool=cur_tool,
-                        tool_args=turn_state.get("tool_args"),
-                    )
-                    reassurance_msg = f"Sebentar ya, {action_desc}..."
+                intervals = [12.0, 30.0, 30.0, 30.0, 30.0]
+                elapsed = 0.0
+                for interval in intervals:
+                    await asyncio.sleep(interval)
+                    elapsed += interval
+                    if turn_state.get("dispatched_items", 0) > 0:
+                        return
+                    cur_tool = turn_state.get("current_tool")
+                    if elapsed <= 12.5:
+                        if cur_tool:
+                            reassurance_msg = f"_Menjalankan `{cur_tool}`..._"
+                        else:
+                            action_desc = describe_intent_action(
+                                text=combined_text,
+                                has_media=has_media,
+                                media_data=media_data,
+                                is_voice_note=is_voice_note,
+                                current_tool=cur_tool,
+                                tool_args=turn_state.get("tool_args"),
+                            )
+                            reassurance_msg = f"Sebentar ya, {action_desc}..."
+                    else:
+                        # Follow-up pings: short heartbeat with elapsed time,
+                        # only while nothing has been delivered to the user.
+                        if cur_tool:
+                            reassurance_msg = f"_Masih mengerjakan `{cur_tool}` ({int(elapsed)}s)..._"
+                        else:
+                            reassurance_msg = f"_Masih diproses ({int(elapsed)}s), mohon tunggu..._"
 
-                log.info("Agent turn taking >12.0s for [%s]: %s", sender_name, reassurance_msg)
-                await client.start_typing(chat_id=from_user)
-                await client.send_message(chat_id=from_user, text=reassurance_msg)
+                    log.info("Agent turn taking >%.0fs for [%s]: %s", elapsed, sender_name, reassurance_msg)
+                    await client.start_typing(chat_id=from_user)
+                    await client.send_message(chat_id=from_user, text=reassurance_msg)
             except asyncio.CancelledError:
                 pass
             except Exception as ex:

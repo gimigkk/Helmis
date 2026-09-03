@@ -4,6 +4,8 @@ cascade.py — Dynamic Gemini Model Cascade, Quota Rotation, and Prompt/Skill Lo
 
 import logging
 import os
+import threading
+import time
 from typing import Any
 
 import httpx
@@ -128,6 +130,34 @@ def get_cascade_models(is_video: bool = False) -> list[str]:
 
 
 _key_index = 0
+
+# Model-level cooldown: a model that just returned 503/timeout/404 is dead
+# weight for a short window — re-probing it every ReAct step burns 8 key
+# attempts × ~1-3s each before falling through. Track per-model penalties
+# in process memory (best-effort; container restart clears them).
+_MODEL_COOLDOWN_SECONDS = 120.0
+_model_cooldowns: dict[str, float] = {}
+_cooldown_lock = threading.Lock()
+
+
+def mark_model_unavailable(model: str, *, seconds: float = _MODEL_COOLDOWN_SECONDS) -> None:
+    """Put a model on cooldown after 503/timeout/404 so later steps skip it."""
+    with _cooldown_lock:
+        _model_cooldowns[model] = time.monotonic() + seconds
+
+
+def get_cascade_models_with_cooldown(is_video: bool = False) -> list[str]:
+    """Cascade order with recently-failed models deprioritized to the end.
+
+    Failed models are not dropped (they may recover mid-turn); they are
+    demoted so the healthy tail of the cascade is tried first.
+    """
+    models = get_cascade_models(is_video=is_video)
+    now = time.monotonic()
+    with _cooldown_lock:
+        healthy = [m for m in models if _model_cooldowns.get(m, 0.0) <= now]
+        cooling = [m for m in models if _model_cooldowns.get(m, 0.0) > now]
+    return healthy + cooling
 
 
 def get_next_gemini_key() -> str:

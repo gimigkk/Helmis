@@ -260,3 +260,41 @@ def test_get_memory_context_summary_temporal_isolation() -> None:
     assert "Secret Task 123" not in summary
     assert "Secret Contact" not in summary
     assert "Secret note body" not in summary
+
+
+def test_people_fallback_when_sidecar_empty(monkeypatch, tmp_path) -> None:
+    """Empty sidecar `people` must fall back to env-seeded principals.
+
+    Regression: Bunga's phone was lost after migration because the sidecar
+    had `people: {}`, which silently overrode env-seeded defaults — proactive
+    reminders then failed with 'No resolvable recipient'.
+    """
+    import json as _json
+
+    data_dir = tmp_path / "data"
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    monkeypatch.setenv("BUNGA_PHONE", "+6289876543210")
+
+    sidecar = data_dir / "helmis_memory.json"
+    sidecar.write_text(_json.dumps({"people": {}, "notes": []}), encoding="utf-8")
+
+    found = memory.get_person("Bunga")
+    assert found is not None
+    assert found["phone"] == "+6289876543210"
+
+
+def test_load_memory_respects_saved_people(monkeypatch, tmp_path) -> None:
+    """Non-empty sidecar people must NOT be overwritten by env defaults."""
+    import json as _json
+
+    data_dir = tmp_path / "data2"
+    data_dir.mkdir()
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    sidecar = data_dir / "helmis_memory.json"
+    sidecar.write_text(
+        _json.dumps({"people": {"Dr. Sarah": {"phone": "+628111222333"}}}),
+        encoding="utf-8",
+    )
+
+    mem = memory.load_memory()
+    assert "Dr. Sarah" in mem["people"]
