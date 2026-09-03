@@ -70,49 +70,43 @@ class TestRun:
         assert reply == "Halo Gilang! Sore ya."
 
     @pytest.mark.asyncio
-    async def test_fallback_marker_returns_none(self) -> None:
-        async def fake_completion(payload: dict[str, Any]) -> str:
-            return "[FALLBACK]"
-
-        assert await run_fastpath("halo", "chat", "Gilang", fake_completion) is None
-
-    @pytest.mark.asyncio
     async def test_time_query_needs_no_model(self) -> None:
         reply = await run_fastpath("jam berapa?", "time", "Gilang", None)
         assert "WIB" in reply
-
-    @pytest.mark.asyncio
-    async def test_task_query_includes_snapshot(self) -> None:
-        captured: dict[str, Any] = {}
-
-        async def fake_completion(payload: dict[str, Any]) -> str:
-            captured["text"] = payload["contents"][0]["parts"][0]["text"]
-            return "Ada 1 tugas pending."
-
-        reply = await run_fastpath("ada tugas apa?", "tasks", "Gilang", fake_completion)
-        assert reply == "Ada 1 tugas pending."
-        assert "DATA (pending tasks" in captured["text"]
-        assert "PERTANYAAN: ada tugas apa?" in captured["text"]
 
 
 class TestVisionAlignment:
     """Fast-path output must honor system-prompt.md contracts."""
 
     @pytest.mark.asyncio
-    async def test_query_prompt_carries_layout_contract(self) -> None:
-        """Manual §4: numbered items, section headers, └ sub-lines, no emoji."""
-        captured: dict[str, Any] = {}
+    async def test_tasks_render_layout_contract(self, monkeypatch, tmp_path) -> None:
+        """Manual §4: numbered items, section headers, └ sub-lines, blank lines."""
+        data_dir = tmp_path / "data"
+        monkeypatch.setenv("DATA_DIR", str(data_dir))
+        import src.memory as memory
+        memory.add_task(title="Bikin PPT", due="Sabtu, 5 September 2026 (23:59 WIB)", assignee="Gilang")
+        memory.add_task(title="Isi Gform", due="", assignee="Bunga")
 
-        async def fake_completion(payload: dict[str, Any]) -> str:
-            captured["sys"] = payload["systemInstruction"]["parts"][0]["text"]
-            return "> *Daftar Tugas Aktif*"
+        reply = await run_fastpath("ada tugas apa?", "tasks", "Gilang", None)
+        assert "> *Daftar Tugas Aktif*" in reply
+        assert "*Tugas Gilang:*" in reply
+        assert "1. *Bikin PPT*" in reply
+        assert "   └ Deadline: Sabtu, 5 September 2026 (23:59 WIB)" in reply
+        assert "*Tugas Bunga:*" in reply
+        assert "1. *Isi Gform*" in reply
 
-        await run_fastpath("ada tugas apa?", "tasks", "Gilang", fake_completion)
-        sys = captured["sys"]
-        assert "*Tugas Gilang:*" in sys
-        assert "└ Deadline" in sys
-        assert "Nomori" in sys
-        assert "tanpa emoji" in sys.lower()
+    @pytest.mark.asyncio
+    async def test_tasks_render_proactive_footer(self, monkeypatch, tmp_path) -> None:
+        """Vision: anticipate needs — list closes with nearest deadline + routine note."""
+        data_dir = tmp_path / "data2"
+        monkeypatch.setenv("DATA_DIR", str(data_dir))
+        import src.memory as memory
+        memory.add_task(title="Bikin PPT", due="Sabtu 5 Sep", assignee="Gilang")
+        memory.add_task(title="Absen Kuliah X", due="", assignee="Bunga", recurrence={"type": "weekly", "weekdays": ["senin"], "time": "09:00", "timezone": "Asia/Jakarta"})
+
+        reply = await run_fastpath("ada tugas apa?", "tasks", "Gilang", None)
+        assert "Terdekat: *Bikin PPT*" in reply
+        assert "absen" in reply.lower()
 
     @pytest.mark.asyncio
     async def test_chat_prompt_has_clock(self) -> None:
@@ -125,28 +119,26 @@ class TestVisionAlignment:
 
         await run_fastpath("halo", "chat", "Gilang", fake_completion)
         assert "WIB" in captured["sys"]
-        assert "Sapaan" in captured["sys"] or "sapaan" in captured["sys"]
+        assert "sapaan" in captured["sys"].lower()
 
     @pytest.mark.asyncio
-    async def test_query_prompt_ends_with_proactive_offer(self) -> None:
-        """Vision: anticipate needs — list answers close with one offer."""
-        captured: dict[str, Any] = {}
+    async def test_chat_deterministic_fallback_when_provider_fails(self) -> None:
+        """Provider down => instant deterministic greeting, never dead, never slow."""
+        async def boom(payload: dict[str, Any]) -> str:
+            raise RuntimeError("provider down")
 
-        async def fake_completion(payload: dict[str, Any]) -> str:
-            captured["sys"] = payload["systemInstruction"]["parts"][0]["text"]
-            return "> *Daftar Tugas Aktif*\n\n1. *Absen Senin*"
-
-        await run_fastpath("ada tugas apa?", "tasks", "Gilang", fake_completion)
-        assert "proaktif" in captured["sys"].lower()
+        reply = await run_fastpath("halo", "chat", "Gilang", boom)
+        assert reply is not None
+        assert "Gilang" in reply
+        assert "WIB" not in reply  # greeting, not a clock dump
 
 
 class TestRoutineFiltering:
     """Routine absen pings are hidden from task overviews."""
 
-    @pytest.mark.asyncio
-    async def test_routine_tasks_counted_but_not_listed(self, monkeypatch, tmp_path) -> None:
+    def test_routine_tasks_counted_but_not_listed(self, monkeypatch, tmp_path) -> None:
         import src.memory as memory
-        from src.agent import fastpath
+        from src.agent.fastpath import _render_tasks_reply
 
         data_dir = tmp_path / "data"
         monkeypatch.setenv("DATA_DIR", str(data_dir))
@@ -155,9 +147,18 @@ class TestRoutineFiltering:
         memory.add_task(title="Bikin laporan mingguan", due="Besok 10:00 WIB", assignee="Gilang")
         memory.add_task(title="Bayar listrik", due="Jumat 12:00 WIB", assignee="Gilang")
 
-        snap = fastpath.collect_snapshot("tasks")
-        assert "Absen Kuliah Statistika" not in snap
-        assert "Bikin laporan mingguan" in snap
-        assert "Bayar listrik" in snap
-        assert "routine absen disembunyikan" in snap
-        assert "ada 1 item" in snap
+        work = memory.list_tasks(status="pending", include_routine=False)
+        routine_count = len(memory.list_tasks(status="pending", include_routine=True)) - len(work)
+        reply = _render_tasks_reply(work, routine_count)
+        assert "Absen Kuliah Statistika" not in reply
+        assert "Bikin laporan mingguan" in reply
+        assert "Bayar listrik" in reply
+        assert "disembunyikan" in reply
+        assert "+1" in reply
+
+    def test_routine_only_shows_offer(self) -> None:
+        from src.agent.fastpath import _render_tasks_reply
+
+        reply = _render_tasks_reply([], 8)
+        assert "8 jadwal absen rutin" in reply
+        assert "Mau dilihat" in reply
