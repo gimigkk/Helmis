@@ -159,20 +159,16 @@ def get_time_of_day_info() -> tuple[str, str]:
     now = datetime.now(TZ)
     hour = now.hour
     if 5 <= hour < 12:
-        period = "Pagi"
         greeting = "Selamat pagi"
     elif 12 <= hour < 15:
-        period = "Siang"
         greeting = "Selamat siang"
     elif 15 <= hour < 19:
-        period = "Sore"
         greeting = "Selamat sore"
     else:
-        period = "Malam"
         greeting = "Selamat malam"
 
     time_str = now.strftime("%A, %d %B %Y - %H:%M WIB")
-    return time_str, f"{period} (Gunakan sapaan '{greeting}' jika menyapa)"
+    return time_str, greeting
 
 
 def get_current_time_str() -> str:

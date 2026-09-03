@@ -1,5 +1,9 @@
 """
-test_fastpath.py — Deterministic fast-path routing and fallback safety.
+test_fastpath.py — Model-driven fast-path routing and fallback safety.
+
+Contract: only chat pings + clock queries take the fast path. ALL data
+queries (tasks/schedules/notes, filtered or not) go through the full agent
+loop so the model decides filtering and formatting via tools.
 """
 
 from typing import Any
@@ -18,22 +22,24 @@ class TestClassify:
         for text in ["makasih", "sip", "oke", "wkwk", "gt", "oh"]:
             assert classify_fastpath(text) == "chat", text
 
-    def test_task_query_routes(self) -> None:
-        assert classify_fastpath("ada tugas apa aja?") == "tasks"
-        assert classify_fastpath("cek tugas") == "tasks"
-        assert classify_fastpath("list reminder dong") == "tasks"
-
-    def test_schedule_query_routes(self) -> None:
-        assert classify_fastpath("ada jadwal apa?") == "schedules"
-        assert classify_fastpath("cek jadwal") == "schedules"
-
-    def test_notes_query_routes(self) -> None:
-        assert classify_fastpath("catatan apa aja?") == "notes"
-        assert classify_fastpath("list notes") == "notes"
-
     def test_time_query_routes(self) -> None:
         assert classify_fastpath("jam berapa sekarang?") == "time"
         assert classify_fastpath("hari apa sekarang") == "time"
+
+    def test_all_data_queries_reach_agent(self) -> None:
+        """Model must decide filtering/formatting — no deterministic bypass."""
+        for text in [
+            "ada tugas apa aja?",
+            "tugas apa aja",
+            "list tugas",
+            "ada jadwal apa?",
+            "catatan apa aja?",
+            "tugas Bunga",
+            "tugas yang jatuh tempo besok",
+            "rangkum task list jadi 3 prioritas",
+            "semua tugas termasuk absen",
+        ]:
+            assert classify_fastpath(text) == "", text
 
     def test_actions_never_route(self) -> None:
         for text in [
@@ -51,26 +57,9 @@ class TestClassify:
         assert classify_fastpath("") == ""
         assert classify_fastpath("x" * 250) == ""
 
-    def test_ambiguous_freeform_does_not_route(self) -> None:
+    def test_freeform_does_not_route(self) -> None:
         assert classify_fastpath("kamu lagi apa?") == ""
         assert classify_fastpath("besok kita kemana ya") == ""
-
-    def test_compound_query_falls_back(self) -> None:
-        # 'jadwal' + 'tugas' both present -> ambiguous, no fast path
-        assert classify_fastpath("cek tugas dan jadwal") == ""
-
-    def test_qualified_query_reaches_agent(self) -> None:
-        """Filters and requested transformations must not be silently ignored."""
-        for text in [
-            "tugas Bunga",
-            "tugas yang jatuh tempo besok",
-            "tugas belum selesai",
-            "tugas dalam format tabel",
-            "rangkum task list jadi 3 prioritas",
-            "tugas tanpa deadline",
-            "semua tugas termasuk absen",
-        ]:
-            assert classify_fastpath(text) == "", text
 
 
 class TestRun:
@@ -83,95 +72,28 @@ class TestRun:
         assert reply == "Halo Gilang! Sore ya."
 
     @pytest.mark.asyncio
-    async def test_time_query_needs_no_model(self) -> None:
-        reply = await run_fastpath("jam berapa?", "time", "Gilang", None)
-        assert "WIB" in reply
-
-
-class TestVisionAlignment:
-    """Fast-path output must honor system-prompt.md contracts."""
-
-    @pytest.mark.asyncio
-    async def test_tasks_render_layout_contract(self, monkeypatch, tmp_path) -> None:
-        """Manual §4: numbered items, section headers, └ sub-lines, blank lines."""
-        data_dir = tmp_path / "data"
-        monkeypatch.setenv("DATA_DIR", str(data_dir))
-        import src.memory as memory
-        memory.add_task(title="Bikin PPT", due="Sabtu, 5 September 2026 (23:59 WIB)", assignee="Gilang")
-        memory.add_task(title="Isi Gform", due="", assignee="Bunga")
-
-        reply = await run_fastpath("ada tugas apa?", "tasks", "Gilang", None)
-        assert "> *Daftar Tugas Aktif*" in reply
-        assert "*Tugas Gilang:*" in reply
-        assert "1. *Bikin PPT*" in reply
-        assert "   └ Deadline: Sabtu, 5 September 2026 (23:59 WIB)" in reply
-        assert "*Tugas Bunga:*" in reply
-        assert "1. *Isi Gform*" in reply
-
-    @pytest.mark.asyncio
-    async def test_tasks_render_proactive_footer(self, monkeypatch, tmp_path) -> None:
-        """Vision: anticipate needs — list closes with nearest deadline + routine note."""
-        data_dir = tmp_path / "data2"
-        monkeypatch.setenv("DATA_DIR", str(data_dir))
-        import src.memory as memory
-        memory.add_task(title="Bikin PPT", due="Sabtu 5 Sep", assignee="Gilang")
-        memory.add_task(title="Absen Kuliah X", due="", assignee="Bunga", recurrence={"type": "weekly", "weekdays": ["senin"], "time": "09:00", "timezone": "Asia/Jakarta"})
-
-        reply = await run_fastpath("ada tugas apa?", "tasks", "Gilang", None)
-        assert "Terdekat: *Bikin PPT*" in reply
-        assert "absen" in reply.lower()
-
-    @pytest.mark.asyncio
-    async def test_chat_prompt_has_clock(self) -> None:
-        """Greetings must match the real time of day, not assume morning."""
-        captured: dict[str, Any] = {}
-
+    async def test_chat_model_escape_hatch(self) -> None:
+        """Model may bail to the full agent via [FALLBACK]."""
         async def fake_completion(payload: dict[str, Any]) -> str:
-            captured["sys"] = payload["systemInstruction"]["parts"][0]["text"]
-            return "Sip."
+            return "[FALLBACK]"
 
-        await run_fastpath("halo", "chat", "Gilang", fake_completion)
-        assert "WIB" in captured["sys"]
-        assert "sapaan" in captured["sys"].lower()
+        # [FALLBACK] => None triggers caller-side full-loop fallback; the
+        # deterministic greeting is ONLY for provider failure, not refusal.
+        reply = await run_fastpath("halo", "chat", "Gilang", fake_completion)
+        assert reply is None
 
     @pytest.mark.asyncio
     async def test_chat_deterministic_fallback_when_provider_fails(self) -> None:
-        """Provider down => instant deterministic greeting, never dead, never slow."""
+        """Provider down => instant deterministic greeting, never dead."""
+
         async def boom(payload: dict[str, Any]) -> str:
             raise RuntimeError("provider down")
 
         reply = await run_fastpath("halo", "chat", "Gilang", boom)
         assert reply is not None
         assert "Gilang" in reply
-        assert "WIB" not in reply  # greeting, not a clock dump
 
-
-class TestRoutineFiltering:
-    """Routine absen pings are hidden from task overviews."""
-
-    def test_routine_tasks_counted_but_not_listed(self, monkeypatch, tmp_path) -> None:
-        import src.memory as memory
-        from src.agent.fastpath import _render_tasks_reply
-
-        data_dir = tmp_path / "data"
-        monkeypatch.setenv("DATA_DIR", str(data_dir))
-
-        memory.add_task(title="Absen Kuliah Statistika", due="", assignee="Bunga", recurrence={"type": "weekly", "weekdays": ["senin"], "time": "09:00", "timezone": "Asia/Jakarta"})
-        memory.add_task(title="Bikin laporan mingguan", due="Besok 10:00 WIB", assignee="Gilang")
-        memory.add_task(title="Bayar listrik", due="Jumat 12:00 WIB", assignee="Gilang")
-
-        work = memory.list_tasks(status="pending", include_routine=False)
-        routine_count = len(memory.list_tasks(status="pending", include_routine=True)) - len(work)
-        reply = _render_tasks_reply(work, routine_count)
-        assert "Absen Kuliah Statistika" not in reply
-        assert "Bikin laporan mingguan" in reply
-        assert "Bayar listrik" in reply
-        assert "disembunyikan" in reply
-        assert "+1" in reply
-
-    def test_routine_only_shows_offer(self) -> None:
-        from src.agent.fastpath import _render_tasks_reply
-
-        reply = _render_tasks_reply([], 8)
-        assert "8 jadwal absen rutin" in reply
-        assert "Mau dilihat" in reply
+    @pytest.mark.asyncio
+    async def test_time_query_needs_no_model(self) -> None:
+        reply = await run_fastpath("jam berapa?", "time", "Gilang", None)
+        assert "WIB" in reply

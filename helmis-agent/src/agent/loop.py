@@ -13,7 +13,6 @@ from .cascade import (
     get_cascade_models,
     get_cascade_models_with_cooldown,
     get_next_gemini_key,
-    load_all_skills,
     load_system_prompt,
 )
 from .crystallize import auto_crystallize_turn
@@ -252,13 +251,14 @@ async def run_agentic_react_loop(
     from ..memory.semantic import search_memories
     from ..memory.store import get_memory_context_summary
     from ..tools import GEMINI_TOOLS, execute_tool_call
+    from ..tools.schema import get_compact_tools
     from ..whatsapp.history import build_multi_turn_contents
     from .fastpath import classify_fastpath, run_fastpath
 
-    # --- Fast path: trivial turns skip the full agent loop entirely ---
-    # "halo" / "ada tugas apa" do not need the 9k-token manual, tools,
-    # semantic search, or chat history. Classify + answer with one tiny
-    # call, or fall through to the full loop on any doubt.
+    # --- Fast path: chat pings + clock only ---
+    # All DATA queries run the full agent loop (model decides filtering and
+    # formatting through normal tool calling). Only pure chat/greetings use
+    # the tiny prompt; time answers deterministically.
     if not media_data and len(message_text) <= 200:
         fast_kind = classify_fastpath(message_text)
         if fast_kind:
@@ -300,36 +300,11 @@ async def run_agentic_react_loop(
                     tracer.log_step(step=1, max_steps=1, model_name="fastpath", final_text=fast_reply)
                 log.info("Fast path '%s' served turn for [%s]", fast_kind, sender_name)
                 return fast_reply
-            log.info("Fast path '%s' declined — full agent loop for [%s]", fast_kind, sender_name)
+            if fast_kind != "chat":
+                log.info("Fast path '%s' declined — full agent loop for [%s]", fast_kind, sender_name)
+            # chat [FALLBACK] => full loop keeps model authority over meaning
 
     system_prompt = load_system_prompt()
-    skills_context = load_all_skills()
-    memory_context = get_memory_context_summary()
-
-    # Semantically retrieve personal memories/facts related to current conversation
-    relevant_memories = await search_memories(
-        query=message_text,
-        user_id=sender_name,
-        top_k=5,
-        min_score=0.62,
-    )
-    semantic_context = ""
-    if relevant_memories:
-        fact_lines = [
-            f"- [Recorded: {m.get('created_at', 'Past')}] {m['fact']}"
-            for m in relevant_memories
-            if m.get("fact")
-        ]
-        if fact_lines:
-            semantic_context = (
-                "### RELEVANT PERSONAL PREFERENCES & LONG-TERM MEMORY:\n"
-                + "\n".join(fact_lines)
-                + "\n\n"
-            )
-
-    full_system_instruction = (
-        f"{system_prompt}\n\n{skills_context}\n\n{memory_context}\n\n{semantic_context}".strip()
-    )
 
     # Fetch recent chat history from WAHA
     history: list[Any] = []
@@ -365,11 +340,62 @@ async def run_agentic_react_loop(
         turn_plan.requires_confirmation,
         no_fluff,
     )
+
+    # --- Compact mode: query turns carry only what queries need ---
+    # Same model, same tool-calling contract; less irrelevant prefill.
+    # Actions/chat/media always get the full manual.
+    compact_mode = (
+        turn_plan.intent == "query"
+        and turn_plan.domain not in ("web", "whatsapp", "unknown")
+        and media_data is None
+    )
+    if compact_mode:
+        from .cascade import load_compact_system_prompt, load_domain_skills
+
+        system_instruction = load_compact_system_prompt()
+        skills_context = load_domain_skills(turn_plan.domain)
+        tools = get_compact_tools(turn_plan.domain)
+        log.info(
+            "Compact mode [%s/%s]: %d chars prompt, %d tools",
+            turn_plan.intent, turn_plan.domain, len(system_instruction) + len(skills_context),
+            len(tools[0]["function_declarations"]),
+        )
+    else:
+        system_instruction = system_prompt
+        tools = GEMINI_TOOLS
+
     if turn_plan.intent == "action":
         turn_plan = resolve_task_entities(turn_plan)
     plan_directive = plan_system_directive(turn_plan)
     if plan_directive:
-        full_system_instruction = f"{full_system_instruction}\n\n{plan_directive}"
+        system_instruction = f"{system_instruction}\n\n{plan_directive}"
+
+    # Prepend memory context + semantic context (compact mode: activity log
+    # only; semantic search skipped — query turns don't need long-term facts).
+    memory_context = get_memory_context_summary()
+    semantic_context = ""
+    if not compact_mode:
+        relevant_memories = await search_memories(
+            query=message_text,
+            user_id=sender_name,
+            top_k=5,
+            min_score=0.62,
+        )
+        if relevant_memories:
+            fact_lines = [
+                f"- [Recorded: {m.get('created_at', 'Past')}] {m['fact']}"
+                for m in relevant_memories
+                if m.get("fact")
+            ]
+            if fact_lines:
+                semantic_context = (
+                    "### RELEVANT PERSONAL PREFERENCES & LONG-TERM MEMORY:\n"
+                    + "\n".join(fact_lines)
+                    + "\n\n"
+                )
+    full_system_instruction = (
+        f"{system_instruction}\n\n{memory_context}\n\n{semantic_context}".strip()
+    )
 
     step = 0
     total_steps = 0
@@ -397,7 +423,7 @@ async def run_agentic_react_loop(
         payload: dict[str, Any] = {
             "systemInstruction": {"parts": [{"text": full_system_instruction}]},
             "contents": contents,
-            "tools": GEMINI_TOOLS,
+            "tools": tools,
             "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2048},
         }
 

@@ -8,9 +8,9 @@ import src.memory as memory
 
 
 def test_time_of_day_info() -> None:
-    time_str, period_info = memory.get_time_of_day_info()
+    time_str, greeting = memory.get_time_of_day_info()
     assert "WIB" in time_str
-    assert any(p in period_info for p in ["Pagi", "Siang", "Sore", "Malam"])
+    assert any(g in greeting for g in ["Selamat pagi", "Selamat siang", "Selamat sore", "Selamat malam"])
 
 
 def test_task_lifecycle() -> None:
