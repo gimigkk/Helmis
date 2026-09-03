@@ -27,7 +27,13 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         },
                         "recurrence": {
                             "type": "OBJECT",
-                            "description": "Optional generic recurrence policy: weekly with weekdays/time/timezone, or interval with every/interval and unit. Omit for one-shot tasks.",
+                            "description": (
+                                "Optional generic recurrence policy for repeating tasks (class attendance, weekly routines, periodic chores). "
+                                "Weekly shape: {\"type\":\"weekly\", \"weekdays\":[\"selasa\",\"kamis\"], \"time\":\"07:45\", \"timezone\":\"Asia/Jakarta\"} — "
+                                "weekdays accepts Indonesian or English day names or 0-6 (0=Monday); time is HH:MM local. "
+                                "Interval shape: {\"type\":\"interval\", \"interval\": 3, \"unit\": \"days\"}. "
+                                "For recurring reminders ALWAYS set recurrence instead of creating separate daily tasks; a recurring task advances itself to the next slot after each delivery or completion."
+                            ),
                         },
                         "nag_interval_minutes": {
                             "type": "INTEGER",
@@ -39,7 +45,10 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         },
                         "nag_policy": {
                             "type": "OBJECT",
-                            "description": "Optional generic reminder policy with interval_minutes and max_nags.",
+                            "description": (
+                                "Optional generic reminder policy with interval_minutes and max_nags. "
+                                "Use when the user must confirm action (attendance, deadlines): {\"interval_minutes\":5, \"max_nags\":6} re-reminds every 5 minutes up to 6 times until the user confirms done."
+                            ),
                         },
                         "assignee": {
                             "type": "STRING",
