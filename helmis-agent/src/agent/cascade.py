@@ -59,31 +59,33 @@ def fetch_available_gemini_models() -> list[str]:
 
     if not discovered:
         # Fallback list if offline or API unreachable.
-        # Newest flash tiers with confirmed quota first; dead aliases last.
+        # Proven fast, low-latency models lead; overloaded/dead models sink.
         return [
-            "gemini-3.8-flash",
+            "gemini-3.5-flash-lite",
             "gemini-3.7-flash",
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+            "gemini-3.8-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
-            "gemini-2.5-flash-lite",
-            "gemini-3.1-flash-lite",
             "gemini-flash-latest",
-            "gemini-2.5-flash",
             "gemini-pro-latest",
             "gemini-flash-lite-latest",
         ]
 
-    # Sort: newest flash tiers with confirmed quota first (3.8 > 3.7 > 3.6 >
-    # 3.5 > flash-lite), then older Flash, Gemma, Pro. Known-dead aliases sink
-    # to the very end so the first cascade window (loop tries the first 4)
-    # never wastes wall-clock on them.
+    # Sort: proven fast, stable models first (3.5-flash-lite > 3.7-flash >
+    # 2.5-flash > 3.1-flash-lite > 2.5-flash-lite). Overloaded (3.8-flash 503s)
+    # and slow/timeout models (3.6-flash, 3.5-flash) sink to the end.
     _PREFERRED = [
-        ("gemini-3.8-flash", 0),
+        ("gemini-3.5-flash-lite", 0),
         ("gemini-3.7-flash", 1),
-        ("gemini-3.6-flash", 2),
-        ("gemini-3.5-flash", 3),
+        ("gemini-2.5-flash", 2),
+        ("gemini-3.1-flash-lite", 3),
         ("gemini-2.5-flash-lite", 4),
-        ("gemini-3.1-flash-lite", 5),
+        ("gemini-3.8-flash", 20),
+        ("gemini-3.6-flash", 21),
+        ("gemini-3.5-flash", 22),
     ]
 
     def score_model(m: str) -> int:

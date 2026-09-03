@@ -59,7 +59,7 @@ def create_webhook_app(client: WahaClient) -> Starlette:
     async def turn_runner(batch: list[IncomingMessageEvent], mailbox: asyncio.Queue[IncomingMessageEvent] | None = None) -> None:
         await process_batched_turn(client=client, batch=batch, mailbox=mailbox)
 
-    queue_manager = ChatQueueManager(turn_handler=turn_runner, debounce_seconds=1.0)
+    queue_manager = ChatQueueManager(turn_handler=turn_runner, debounce_seconds=0.4)
 
     async def handle_health(request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})

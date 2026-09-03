@@ -124,7 +124,6 @@ async def _attempt_model(
     Returns (model, response JSON) on success, None on exhaustion; marks
     cooldowns on model-level failures (timeout, 404, 503 on every key).
     """
-    overload_503_count = 0
     for _ in range(keys_count):
         api_key = get_next_gemini_key()
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
@@ -137,9 +136,11 @@ async def _attempt_model(
                     log.warning("Rate limit (429) on %s with key %s..., rotating", model, api_key[:8])
                     continue
                 elif resp.status_code == 503:
-                    log.warning("Model overloaded (503) on %s with key %s..., rotating", model, api_key[:8])
-                    overload_503_count += 1
-                    continue
+                    # 503 is a model-level capacity failure on Google infrastructure.
+                    # Retrying across keys against the same overloaded model is futile.
+                    log.warning("Model overloaded (503) on %s — cooldown engaged immediately", model)
+                    cascade.mark_model_unavailable(model)
+                    return None
                 elif resp.status_code == 404:
                     log.warning("Model not found (404) on %s, skipping", model)
                     cascade.mark_model_unavailable(model)
@@ -153,11 +154,6 @@ async def _attempt_model(
             log.warning("Timeout or connection error on %s: %s — next model", model, ex)
             cascade.mark_model_unavailable(model)
             return None
-    if overload_503_count >= keys_count:
-        # Every key says the model itself is overloaded — skip it for
-        # the rest of the turn window instead of re-probing per step.
-        log.info("Model %s overloaded on all %d keys — cooldown engaged", model, keys_count)
-        cascade.mark_model_unavailable(model)
     return None
 
 
@@ -186,7 +182,7 @@ async def _hedged_cascade_call(
     if not rest:
         return await head_task
 
-    hedge_delay = timeout_secs / 2.0
+    hedge_delay = 5.0 if timeout_secs > 15.0 else min(1.8, timeout_secs / 2.0)
     await asyncio.sleep(0)  # let the head request go out first
     done, _pending = await asyncio.wait({head_task}, timeout=hedge_delay)
     if head_task in done:
@@ -341,12 +337,20 @@ async def run_agentic_react_loop(
         no_fluff,
     )
 
-    # --- Compact mode: query turns carry only what queries need ---
+    # --- Compact mode: well-scoped query and action turns carry only what they need ---
     # Same model, same tool-calling contract; less irrelevant prefill.
-    # Actions/chat/media always get the full manual.
+    # Unambiguous tasks/schedules/notes/person actions don't need 44 tools or PDF/web engines.
+    # Destructive actions, media, web, and ambiguous turns always keep the full manual.
     compact_mode = (
-        turn_plan.intent == "query"
-        and turn_plan.domain not in ("web", "whatsapp", "unknown")
+        (
+            (turn_plan.intent == "query" and turn_plan.domain not in ("web", "whatsapp", "unknown"))
+            or (
+                turn_plan.intent == "action"
+                and turn_plan.domain in ("task", "schedule", "note", "person")
+                and not turn_plan.destructive
+                and not turn_plan.requires_confirmation
+            )
+        )
         and media_data is None
     )
     if compact_mode:
@@ -446,6 +450,7 @@ async def run_agentic_react_loop(
             timeout_secs=timeout_secs,
             keys_count=keys_count,
         )
+        response_data: dict[str, Any] | None = None
         if won:
             active_model, response_data = won
 

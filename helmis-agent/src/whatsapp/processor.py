@@ -202,7 +202,13 @@ async def process_batched_turn(
     # Message IDs of the burst, for context provenance (never silently dropped)
     [e.reply_id for e in batch if e.reply_id]
 
-    await client.start_typing(chat_id=from_user)
+    async def _safe_start_typing() -> None:
+        try:
+            await client.start_typing(chat_id=from_user)
+        except Exception:
+            pass
+
+    asyncio.create_task(_safe_start_typing())
 
     tracer = AgentTurnTracer(
         sender_name=sender_name,

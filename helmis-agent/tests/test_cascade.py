@@ -25,7 +25,7 @@ def test_fallback_models_include_new_generations(monkeypatch: pytest.MonkeyPatch
     assert "gemini-flash-lite-latest" in models
     assert "gemini-pro-latest" in models
     # Working models lead; dead alias sinks to the end.
-    assert models[0] == "gemini-3.8-flash"
+    assert models[0] == "gemini-3.5-flash-lite"
     assert models[-1] == "gemini-flash-lite-latest"
 
 
@@ -86,14 +86,14 @@ def test_dynamic_api_discovery_filtering_and_sorting(monkeypatch: pytest.MonkeyP
     assert "gemma-3-27b-it" in models
     assert "gemini-2.5-pro" in models
 
-    # Newest flash tiers lead; Flash-Lite before Gemma and Pro; Pro last
+    # Low-latency flash tiers lead; Flash/Flash-Lite before Gemma and Pro; Pro last
     idx_flash = models.index("gemini-3.7-flash")
     idx_lite = models.index("gemini-3.5-flash-lite")
     idx_gemma = models.index("gemma-3-27b-it")
     idx_pro = models.index("gemini-2.5-pro")
 
-    assert idx_flash < idx_lite
-    assert idx_lite < idx_gemma
+    assert idx_lite < idx_flash
+    assert idx_flash < idx_gemma
     assert idx_gemma < idx_pro
 
 
@@ -231,7 +231,7 @@ async def test_hedged_race_slow_head_fast_second(monkeypatch: pytest.MonkeyPatch
             return None
 
         async def __aexit__(self, *exc: Any) -> None:
-            return False
+            return None
 
     orig_wait = agent_loop.asyncio.wait
 

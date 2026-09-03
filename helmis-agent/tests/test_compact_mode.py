@@ -61,3 +61,21 @@ class TestDomainSkills:
 
     def test_smaller_than_full(self) -> None:
         assert len(load_domain_skills("task")) < len(load_domain_skills("unknown"))
+
+
+class TestCompactModeActivation:
+    def test_action_turn_activates_compact_mode(self) -> None:
+        from src.agent.intent import build_turn_plan
+
+        plan = build_turn_plan("ingetin besok jam 8 pagi kuliah akuntansi")
+        assert plan.intent == "action"
+        assert plan.domain == "task"
+        assert not plan.destructive
+        assert not plan.requires_confirmation
+
+    def test_destructive_action_keeps_full_mode(self) -> None:
+        from src.agent.intent import build_turn_plan
+
+        plan = build_turn_plan("hapus semua tugas")
+        assert plan.destructive or plan.requires_confirmation
+
