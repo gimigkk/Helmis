@@ -64,6 +64,39 @@ _TIME_QUERY = re.compile(
     r"\b(?:jam\s*berapa|tanggal\s*berapa|hari\s*apa|sekarang\s*jam)\b", re.IGNORECASE
 )
 
+# Deterministic rendering is deliberately limited to the plain overview.
+# Qualifiers must reach the agent so it can interpret filters, custom sorting,
+# summaries, and requested output formats instead of silently ignoring them.
+_OVERVIEW_PHRASES = {
+    "tugas apa aja",
+    "tugas apa saja",
+    "ada tugas apa",
+    "ada tugas apa aja",
+    "ada tugas apa saja",
+    "list tugas",
+    "daftar tugas",
+    "cek tugas",
+    "lihat tugas",
+    "list reminder",
+    "list reminder dong",
+    "daftar reminder",
+    "cek jadwal",
+    "lihat jadwal",
+    "catatan apa aja",
+    "catatan apa saja",
+    "notes apa aja",
+    "notes apa saja",
+    "list notes",
+    "daftar notes",
+    "list catatan",
+    "daftar catatan",
+    "ada jadwal apa",
+    "ada jadwal apa aja",
+    "ada jadwal apa saja",
+    "list jadwal",
+    "daftar jadwal",
+}
+
 # Anything risky escapes the fast path.
 _UNSAFE_PATTERN = re.compile(
     r"\b(?:"
@@ -101,6 +134,9 @@ def classify_fastpath(text: str) -> str:
     # Pure time query
     if _TIME_QUERY.search(clean) and len(clean) < 60:
         return "time"
+    normalized = re.sub(r"[^\w\s]", "", clean.lower())
+    if normalized not in _OVERVIEW_PHRASES:
+        return ""
     # Data queries: must look like a question/list request, not an action
     is_listish = bool(
         re.search(
