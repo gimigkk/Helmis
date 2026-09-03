@@ -181,7 +181,7 @@ async def run_agentic_react_loop(
 
     is_video = bool(media_data and media_data.get("mimeType", "").startswith("video/"))
     candidate_models = get_cascade_models(is_video=is_video)
-    timeout_secs = 25.0 if is_video else 6.0
+    timeout_secs = 25.0 if is_video else 12.0
     executed_tools: list[dict[str, Any]] = []
     active_model = candidate_models[0] if candidate_models else "gemini-flash-lite-latest"
 
@@ -243,17 +243,14 @@ async def run_agentic_react_loop(
             log.debug("Forced tool calling (mode=ANY) for action intent on step 0")
 
         # Attempt call with Multi-Model & Multi-Key Cascade.
-        # Budget: one attempt per model by default; a key rotation retry is
-        # spent only on 429 (quota is key-specific). Timeouts and 404s are
-        # model-level failures — retrying them on the same model burns the
-        # user's wall-clock time (measured ~8s per timeout on dead models).
+        # Per model: rotate up to all available keys (quota and transient 503s
+        # are key-specific); only a *timeout* on a key skips to the next model,
+        # so a dead model costs at most one timeout instead of key-count tries.
         response_data: dict[str, Any] | None = None
         active_candidates = candidate_models[:4]
+        keys_count = len(getattr(cascade, "GEMINI_KEYS", [])) or 1
         for model in active_candidates:
-            max_attempts = min(len(getattr(cascade, "GEMINI_KEYS", [])) or 1, 2)
-            attempt = 0
-            while attempt < max_attempts:
-                attempt += 1
+            for _ in range(keys_count):
                 api_key = get_next_gemini_key()
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
                 try:
@@ -265,6 +262,9 @@ async def run_agentic_react_loop(
                             break
                         elif resp.status_code == 429:
                             log.warning("Rate limit (429) on %s with key %s..., rotating", model, api_key[:8])
+                            continue
+                        elif resp.status_code == 503:
+                            log.warning("Model overloaded (503) on %s with key %s..., rotating", model, api_key[:8])
                             continue
                         elif resp.status_code == 404:
                             log.warning("Model not found (404) on %s, skipping", model)
