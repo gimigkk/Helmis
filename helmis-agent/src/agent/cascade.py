@@ -10,16 +10,17 @@ import httpx
 
 log = logging.getLogger("helmis-cascade")
 
-# Dynamically collect all configured Gemini API keys (filter to AI Studio keys)
+# Dynamically collect all configured Gemini API keys. Both key formats are
+# valid: "AIza..." (AI Studio) and "AQ...." (v2 keys). Filtering to one format
+# silently drops working keys — only obvious placeholders are excluded.
+def _looks_like_gemini_key(value: str) -> bool:
+    return bool(value) and not value.lower().startswith(("your", "changeme", "xxx", "placeholder"))
+
 GEMINI_KEYS: list[str] = [
     v.strip()
     for k, v in sorted(os.environ.items())
-    if k.startswith("GEMINI_KEY") and v.strip() and v.strip().startswith("AIza")
+    if k.startswith("GEMINI_KEY") and _looks_like_gemini_key(v.strip())
 ]
-if not GEMINI_KEYS:
-    GEMINI_KEYS = [
-        v.strip() for k, v in sorted(os.environ.items()) if k.startswith("GEMINI_KEY") and v.strip()
-    ]
 
 
 def fetch_available_gemini_models() -> list[str]:
