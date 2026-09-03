@@ -255,10 +255,10 @@ async def run_agentic_react_loop(
     from ..whatsapp.history import build_multi_turn_contents
     from .fastpath import classify_fastpath, run_fastpath
 
-    # --- Fast path: trivial turns skip the full agent loop entirely ---
-    # "halo" / "ada tugas apa" do not need the 9k-token manual, tools,
-    # semantic search, or chat history. Classify + answer with one tiny
-    # call, or fall through to the full loop on any doubt.
+    # --- Fast path: chat pings + clock only ---
+    # All DATA queries run the full agent loop (model decides filtering and
+    # formatting through normal tool calling). Only pure chat/greetings use
+    # the tiny prompt; time answers deterministically.
     if not media_data and len(message_text) <= 200:
         fast_kind = classify_fastpath(message_text)
         if fast_kind:
@@ -300,7 +300,9 @@ async def run_agentic_react_loop(
                     tracer.log_step(step=1, max_steps=1, model_name="fastpath", final_text=fast_reply)
                 log.info("Fast path '%s' served turn for [%s]", fast_kind, sender_name)
                 return fast_reply
-            log.info("Fast path '%s' declined — full agent loop for [%s]", fast_kind, sender_name)
+            if fast_kind != "chat":
+                log.info("Fast path '%s' declined — full agent loop for [%s]", fast_kind, sender_name)
+            # chat [FALLBACK] => full loop keeps model authority over meaning
 
     system_prompt = load_system_prompt()
     skills_context = load_all_skills()
