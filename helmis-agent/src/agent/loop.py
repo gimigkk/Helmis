@@ -113,6 +113,124 @@ async def drain_and_inject_mid_turn_mailbox(
     return True
 
 
+async def _attempt_model(
+    model: str,
+    payload: dict[str, Any],
+    *,
+    timeout_secs: float,
+    keys_count: int,
+) -> tuple[str, dict[str, Any]] | None:
+    """Try one model across all keys (sequential rotation).
+
+    Returns (model, response JSON) on success, None on exhaustion; marks
+    cooldowns on model-level failures (timeout, 404, 503 on every key).
+    """
+    overload_503_count = 0
+    for _ in range(keys_count):
+        api_key = get_next_gemini_key()
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        try:
+            async with httpx.AsyncClient(timeout=timeout_secs) as http_client:
+                resp = await http_client.post(url, json=payload)
+                if resp.status_code == 200:
+                    return model, resp.json()
+                elif resp.status_code == 429:
+                    log.warning("Rate limit (429) on %s with key %s..., rotating", model, api_key[:8])
+                    continue
+                elif resp.status_code == 503:
+                    log.warning("Model overloaded (503) on %s with key %s..., rotating", model, api_key[:8])
+                    overload_503_count += 1
+                    continue
+                elif resp.status_code == 404:
+                    log.warning("Model not found (404) on %s, skipping", model)
+                    cascade.mark_model_unavailable(model)
+                    return None
+                else:
+                    log.error("Gemini API error (%d) on %s: %s", resp.status_code, model, resp.text[:400])
+                    continue
+        except Exception as ex:
+            # Timeout/connection refused is a model-level failure:
+            # never re-try the same model on another key.
+            log.warning("Timeout or connection error on %s: %s — next model", model, ex)
+            cascade.mark_model_unavailable(model)
+            return None
+    if overload_503_count >= keys_count:
+        # Every key says the model itself is overloaded — skip it for
+        # the rest of the turn window instead of re-probing per step.
+        log.info("Model %s overloaded on all %d keys — cooldown engaged", model, keys_count)
+        cascade.mark_model_unavailable(model)
+    return None
+
+
+async def _hedged_cascade_call(
+    active_candidates: list[str],
+    payload: dict[str, Any],
+    *,
+    timeout_secs: float,
+    keys_count: int,
+) -> tuple[str, dict[str, Any]] | None:
+    """Hedged racing over the cascade.
+
+    A single dead head model (hung 3.8-flash) used to tax every turn its full
+    timeout (12s) before the healthy tail answered. The top 2 candidates race
+    with a staggered start: if the head has not answered within half the turn
+    timeout, the second model fires and the first 200-response wins; the
+    loser is cancelled. Remaining candidates are walked sequentially.
+    Returns (winning_model, response JSON), or None.
+    """
+    if not active_candidates:
+        return None
+    head, rest = active_candidates[0], active_candidates[1:]
+    head_task = asyncio.create_task(
+        _attempt_model(head, payload, timeout_secs=timeout_secs, keys_count=keys_count)
+    )
+    if not rest:
+        return await head_task
+
+    hedge_delay = timeout_secs / 2.0
+    await asyncio.sleep(0)  # let the head request go out first
+    done, _pending = await asyncio.wait({head_task}, timeout=hedge_delay)
+    if head_task in done:
+        head_result = head_task.result()
+        if head_result:
+            return head_result
+        # Head exhausted fast (503/timeout/404) — walk the tail directly.
+        for model in rest:
+            result = await _attempt_model(model, payload, timeout_secs=timeout_secs, keys_count=keys_count)
+            if result:
+                return result
+        return None
+
+    # Head is slow: fire the hedge (second candidate) and take whoever
+    # finishes first; cancel the loser.
+    second = rest[0]
+    tail = rest[1:]
+    second_task = asyncio.create_task(
+        _attempt_model(second, payload, timeout_secs=timeout_secs, keys_count=keys_count)
+    )
+    done2, _ = await asyncio.wait(
+        {head_task, second_task}, return_when=asyncio.FIRST_COMPLETED
+    )
+    winner = None
+    for t in done2:
+        try:
+            result = t.result()
+        except Exception:
+            result = None
+        if result:
+            winner = result
+    for t in {head_task, second_task} - done2:
+        t.cancel()
+    if winner:
+        return winner
+    # Both lost — walk the remaining candidates sequentially.
+    for model in tail:
+        result = await _attempt_model(model, payload, timeout_secs=timeout_secs, keys_count=keys_count)
+        if result:
+            return result
+    return None
+
+
 async def run_agentic_react_loop(
     client: Any,
     sender_name: str,
@@ -243,55 +361,19 @@ async def run_agentic_react_loop(
             }
             log.debug("Forced tool calling (mode=ANY) for action intent on step 0")
 
-        # Attempt call with Multi-Model & Multi-Key Cascade.
-        # Per model: rotate up to all available keys (quota and transient 503s
-        # are key-specific); only a *timeout* on a key skips to the next model,
-        # so a dead model costs at most one timeout instead of key-count tries.
+        # Attempt call with Multi-Model & Multi-Key Cascade, hedged.
         # Models that failed recently (503/timeout/404) are demoted so healthy
         # tail models are tried first instead of re-probing a dead head.
-        response_data: dict[str, Any] | None = None
         active_candidates = get_cascade_models_with_cooldown(is_video=is_video)[:4]
         keys_count = len(getattr(cascade, "GEMINI_KEYS", [])) or 1
-        for model in active_candidates:
-            overload_503_count = 0
-            for _ in range(keys_count):
-                api_key = get_next_gemini_key()
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-                try:
-                    async with httpx.AsyncClient(timeout=timeout_secs) as http_client:
-                        resp = await http_client.post(url, json=payload)
-                        if resp.status_code == 200:
-                            response_data = resp.json()
-                            active_model = model
-                            break
-                        elif resp.status_code == 429:
-                            log.warning("Rate limit (429) on %s with key %s..., rotating", model, api_key[:8])
-                            continue
-                        elif resp.status_code == 503:
-                            log.warning("Model overloaded (503) on %s with key %s..., rotating", model, api_key[:8])
-                            overload_503_count += 1
-                            continue
-                        elif resp.status_code == 404:
-                            log.warning("Model not found (404) on %s, skipping", model)
-                            cascade.mark_model_unavailable(model)
-                            break
-                        else:
-                            log.error("Gemini API error (%d) on %s: %s", resp.status_code, model, resp.text[:400])
-                            continue
-                except Exception as ex:
-                    # Timeout/connection refused is a model-level failure:
-                    # never re-try the same model on another key.
-                    log.warning("Timeout or connection error on %s: %s — next model", model, ex)
-                    cascade.mark_model_unavailable(model)
-                    break
-            if overload_503_count >= keys_count:
-                # Every key says the model itself is overloaded — skip it for
-                # the rest of the turn window instead of re-probing per step.
-                log.info("Model %s overloaded on all %d keys — cooldown engaged", model, keys_count)
-                cascade.mark_model_unavailable(model)
-
-            if response_data:
-                break
+        won = await _hedged_cascade_call(
+            active_candidates,
+            payload,
+            timeout_secs=timeout_secs,
+            keys_count=keys_count,
+        )
+        if won:
+            active_model, response_data = won
 
         if not response_data:
             return "Maaf, Helmis sedang mengalami gangguan koneksi ke AI provider. Mohon coba sesaat lagi ya."
@@ -445,27 +527,23 @@ async def run_agentic_react_loop(
                 "generationConfig": {"temperature": 0.0, "maxOutputTokens": 256},
             }
             # Rotate keys/models: the synthesis call must be at least as
-            # reliable as the working turn that preceded it. Cooldown-aware
-            # ordering skips models that failed during this same turn.
-            synthesis_payload = dict(payload)
-            for model in get_cascade_models_with_cooldown(is_video=is_video)[:4]:
-                for _ in range(len(getattr(cascade, "GEMINI_KEYS", [])) or 1):
-                    api_key = get_next_gemini_key()
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-                    try:
-                        async with httpx.AsyncClient(timeout=timeout_secs) as http_client:
-                            resp = await http_client.post(url, json=synthesis_payload)
-                            if resp.status_code == 200:
-                                data = resp.json()
-                                cand = data.get("candidates", [])
-                                if cand:
-                                    txt = cand[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-                                    if txt and txt.strip():
-                                        return verify_action_fidelity(txt.strip(), executed_tools)
-                                continue
-                            log.warning("Final synthesis attempt failed (%d) on %s", resp.status_code, model)
-                    except Exception as ex:
-                        log.warning("Final synthesis error on %s: %s", model, ex)
+            # reliable as the working turn that preceded it. Same hedged
+            # racing as the main turn; cooldown-aware ordering skips models
+            # that failed during this same turn.
+            synthesis_keys = len(getattr(cascade, "GEMINI_KEYS", [])) or 1
+            won = await _hedged_cascade_call(
+                get_cascade_models_with_cooldown(is_video=is_video)[:4],
+                payload,
+                timeout_secs=timeout_secs,
+                keys_count=synthesis_keys,
+            )
+            if won:
+                _, synth_data = won
+                cand = synth_data.get("candidates", [])
+                if cand:
+                    txt = cand[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    if txt and txt.strip():
+                        return verify_action_fidelity(txt.strip(), executed_tools)
             # Honest degraded summary — never claim mutations that were not made.
             tool_counts: dict[str, int] = {}
             for t in executed_tools:

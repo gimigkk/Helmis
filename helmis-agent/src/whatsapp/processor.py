@@ -52,6 +52,32 @@ def describe_intent_action(
         elif current_tool == "send_whatsapp_message":
             rec = (tool_args or {}).get("recipient", "")
             return f"sedang meneruskan pesan ke {rec}" if rec else "sedang mengirimkan pesan WhatsApp"
+        elif current_tool == "send_whatsapp_media":
+            rec = (tool_args or {}).get("recipient", "")
+            return f"sedang mengirim media ke {rec}" if rec else "sedang mengirim media WhatsApp"
+        elif current_tool == "get_whatsapp_messages":
+            return "sedang mengecek riwayat chat"
+        elif current_tool in ("save_note", "append_to_note", "get_note", "list_notes", "delete_note"):
+            title = (tool_args or {}).get("title", "")
+            if title:
+                return f"sedang membaca/memperbarui catatan '{title}'"
+            return "sedang mengakses catatan"
+        elif current_tool in ("remember_fact", "search_memory", "recall_memory", "correct_fact"):
+            q = (tool_args or {}).get("fact", "") or (tool_args or {}).get("query", "")
+            return f"sedang mengingat '{q}'" if q else "sedang mengakses memori jangka panjang"
+        elif current_tool in ("list_tasks",):
+            return "sedang mengecek daftar tugas"
+        elif current_tool in ("web_search", "search_web", "read_url"):
+            q = (tool_args or {}).get("query", "") or (tool_args or {}).get("url", "")
+            return f"sedang membuka '{q}'" if q else "sedang mencari informasi di internet"
+        elif current_tool in ("read_vault_file", "list_vault_files"):
+            return "sedang membaca file dari brankas"
+        elif current_tool == "process_pdf":
+            return "sedang memproses dokumen PDF"
+        elif current_tool in ("create_schedule", "list_schedules"):
+            return "sedang mengatur jadwal"
+        elif current_tool == "execute_code":
+            return "sedang menghitung sesuatu di sandbox"
 
     # Inferred from user input / media context
     t_lower = text.lower()
@@ -337,7 +363,9 @@ async def process_batched_turn(
 
         # Dynamic Progress Watchdog: reassure at 12s, then every 30s while the
         # agent is still working. Long 503-storm turns previously went silent
-        # after one message, looking like a crash.
+        # after one message, looking like a crash. Every ping states WHAT the
+        # agent is doing (current tool + key arg, or last completed tool while
+        # it reasons) instead of generic filler.
         async def progress_watchdog() -> None:
             try:
                 intervals = [12.0, 30.0, 30.0, 30.0, 30.0]
@@ -348,26 +376,33 @@ async def process_batched_turn(
                     if turn_state.get("dispatched_items", 0) > 0:
                         return
                     cur_tool = turn_state.get("current_tool")
-                    if elapsed <= 12.5:
-                        if cur_tool:
-                            reassurance_msg = f"_Menjalankan `{cur_tool}`..._"
-                        else:
-                            action_desc = describe_intent_action(
-                                text=combined_text,
-                                has_media=has_media,
-                                media_data=media_data,
-                                is_voice_note=is_voice_note,
-                                current_tool=cur_tool,
-                                tool_args=turn_state.get("tool_args"),
-                            )
-                            reassurance_msg = f"Sebentar ya, {action_desc}..."
+                    last_done = turn_state.get("last_completed_tool")
+                    if cur_tool:
+                        # Model is mid-call on a specific tool — name it.
+                        action_desc = describe_intent_action(
+                            text=combined_text,
+                            has_media=has_media,
+                            media_data=media_data,
+                            is_voice_note=is_voice_note,
+                            current_tool=cur_tool,
+                            tool_args=turn_state.get("tool_args"),
+                        )
+                        tail = f" ({int(elapsed)}s)" if elapsed > 15 else ""
+                        reassurance_msg = f"_Helmis {action_desc}{tail}..._"
+                    elif last_done:
+                        # Between steps: the last finished tool tells the truth
+                        # about progress without inventing an action.
+                        reassurance_msg = (
+                            f"_`{last_done}` selesai ({int(elapsed)}s), Helmis sedang menyusun langkah berikutnya..._"
+                        )
                     else:
-                        # Follow-up pings: short heartbeat with elapsed time,
-                        # only while nothing has been delivered to the user.
-                        if cur_tool:
-                            reassurance_msg = f"_Masih mengerjakan `{cur_tool}` ({int(elapsed)}s)..._"
-                        else:
-                            reassurance_msg = f"_Masih diproses ({int(elapsed)}s), mohon tunggu..._"
+                        action_desc = describe_intent_action(
+                            text=combined_text,
+                            has_media=has_media,
+                            media_data=media_data,
+                            is_voice_note=is_voice_note,
+                        )
+                        reassurance_msg = f"Sebentar ya, {action_desc}..."
 
                     log.info("Agent turn taking >%.0fs for [%s]: %s", elapsed, sender_name, reassurance_msg)
                     await client.start_typing(chat_id=from_user)

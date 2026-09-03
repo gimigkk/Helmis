@@ -2,8 +2,10 @@
 test_cascade.py — Comprehensive test suite for Gemini cascade, key rotation, and prompt/skill loaders.
 """
 
+import asyncio
 import os
 import tempfile
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -204,3 +206,45 @@ def test_model_cooldown_expires(monkeypatch: pytest.MonkeyPatch) -> None:
     cascade.mark_model_unavailable("gemini-a", seconds=-1)
     ordered = cascade.get_cascade_models_with_cooldown(is_video=False)
     assert ordered == ["gemini-a", "gemini-b"]
+
+
+@pytest.mark.asyncio
+async def test_hedged_race_slow_head_fast_second(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hung head model must not tax the turn: hedge fires and wins."""
+    from src.agent import loop as agent_loop
+
+    async def slow_head(*_args: Any, **_kwargs: Any) -> Any:
+        await asyncio.sleep(5.0)
+        return None
+
+    async def fast_second(model: str, *_args: Any, **_kwargs: Any) -> Any:
+        if model == "gemini-slow":
+            return None
+        return (model, {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]})
+
+    monkeypatch.setattr(agent_loop, "_attempt_model", fast_second)
+
+    # Patch asyncio.sleep so the hedge fires immediately instead of after
+    # half the (real) timeout.
+    class _NoSleep:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *exc: Any) -> None:
+            return False
+
+    orig_wait = agent_loop.asyncio.wait
+
+    async def fast_wait(fs: Any, timeout: float | None = None, **kw: Any) -> Any:
+        return await orig_wait(fs, timeout=0.01, **kw)
+
+    monkeypatch.setattr(agent_loop.asyncio, "wait", fast_wait)
+
+    result = await agent_loop._hedged_cascade_call(
+        ["gemini-slow", "gemini-fast", "gemini-tail"],
+        {"contents": []},
+        timeout_secs=2.0,
+        keys_count=1,
+    )
+    assert result is not None
+    assert result[0] == "gemini-fast"
