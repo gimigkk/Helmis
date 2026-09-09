@@ -247,7 +247,8 @@ async def send_reminder_to_recipient(
             )
             if claimed is None:
                 return
-    idempotency_key = f"reminder:{task_id or 'unscheduled'}:{stage}:{target_chat}"
+    slot_key = occurrence_id or (f"{scheduled_for:.0f}" if scheduled_for is not None else "unscheduled")
+    idempotency_key = f"reminder:{task_id or 'unscheduled'}:{stage}:{slot_key}:{target_chat}"
     queued = repository.enqueue_outbox(
         outbox_id=f"outbox-{abs(hash(idempotency_key))}",
         idempotency_key=idempotency_key,

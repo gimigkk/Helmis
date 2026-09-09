@@ -20,7 +20,9 @@ QUERY_PATTERNS = re.compile(
     r"(?:"
     r"^(?:cek|check|lihat|liat|show|tampil(?:kan|in)?|list|daftar|cari(?:in|kan)?|search|find|baca(?:in|kan)?|read|rangkum|summarize)\b"
     r"|(?:ada\s+(?:tugas|jadwal|reminder|agenda|catatan|file)|apa\s+(?:aja|saja|jadwal|tugas|agenda|kegiatan))"
-    r"|(?:tugas|task|reminder|jadwal|catatan|note|file|dokumen)\s+(?:apa|mana|yang\s+mana)"
+    r"|(?:tugas|task|reminder|jadwal|catatan|note|file|dokumen)\s+.*?(?:apa|mana|yang\s+mana)"
+    r"|(?:(?:tugas|task|reminder|jadwal)\s+.*?(?:udh|udah|beres|kelar|selesai|semua))"
+    r"|(?:(?:udh|udah|beres|kelar|selesai)\s+.*?(?:tugas|task|reminder|jadwal))"
     r"|(?:berapa|kapan|dimana|siapa|nomor|kontak|email)\b"
     r"|\?$"
     r")",
@@ -69,7 +71,7 @@ _DELETE_VERB_PATTERN = re.compile(
 # Suffixed mutation forms that flip an otherwise query-shaped message
 # (e.g. "jadwalkan rapat" is a create, "cek jadwal besok" is not).
 _MUTATION_SUFFIX_PATTERN = re.compile(
-    r"\b(?:ingetin|ingetkan|remind|catatin|catatkan|buatkan|bikinin|jadwalkan|hapus|delete|geser|mundurin|mundurkan)\b",
+    r"\b(?:ingetin|ingetkan|remind|catatin|catatkan|buatkan|bikinin|jadwalkan|hapus|delete|geser|mundurin|mundurkan|tandai|selesaikan|beresin)\b",
     re.IGNORECASE,
 )
 

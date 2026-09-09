@@ -220,6 +220,19 @@ MUTATION_CLAIM_PATTERNS = [
     ),
 ]
 
+STATE_ASSERTION_PATTERNS = [
+    (
+        "task_state_assertion",
+        re.compile(
+            r"(?:semua\s+tugas|tugas\s+.*?(?:malam|hari)\s+ini)\s+.*?(?:sudah|udah|telah)?\s*(?:bersih|beres|selesai|kelar|clear)|"
+            r"(?:sudah|udah|telah)\s+(?:bersih\s+dan\s+beres|beres\s+semua|selesai\s+semua|kelar\s+semua)|"
+            r"tidak\s+ada\s+(?:lagi\s+)?tugas\s+(?:malam|hari)\s+ini",
+            re.IGNORECASE,
+        ),
+        {"list_tasks"},
+    ),
+]
+
 
 # Tool result statuses that prove a durable state mutation actually happened.
 # A bare "success" on a read-only tool (or a mutation that matched zero rows)
@@ -281,6 +294,30 @@ def detect_unexecuted_mutation_claims(text: str, executed_tools: list[dict[str, 
     return None
 
 
+def detect_ungrounded_state_claims(text: str, executed_tools: list[dict[str, Any]]) -> str | None:
+    """
+    Detect whether the model's generated text claims that database state is clean, completed,
+    or empty (e.g. 'semua tugas sudah beres dan bersih') without having executed grounding query tools.
+    Returns the assertion category, or None if compliant.
+    """
+    if not text or text.strip() in ("[NO_REPLY]", "NO_REPLY", "None"):
+        return None
+
+    executed_names = {t.get("name") for t in executed_tools if t.get("name")}
+
+    for category_name, pattern, required_tools in STATE_ASSERTION_PATTERNS:
+        if pattern.search(text):
+            if not required_tools.intersection(executed_names):
+                log.warning(
+                    "Detected ungrounded state claim '%s' in model text without required grounding tools %s",
+                    category_name,
+                    required_tools,
+                )
+                return category_name
+
+    return None
+
+
 def strip_hallucinated_tool_chips(text: str) -> str:
     """Strip any hallucinated or LLM-mimicked tool chips footnote lines."""
     if not text:
@@ -319,6 +356,18 @@ def verify_action_fidelity(
         return (
             "Mohon maaf, tindakan tersebut belum berhasil diproses di sistem database. "
             "Silakan ulangi perintah secara spesifik agar Helmis dapat memprosesnya."
+        )
+
+    # If an ungrounded state assertion was made without querying the database, block the hallucination
+    ungrounded_state = detect_ungrounded_state_claims(cleaned_text, executed_tools)
+    if ungrounded_state:
+        log.error(
+            "Blocking hallucinated state response claiming '%s' without grounding query tools!",
+            ungrounded_state,
+        )
+        return (
+            "Mohon maaf, status tugas belum dicek langsung dari database. "
+            "Silakan ulangi perintah agar Helmis dapat memverifikasinya."
         )
 
     # If no tools were executed, return cleaned text (guaranteed no fake tool chips)

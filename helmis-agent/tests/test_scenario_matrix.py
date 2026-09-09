@@ -173,7 +173,8 @@ class TestRecurrenceMatrix:
         after = datetime(2026, 9, 7, 9, 0, tzinfo=TZ)  # Monday 16:00 UTC
         assert next_occurrence(rule, after).weekday() == 0  # next Monday UTC
 
-    def test_proactive_series_survives_two_weeks(self) -> None:
+    @pytest.mark.asyncio
+    async def test_proactive_series_survives_two_weeks(self) -> None:
         """Simulated: fire, complete, fire again — series never dies."""
         task = add_task(
             title="Absensi Komdat",
@@ -183,7 +184,7 @@ class TestRecurrenceMatrix:
             recurrence={"type": "weekly", "weekdays": ["selasa"], "time": "07:45", "timezone": "Asia/Jakarta"},
         )
         client = AsyncMock(spec=WahaClient)
-        _tick_at(client, 2026, 9, 1, 7, 46)   # due fires
+        await _tick_at(client, 2026, 9, 1, 7, 46)   # due fires
         complete_task_result(title="Absensi Komdat")
         task = get_repository().list_tasks()[0]
         assert task["status"] == "completed"
@@ -297,9 +298,15 @@ class TestNagPolicyMatrix:
         )
         client = AsyncMock(spec=WahaClient)
         await _tick_at(client, 2026, 9, 1, 8, 1)
-        assert client.send_message.called
+        assert client.send_message.call_count == 1
         task = get_repository().list_tasks()[0]
         assert "2026-09-08" in task["due"]
+
+        # Crucial regression test: week 2 must ALSO dispatch and send, not get suppressed by outbox idempotency
+        await _tick_at(client, 2026, 9, 8, 8, 1)
+        assert client.send_message.call_count == 2
+        task2 = get_repository().list_tasks()[0]
+        assert "2026-09-15" in task2["due"]
 
     async def test_recurring_bot_action_overdue_skip_and_advance(self) -> None:
         add_task(

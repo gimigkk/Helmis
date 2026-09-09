@@ -18,6 +18,7 @@ from .cascade import (
 from .crystallize import auto_crystallize_turn
 from .guardrails import (
     detect_unexecuted_mutation_claims,
+    detect_ungrounded_state_claims,
     is_no_fluff_request,
     verify_action_fidelity,
 )
@@ -556,6 +557,31 @@ async def run_agentic_react_loop(
                                 "tetapi kamu BELUM mengeksekusi functionCall ke tool terkait! "
                                 "Dilarang membuat konfirmasi teks sebelum tool berhasil dijalankan. "
                                 "Kamu WAJIB mengeksekusi functionCall ke tool yang tepat sekarang."
+                            )
+                        }
+                    ],
+                })
+                step += 1
+                continue
+
+            # Anti-Hallucination Guardrail: Intercept ungrounded state assertions (claiming tasks clean/completed without checking)
+            ungrounded_state = detect_ungrounded_state_claims(raw_cleaned, executed_tools)
+            if ungrounded_state and step < max_steps - 1:
+                log.warning(
+                    "Turn Intercepted: Model emitted ungrounded state claim '%s' on step %d without querying database. Steering to list_tasks...",
+                    ungrounded_state,
+                    step + 1,
+                )
+                contents.append({"role": "model", "parts": parts})
+                contents.append({
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                "SYSTEM INTEGRITY FAULT: Kamu baru saja mengklaim bahwa daftar tugas sudah bersih/beres/selesai, "
+                                "tetapi kamu BELUM mengecek database tugas secara langsung via tool `list_tasks`! "
+                                "Dilarang menyimpulkan status tugas tanpa data ground-truth. "
+                                "Kamu WAJIB memanggil `list_tasks` sekarang untuk memverifikasi fakta di database."
                             )
                         }
                     ],

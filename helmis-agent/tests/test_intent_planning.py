@@ -18,6 +18,8 @@ class TestClassificationParity:
         assert classify_turn_intent("cek jadwal besok") == "query"
         assert classify_turn_intent("apa aja tugas gw") == "query"
         assert classify_turn_intent("cek tugas yang belum selesai") == "query"
+        assert classify_turn_intent("tugas malem ini udh semua") == "query"
+        assert classify_turn_intent("tugas hari ini udah beres semua belum") == "query"
         assert classify_turn_intent("https://docs.google.com/doc") == "query"
 
     def test_action_cases(self) -> None:

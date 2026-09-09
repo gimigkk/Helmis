@@ -9,6 +9,7 @@ import pytest
 
 from src.agent.guardrails import (
     detect_unexecuted_mutation_claims,
+    detect_ungrounded_state_claims,
     format_tool_chips,
     strip_hallucinated_tool_chips,
     verify_action_fidelity,
@@ -27,6 +28,14 @@ def test_detect_unexecuted_complete_task():
     assert detect_unexecuted_mutation_claims(text, [{"name": "complete_task", "result": {"status": "error"}}]) == "complete_task"
     # With successful tool execution -> Valid
     assert detect_unexecuted_mutation_claims(text, [{"name": "complete_task", "result": {"status": "success"}}]) is None
+
+
+def test_detect_ungrounded_state_claims():
+    text = "Mantap, Lang! Semua tugas malam ini sudah bersih dan beres. Selamat istirahat ya!"
+    # Without list_tasks execution -> Violation
+    assert detect_ungrounded_state_claims(text, []) == "task_state_assertion"
+    # With list_tasks execution -> Valid
+    assert detect_ungrounded_state_claims(text, [{"name": "list_tasks", "result": {"status": "success"}}]) is None
 
 
 def test_detect_unexecuted_delete_action():
@@ -77,6 +86,12 @@ def test_verify_action_fidelity_blocks_unexecuted_mutation():
     res = verify_action_fidelity(text, [])
     assert "belum berhasil diproses" in res
     assert "Nge-chat anak murid" not in res
+
+
+def test_verify_action_fidelity_blocks_ungrounded_state_claim():
+    text = "Mantap, Lang! Semua tugas malam ini sudah bersih dan beres. Selamat istirahat ya!"
+    res = verify_action_fidelity(text, [])
+    assert "belum dicek langsung dari database" in res
 
 
 def test_verify_action_fidelity_passes_verified_mutation(monkeypatch):
