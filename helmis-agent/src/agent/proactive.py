@@ -675,8 +675,11 @@ def _persist_scheduler_task(
     }
     if not fields:
         return
+    prev_v = previous.get("version")
+    task_v = task.get("version")
+    ver_val = prev_v if prev_v is not None else (task_v if task_v is not None else 1)
     result = update_task_fields(
-        task_id, fields, expected_version=int(previous.get("version", task.get("version", 1)))
+        task_id, fields, expected_version=int(ver_val)
     )
     if result.get("outcome") == "conflict":
         log.info("Skipped stale scheduler update for task %s", task_id)

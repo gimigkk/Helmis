@@ -91,54 +91,72 @@ class TestRecurrenceMatrix:
         rule = {"type": "weekly", "weekdays": ["selasa"], "time": "07:45", "timezone": "Asia/Jakarta"}
         after = datetime(2026, 9, 2, 12, 0, tzinfo=TZ)  # Wednesday
         nxt = next_occurrence(rule, after)
+        assert nxt is not None
         assert nxt.weekday() == 1 and nxt.hour == 7 and nxt.minute == 45
         assert nxt.date() == datetime(2026, 9, 8).date()
 
     def test_weekday_id_numbers_map_monday_zero(self) -> None:
         rule = {"type": "weekly", "weekdays": [0], "time": "08:00", "timezone": "Asia/Jakarta"}
         after = datetime(2026, 9, 4, 10, 0, tzinfo=TZ)  # Friday
-        assert next_occurrence(rule, after).weekday() == 0
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert nxt.weekday() == 0
 
     def test_weekday_english_names(self) -> None:
         rule = {"type": "weekly", "weekdays": ["monday"], "time": "09:00", "timezone": "Asia/Jakarta"}
         after = datetime(2026, 9, 4, 10, 0, tzinfo=TZ)
-        assert next_occurrence(rule, after).weekday() == 0
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert nxt.weekday() == 0
 
     def test_weekday_mixed_case_and_spaces(self) -> None:
         rule = {"type": "weekly", "weekdays": [" Selasa "], "time": "07:00", "timezone": "Asia/Jakarta"}
         after = datetime(2026, 9, 2, 8, 0, tzinfo=TZ)
-        assert next_occurrence(rule, after).weekday() == 1
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert nxt.weekday() == 1
 
     def test_same_day_later_time_is_next_slot(self) -> None:
         rule = {"type": "weekly", "weekdays": ["rabu"], "time": "13:00", "timezone": "Asia/Jakarta"}
         after = datetime(2026, 9, 2, 8, 0, tzinfo=TZ)  # Wednesday before class
-        assert next_occurrence(rule, after).date() == after.date()
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert nxt.date() == after.date()
 
     def test_same_day_earlier_time_next_week(self) -> None:
         rule = {"type": "weekly", "weekdays": ["rabu"], "time": "07:00", "timezone": "Asia/Jakarta"}
         after = datetime(2026, 9, 2, 9, 0, tzinfo=TZ)  # Wednesday after class
-        assert next_occurrence(rule, after).date() == datetime(2026, 9, 9).date()
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert nxt.date() == datetime(2026, 9, 9).date()
 
     def test_multi_day_picks_nearest(self) -> None:
         rule = {"type": "weekly", "weekdays": ["selasa", "kamis"], "time": "08:00", "timezone": "Asia/Jakarta"}
         after = datetime(2026, 9, 2, 9, 0, tzinfo=TZ)  # Wednesday
-        assert next_occurrence(rule, after).weekday() == 3  # Thursday first
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert nxt.weekday() == 3  # Thursday first
 
     def test_interval_rule_days(self) -> None:
         rule = {"type": "interval", "interval": 3, "unit": "days"}
         after = datetime(2026, 9, 2, 9, 0, tzinfo=TZ)
         nxt = next_occurrence(rule, after)
+        assert nxt is not None
         assert (nxt - after).total_seconds() == 3 * 86400
 
     def test_interval_rule_minutes_shortcut(self) -> None:
         rule = {"type": "interval", "interval_minutes": 90}
         after = datetime(2026, 9, 2, 9, 0, tzinfo=TZ)
-        assert (next_occurrence(rule, after) - after).total_seconds() == 5400
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert (nxt - after).total_seconds() == 5400
 
     def test_interval_rule_every_nested(self) -> None:
         rule = {"type": "every", "every": {"value": 2, "unit": "hours"}}
         after = datetime(2026, 9, 2, 9, 0, tzinfo=TZ)
-        assert (next_occurrence(rule, after) - after).total_seconds() == 7200
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert (nxt - after).total_seconds() == 7200
 
     def test_interval_unit_hours(self) -> None:
         rule = {"type": "interval", "interval": 2, "unit": "hours"}
@@ -163,7 +181,9 @@ class TestRecurrenceMatrix:
             "recurrence": {"type": "weekly", "weekdays": ["selasa"], "time": "07:45", "timezone": "Asia/Jakarta"},
         }
         after = datetime(2026, 9, 1, 8, 0, tzinfo=TZ)
-        assert next_occurrence_for_task(task, after).date() == datetime(2026, 9, 8).date()
+        nxt = next_occurrence_for_task(task, after)
+        assert nxt is not None
+        assert nxt.date() == datetime(2026, 9, 8).date()
 
     def test_task_without_recurrence_returns_none(self) -> None:
         assert next_occurrence_for_task({"due": "2026-09-01 07:45 WIB"}, datetime(2026, 9, 2, tzinfo=TZ)) is None
@@ -171,7 +191,9 @@ class TestRecurrenceMatrix:
     def test_timezone_conversion(self) -> None:
         rule = {"type": "weekly", "weekdays": ["senin"], "time": "07:00", "timezone": "UTC"}
         after = datetime(2026, 9, 7, 9, 0, tzinfo=TZ)  # Monday 16:00 UTC
-        assert next_occurrence(rule, after).weekday() == 0  # next Monday UTC
+        nxt = next_occurrence(rule, after)
+        assert nxt is not None
+        assert nxt.weekday() == 0  # next Monday UTC
 
     @pytest.mark.asyncio
     async def test_proactive_series_survives_two_weeks(self) -> None:
@@ -189,6 +211,7 @@ class TestRecurrenceMatrix:
         task = get_repository().list_tasks()[0]
         assert task["status"] == "completed"
         nxt = next_occurrence_for_task(task, datetime(2026, 9, 1, 8, 0, tzinfo=TZ))
+        assert nxt is not None
         assert nxt.date() == datetime(2026, 9, 8).date()
 
 
@@ -205,18 +228,21 @@ class TestNagPolicyMatrix:
             repeat_interval_minutes=3, max_repeats=2, acknowledgment_required=True,
         )
         policy = _resolve_reminder_policy(get_repository().list_tasks()[0])
+        assert policy is not None
         assert policy["repeat_interval_minutes"] == 3
         assert policy["max_repeats"] == 2
 
     async def test_task_nag_fields_derive_policy(self) -> None:
         add_task(title="Field Nag", due="x", assignee="Gilang", nag_policy={"interval_minutes": 5, "max_nags": 6})
         policy = _resolve_reminder_policy(get_repository().list_tasks()[0])
+        assert policy is not None
         assert policy["repeat_interval_minutes"] == 5
         assert policy["max_repeats"] == 5  # max_nags-1
 
     async def test_urgent_default_ladder(self) -> None:
         add_task(title="Urgent Def", due="x", assignee="Gilang", priority="urgent")
         policy = _resolve_reminder_policy(get_repository().list_tasks()[0])
+        assert policy is not None
         assert policy["repeat_interval_minutes"] == 10
         assert policy["max_repeats"] == 5
 
@@ -231,11 +257,13 @@ class TestNagPolicyMatrix:
     async def test_custom_standdown_preserved(self) -> None:
         add_task(title="Stand", due="x", assignee="Gilang", nag_policy={"interval_minutes": 5, "max_nags": 6, "stand_down_after_minutes": 30})
         policy = _resolve_reminder_policy(get_repository().list_tasks()[0])
+        assert policy is not None
         assert policy["stand_down_after_minutes"] == 30
 
     async def test_cross_alert_carried_from_policy(self) -> None:
         add_task(title="Cross", due="x", assignee="Gilang", nag_policy={"interval_minutes": 5, "cross_alert_recipient": "Bunga"})
         policy = _resolve_reminder_policy(get_repository().list_tasks()[0])
+        assert policy is not None
         assert policy["cross_alert_recipient"] == "Bunga"
 
     async def test_nag_ladder_counts_and_standdown(self) -> None:
