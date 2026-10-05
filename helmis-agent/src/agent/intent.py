@@ -35,8 +35,8 @@ ACTION_PATTERNS = re.compile(
     r"(?:\b(?:siangan|sorean|malaman|besokan|ntar|entar|nanti(?:\s+aja)?|tunda|mundur(?:in|kan)?|geser|pindah(?:in|kan)?)\b)"
     r"|(?:ganti|ubah|update|reschedule|snooze|postpone)\s+(?:jadwal|waktu|jam|deadline|reminder|tugas)"
     r"|\b(?:jam|pukul)\s+\d{1,2}(?:[:.]\d{2})?"
-    # Create / add / record (e.g. ingetin gw bayar kosan, remind me, catat tugas)
-    r"|(?:inget(?:in|kan)?|remind|catat(?:in|kan)?|jadwal(?:in|kan)?|bikin(?:in|kan)?|buat(?:in|kan)?|tambah(?:in|kan)?|set)\b"
+    # Create / add / record (e.g. ingetin gw bayar kosan, remind me, catat tugas, todo gw)
+    r"|(?:inget(?:in|kan)?|remind|catat(?:in|kan)?|jadwal(?:in|kan)?|bikin(?:in|kan)?|buat(?:in|kan)?|tambah(?:in|kan)?|set|todo|to-do)\b"
     r"|(?:tolong|coba|minta)\s+(?:kirim|hapus|simpan|save|delete|send|forward)"
     # Delete / complete / mark
     r"|(?:hapus|delete|buang|hilang(?:in|kan)?)\s+(?:tugas|task|reminder|catatan|note|memori|file)"
@@ -55,7 +55,7 @@ _MUTATING_VERB_PATTERN = re.compile(
     r"(?:"
     # Bare create/record verbs (old classifier treated these as action alone)
     r"\b(?:inget(?:in|kan)?|remind|catat(?:in|kan)?|jadwal(?:in|kan)?|bikin(?:in|kan)?|buat(?:in|kan)?|"
-    r"tambah(?:in|kan)?|set|ubah|ganti|update|geser|tunda|mundur(?:in|kan)?|pindah(?:in|kan)?)\b"
+    r"tambah(?:in|kan)?|set|todo|to-do|ubah|ganti|update|geser|tunda|mundur(?:in|kan)?|pindah(?:in|kan)?)\b"
     # Delete/complete/send verbs require an object noun to avoid false positives
     r"|(?:hapus|delete|buang|hilang(?:in|kan)?)\s+\S+"
     r"|(?:selesai(?:in|kan)?|done|complete|tandai|mark)\s+\S+"
@@ -77,7 +77,7 @@ _MUTATION_SUFFIX_PATTERN = re.compile(
 
 _CREATE_VERB_PATTERN = re.compile(
     r"\b(?:inget(?:in|kan)?|remind|catat(?:in|kan)?|jadwal(?:in|kan)?|bikin(?:in|kan)?|buat(?:in|kan)?|"
-    r"tambah(?:in|kan)?|set)\b",
+    r"tambah(?:in|kan)?|set|todo|to-do)\b",
     re.IGNORECASE,
 )
 
@@ -96,7 +96,7 @@ _SEND_VERB_PATTERN = re.compile(
 )
 
 _DOMAIN_PATTERNS: dict[str, re.Pattern[str]] = {
-    "task": re.compile(r"\b(?:tugas|task|reminder|deadline|agenda)\b", re.IGNORECASE),
+    "task": re.compile(r"\b(?:tugas|task|reminder|deadline|agenda|todo|to-do)\b", re.IGNORECASE),
     "schedule": re.compile(r"\b(?:jadwal|schedule|kalender|calendar)\b", re.IGNORECASE),
     "note": re.compile(r"\b(?:catatan|note|notes)\b", re.IGNORECASE),
     "memory": re.compile(r"\b(?:memori|memory|ingatan|fakta|fact|preferensi|preference)\b", re.IGNORECASE),

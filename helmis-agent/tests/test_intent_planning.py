@@ -27,6 +27,7 @@ class TestClassificationParity:
         assert classify_turn_intent("hapus tugas laporan") == "action"
         assert classify_turn_intent("jadwalkan rapat besok") == "action"
         assert classify_turn_intent("catatin nanti gw lupa") == "action"
+        assert classify_turn_intent("todo gw hari ini tuh") == "action"
 
     def test_chat_cases(self) -> None:
         assert classify_turn_intent("halo gimana kabarnya") == "chat"
