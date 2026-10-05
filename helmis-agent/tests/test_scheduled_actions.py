@@ -98,6 +98,39 @@ async def test_scheduled_action_fallback_extractor() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scheduled_action_agent_loop_dispatches_message() -> None:
+    """Verify that an autonomous agent job runs ReAct loop and delivers generated reply to target chat."""
+    mock_client = AsyncMock(spec=WahaClient)
+
+    add_task(
+        title="Daily Morning Agenda Briefing (Gilang)",
+        due="2026-08-27 08:00 WIB",
+        assignee="Helmis",
+        task_type="scheduled_action",
+        job={
+            "kind": "agent",
+            "prompt": "Kirim ringkasan agenda pagi untuk Gilang",
+            "target_chat": "Gilang",
+        },
+    )
+
+    mock_dt = datetime(2026, 8, 27, 8, 0, 0, tzinfo=TZ)
+    with patch("src.agent.proactive.datetime") as mock_datetime, \
+         patch("src.agent.loop.run_agentic_react_loop", new_callable=AsyncMock) as mock_loop:
+        mock_datetime.now.return_value = mock_dt
+        mock_loop.return_value = "Pagi Gilang! Berikut agenda tugas kamu hari ini."
+        await handle_proactive_scheduler_tick(mock_client)
+
+    assert mock_client.send_message.called
+    call_args = mock_client.send_message.call_args[1]
+    assert call_args["chat_id"] == "628123456789@c.us"
+    assert "Pagi Gilang!" in call_args["text"]
+
+    mem = load_memory()
+    assert mem["tasks"][0]["status"] == "completed"
+
+
+@pytest.mark.asyncio
 async def test_scheduled_action_overdue_expiration() -> None:
     """Verify that scheduled actions overdue by > 2 hours are marked expired and NOT dispatched."""
     mock_client = AsyncMock(spec=WahaClient)

@@ -349,19 +349,24 @@ async def dispatch_scheduled_action(
             from .loop import run_agentic_react_loop
 
             prompt = str(job.get("prompt") or title)
-            target_chat = job.get("target_chat") or job.get("chat_id") or ""
-            if not target_chat:
-                target_chat = _resolve_recipient_chat(str(task.get("requester") or "Gilang"))
+            raw_target = job.get("target_chat") or job.get("chat_id") or str(task.get("requester") or "Gilang")
+            target_chat = _resolve_recipient_chat(raw_target) or raw_target
             if not target_chat:
                 return _quarantine_job(task, "Agent job has no resolvable target chat")
 
             synthetic_msg = f"[SCHEDULED AUTONOMOUS TASK EXECUTION]\n{prompt}"
-            await run_agentic_react_loop(
+            reply = await run_agentic_react_loop(
                 client=client,
                 sender_name="Helmis Proactive",
                 chat_id=target_chat,
                 message_text=synthetic_msg,
             )
+            if reply and str(reply).strip() not in ("[NO_REPLY]", "NO_REPLY", "None"):
+                clean_reply = str(reply).strip()
+                for prefix in ("[Helmis]:", "[Helmis]: "):
+                    if clean_reply.startswith(prefix):
+                        clean_reply = clean_reply[len(prefix):].strip()
+                await client.send_message(chat_id=target_chat, text=clean_reply)
 
             task["status"] = "completed"
             task["execution_status"] = "dispatched"

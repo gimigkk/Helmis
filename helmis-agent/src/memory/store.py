@@ -546,6 +546,7 @@ def _apply_task_update(
             target_task["nudge_count"] = 0
             target_task["last_nudged_at"] = None
             target_task["nudge_stopped"] = False
+            target_task["followup_checked"] = False
             target_task["execution_status"] = "pending"
             target_task["retry_count"] = 0
         if new_assignee:
