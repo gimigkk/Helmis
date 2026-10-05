@@ -442,11 +442,32 @@ def _matching_tasks(
     exact = [task for task in eligible if identity_key(str(task.get("title", ""))) == query]
     if exact:
         return exact
-    return [
+
+    # Bidirectional substring: query in title key OR title key in query
+    subs = [
         task
         for task in eligible
         if query in identity_key(str(task.get("title", "")))
+        or identity_key(str(task.get("title", ""))) in query
     ]
+    if subs:
+        return subs
+
+    # Token overlap: match if >=2 tokens or single token match
+    q_tokens = set(query.split()) - {""}
+    if q_tokens:
+        scored = []
+        for task in eligible:
+            k_tokens = set(identity_key(str(task.get("title", ""))).split()) - {""}
+            overlap = len(q_tokens & k_tokens)
+            if overlap >= 2 or (len(q_tokens) == 1 and overlap == 1):
+                scored.append((overlap, task))
+        if scored:
+            scored.sort(key=lambda x: x[0], reverse=True)
+            max_score = scored[0][0]
+            return [task for score, task in scored if score == max_score]
+
+    return []
 
 
 def update_task(
@@ -710,6 +731,23 @@ def complete_task_result(
             "after": task,
             "task": task,
         }
+    if outcome == "not_found":
+        already_completed = _matching_tasks(
+            get_repository().list_tasks(),
+            title=title,
+            task_id=task_id,
+            identity_key_value=identity_key_value,
+            include_completed=True,
+        )
+        if already_completed:
+            task = already_completed[0]
+            return {
+                "status": "applied",
+                "outcome": "already_completed",
+                "task_id": task.get("task_id"),
+                "task": task,
+                "message": f"Task '{task.get('title')}' memang sudah selesai sebelumnya.",
+            }
     status = {"not_found": "not_found", "ambiguous": "ambiguous", "conflict": "conflict"}.get(
         outcome, "failed"
     )
@@ -1037,14 +1075,26 @@ def save_note(title: str, content: str) -> dict[str, Any]:
 
 
 def get_note(title: str) -> dict[str, Any] | None:
-    """Find a note in memory by title keyword or substring match."""
+    """Find a note in memory by title keyword, substring, or token overlap."""
     if not title or not title.strip():
         return None
     notes = cast(list[dict[str, Any]], _load_json_records("notes", []))
     q = title.lower().strip()
     for n in notes:
-        if q in n.get("title", "").lower():
+        t = n.get("title", "").lower()
+        if q in t or t in q:
             return cast(dict[str, Any], n)
+    q_words = set(re.findall(r"\w+", q))
+    best_note = None
+    best_overlap = 0
+    for n in notes:
+        t_words = set(re.findall(r"\w+", n.get("title", "").lower()))
+        overlap = len(q_words & t_words)
+        if overlap > best_overlap and overlap >= 2:
+            best_overlap = overlap
+            best_note = n
+    if best_note:
+        return cast(dict[str, Any], best_note)
     return None
 
 

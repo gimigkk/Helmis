@@ -25,7 +25,15 @@ async def handle_add_task(
     due = str(args.get("due", "")).strip()
     assignee = str(args.get("assignee") or default_sender).strip()
     priority = str(args.get("priority", "normal")).strip().lower()
-    lead_time = int(args.get("lead_time_minutes", 0) or 0)
+    lead_raw = args.get("lead_time_minutes")
+    if lead_raw is not None:
+        lead_time = int(lead_raw)
+    else:
+        title_lower = title.lower()
+        if any(w in title_lower for w in ("tugas", "essay", "esai", "ppt", "laporan", "modul", "praktikum", "proyek", "makalah")):
+            lead_time = 120
+        else:
+            lead_time = 0
     task_type = str(args.get("task_type", "reminder")).strip().lower()
     job = args.get("job")
     identity = args.get("identity_key") or args.get("identity_key_value")
@@ -117,14 +125,14 @@ def handle_complete_task(args: dict[str, Any]) -> dict[str, Any]:
         expected_version=expected_version,
     )
 
-    if result["status"] == "applied":
+    if result["status"] == "applied" or result.get("outcome") == "already_completed":
         task = result.get("task") or {}
         return {
             **result,
             "status": "success",
             "task_id": result.get("task_id") or task.get("task_id"),
             "task": task,
-            "message": f"Task '{task.get('title')}' berhasil ditandai selesai.",
+            "message": result.get("message") or f"Task '{task.get('title')}' berhasil ditandai selesai.",
         }
     if result["status"] == "ambiguous":
         return {

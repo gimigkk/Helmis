@@ -18,7 +18,29 @@ log = logging.getLogger("helmis-tools-skills")
 _SKILL_FRONTMATTER_PATTERN = r"^---\nname:\s*([a-z0-9-]+)\n.*?\n---\n\n(.*)\Z"
 
 
-def _get_skills_dir() -> str:
+def _get_skills_dirs() -> list[str]:
+    """Find all candidate root directories for skills (static and dynamic)."""
+    candidates = [
+        os.environ.get("SKILLS_DIR", ""),
+        "/app/config/skills",
+        "/hermes-config/skills",
+        "config/skills",
+        "../config/skills",
+        os.path.join(os.path.dirname(__file__), "../../../config/skills"),
+        os.path.join(os.environ.get("DATA_DIR", "./data"), "skills"),
+    ]
+    seen = set()
+    valid = []
+    for d in candidates:
+        if d and os.path.exists(d) and os.path.isdir(d):
+            ab = os.path.abspath(d)
+            if ab not in seen:
+                seen.add(ab)
+                valid.append(ab)
+    return valid
+
+
+def _get_skills_dir(require_writable: bool = False) -> str:
     """Find the root directory for skills."""
     candidates = [
         os.environ.get("SKILLS_DIR", ""),
@@ -30,7 +52,16 @@ def _get_skills_dir() -> str:
     ]
     for d in candidates:
         if d and os.path.exists(d) and os.path.isdir(d):
+            if require_writable:
+                if os.access(d, os.W_OK):
+                    return os.path.abspath(d)
+                continue
             return os.path.abspath(d)
+    if require_writable:
+        data_dir = os.environ.get("DATA_DIR", "./data")
+        skills_data_dir = os.path.abspath(os.path.join(data_dir, "skills"))
+        os.makedirs(skills_data_dir, exist_ok=True)
+        return skills_data_dir
     return ""
 
 
@@ -164,7 +195,7 @@ async def approve_skill_proposal(proposal: str, *, skills_dir: str | None = None
     validation_error = _validate_skill_content(name, description, body)
     if validation_error:
         return {"status": "error", "error": validation_error}
-    target_root = os.path.abspath(skills_dir or _get_skills_dir())
+    target_root = os.path.abspath(skills_dir or _get_skills_dir(require_writable=True))
     if not target_root:
         return {"status": "error", "error": "Direktori skill aktif tidak ditemukan."}
     target_dir = os.path.join(target_root, name)
@@ -407,26 +438,27 @@ def reject_proposal(
 
 def list_available_skills() -> list[dict[str, str]]:
     """Discover all available skills and their summaries."""
-    skills_dir = _get_skills_dir()
-    if not skills_dir or not os.path.exists(skills_dir):
-        return []
-
     available: list[dict[str, str]] = []
-    for entry in sorted(os.listdir(skills_dir)):
-        entry_path = os.path.join(skills_dir, entry)
-        if os.path.isdir(entry_path):
-            skill_file = os.path.join(entry_path, "SKILL.md")
-            if os.path.exists(skill_file):
-                desc = "Specialized domain skill playbook."
-                try:
-                    with open(skill_file, encoding="utf-8") as f:
-                        txt = f.read(1024)
-                        m = re.search(r"description:\s*(.+)", txt, re.IGNORECASE)
-                        if m:
-                            desc = m.group(1).strip()
-                except Exception:
-                    pass
-                available.append({"name": entry, "description": desc})
+    seen_names: set[str] = set()
+    for sdir in _get_skills_dirs():
+        for entry in sorted(os.listdir(sdir)):
+            if entry in seen_names:
+                continue
+            entry_path = os.path.join(sdir, entry)
+            if os.path.isdir(entry_path):
+                skill_file = os.path.join(entry_path, "SKILL.md")
+                if os.path.exists(skill_file):
+                    desc = "Specialized domain skill playbook."
+                    try:
+                        with open(skill_file, encoding="utf-8") as f:
+                            txt = f.read(1024)
+                            m = re.search(r"description:\s*(.+)", txt, re.IGNORECASE)
+                            if m:
+                                desc = m.group(1).strip()
+                    except Exception:
+                        pass
+                    available.append({"name": entry, "description": desc})
+                    seen_names.add(entry)
     return available
 
 
@@ -448,15 +480,16 @@ async def handle_load_skill(
             "available_skills": [s["name"] for s in available],
         }
 
-    skills_dir = _get_skills_dir()
-    if not skills_dir:
-        return {"status": "error", "error": "Direktori config/skills tidak ditemukan."}
-
     # Normalize skill name (e.g. "pdf_toolkit" -> "pdf-toolkit")
     normalized_name = name.replace("_", "-")
-    skill_file = os.path.join(skills_dir, normalized_name, "SKILL.md")
+    skill_file = None
+    for sdir in _get_skills_dirs():
+        candidate = os.path.join(sdir, normalized_name, "SKILL.md")
+        if os.path.exists(candidate):
+            skill_file = candidate
+            break
 
-    if not os.path.exists(skill_file):
+    if not skill_file:
         available = list_available_skills()
         return {
             "status": "error",
@@ -533,9 +566,9 @@ async def handle_create_skill(
             "message": f"Skill *{safe_name}* disimpan sebagai proposal dan belum aktif.",
         }
 
-    skills_dir = _get_skills_dir()
+    skills_dir = _get_skills_dir(require_writable=True)
     if not skills_dir:
-        return {"status": "error", "error": "Direktori config/skills tidak ditemukan."}
+        return {"status": "error", "error": "Direktori skills tidak ditemukan atau tidak dapat ditulisi."}
 
     skill_dir_path = os.path.join(skills_dir, safe_name)
     skill_file = os.path.join(skill_dir_path, "SKILL.md")
@@ -598,9 +631,9 @@ async def handle_update_skill(
         return {"status": "error", "error": "Nama skill dan konten baru tidak boleh kosong."}
 
     safe_name = re.sub(r"[^a-z0-9\-]", "", name)
-    skills_dir = _get_skills_dir()
+    skills_dir = _get_skills_dir(require_writable=True)
     if not skills_dir:
-        return {"status": "error", "error": "Direktori config/skills tidak ditemukan."}
+        return {"status": "error", "error": "Direktori skills tidak ditemukan atau tidak dapat ditulisi."}
 
     skill_file = os.path.join(skills_dir, safe_name, "SKILL.md")
     if not os.path.exists(skill_file):

@@ -97,8 +97,18 @@ def inject_tool_directive(result: dict[str, Any], func_name: str) -> dict[str, A
             f"CRITICAL HONESTY: Tool '{func_name}' reported an error: {err_detail}. State this outcome honestly to the user and do NOT claim success or fabricate imaginary file contents!"
         )
     elif status == "success":
-        deleted_count = result.get("deleted_count")
-        if deleted_count == 0:
+        query_tools = {
+            "list_tasks", "list_notes", "list_vault_files", "get_note", "get_person",
+            "search_memory", "search_notes", "search_vault_files", "recall_memory",
+            "get_whatsapp_messages", "read_url", "read_vault_file",
+        }
+        if func_name in query_tools:
+            result["_model_directive"] = (
+                "Query completed. If any prior modification tool failed or returned not_found, "
+                "you MUST report that failure to the user. Do NOT claim you updated, completed, "
+                "or deleted an item if the modification tool failed!"
+            )
+        elif result.get("deleted_count") == 0:
             result["_model_directive"] = (
                 "CRITICAL HONESTY: 0 items were deleted or matched. Inform the user clearly that no matching items were found."
             )

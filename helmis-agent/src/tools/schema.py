@@ -299,6 +299,17 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                 },
             },
             {
+                "name": "search_notes",
+                "description": "Search across saved notes, memos, or living lists by keywords or topic in title or content.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "query": {"type": "STRING", "description": "Search query or topic keyword to find in notes"}
+                    },
+                    "required": ["query"],
+                },
+            },
+            {
                 "name": "append_to_note",
                 "description": "Append text or items to an existing note, or create a new note if it does not exist yet. Ideal for living lists like groceries, packing lists, gift ideas, or recommendations.",
                 "parameters": {
@@ -1006,7 +1017,7 @@ _TOOL_DOMAIN_MAP: dict[str, str] = {
     "update_task": "task", "delete_task": "task",
     "create_schedule": "schedule", "list_schedules": "schedule",
     "list_reminder_policies": "schedule",
-    "save_note": "note", "get_note": "note", "list_notes": "note",
+    "save_note": "note", "get_note": "note", "list_notes": "note", "search_notes": "note",
     "append_to_note": "note", "delete_note": "note",
     "remember_fact": "memory", "correct_fact": "memory", "delete_memory": "memory",
     "recall_memory": "memory", "search_memory": "memory",

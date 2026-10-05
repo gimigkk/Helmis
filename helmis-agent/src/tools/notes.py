@@ -2,6 +2,7 @@
 notes.py — Tool Handlers for Shared Notes, Memos, and Living Lists.
 """
 
+import re
 from typing import Any
 
 from ..memory.store import append_to_note, delete_note, get_note, list_notes, save_note
@@ -41,6 +42,29 @@ def handle_get_note(args: dict[str, Any]) -> dict[str, Any]:
 def handle_list_notes(args: dict[str, Any]) -> dict[str, Any]:
     notes = list_notes()
     return {"status": "success", "count": len(notes), "notes": notes}
+
+
+@register_tool("search_notes")
+def handle_search_notes(args: dict[str, Any]) -> dict[str, Any]:
+    query = str(args.get("query") or args.get("q") or "").strip().lower()
+    if not query:
+        return {"status": "error", "error": "Query pencarian catatan tidak boleh kosong."}
+    all_notes = list_notes()
+    matched = []
+    q_words = set(re.findall(r"\w+", query))
+    for n in all_notes:
+        title = str(n.get("title", "")).lower()
+        content = str(n.get("content", "")).lower()
+        if query in title or query in content:
+            matched.append(n)
+        elif q_words and (len(q_words & set(re.findall(r"\w+", title))) >= 2 or len(q_words & set(re.findall(r"\w+", content))) >= 3):
+            matched.append(n)
+    return {
+        "status": "success",
+        "count": len(matched),
+        "notes": matched,
+        "query": query,
+    }
 
 
 @register_tool("append_to_note")
