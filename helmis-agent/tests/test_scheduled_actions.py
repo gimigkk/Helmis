@@ -184,7 +184,7 @@ async def test_human_reminder_still_triggers_lead_and_due_reminders() -> None:
 
     assert mock_client.send_message.called
     call_args = mock_client.send_message.call_args[1]
-    assert "pengingat persiapan: deadline *Kerjakan Tugas AI*" in call_args["text"]
+    assert "*Kerjakan Tugas AI*" in call_args["text"]
 
     mem = load_memory()
     task = mem["tasks"][0]
@@ -202,7 +202,7 @@ async def test_human_reminder_still_triggers_lead_and_due_reminders() -> None:
 
     assert mock_client.send_message.called
     call_args = mock_client.send_message.call_args[1]
-    assert "pengingat deadline: *Kerjakan Tugas AI*" in call_args["text"]
+    assert "*Kerjakan Tugas AI*" in call_args["text"]
 
     mem = load_memory()
     task = mem["tasks"][0]

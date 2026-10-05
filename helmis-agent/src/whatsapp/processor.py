@@ -443,6 +443,9 @@ async def process_batched_turn(
                 if clean_reply.startswith(prefix):
                     clean_reply = clean_reply[len(prefix):].strip()
 
+            # Strip echoed quote header if model accidentally repeats it (e.g. > [Pesan Sebelumnya]: "...")
+            clean_reply = re.sub(r'^>\s*\[(?:Pesan Sebelumnya|Gilang|Bunga|Helmis)\]:[^\n]*\n+', '', clean_reply).strip()
+
             if is_voice_note and vn_transcript:
                 if clean_reply.startswith("> "):
                     lines = clean_reply.split("\n", 2)

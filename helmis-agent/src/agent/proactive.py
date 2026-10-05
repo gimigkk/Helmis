@@ -540,10 +540,16 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                     else:
                         lead_text = f"{remaining_mins} menit"
 
-                    msg_text = (
-                        f"Halo {assignee}, pengingat persiapan: deadline *{title}* pada {due_str} "
-                        f"(sisa {lead_text} lagi). Waktunya mulai persiapan atau pengerjaan ya."
-                    )
+                    if assignee.lower() == "gilang":
+                        msg_text = (
+                            f"Lang, pengingat persiapan: *{title}* jadwalnya {due_str} "
+                            f"(sisa {lead_text} lagi). Udah bisa mulai dicicil atau dipersiapin ya."
+                        )
+                    else:
+                        msg_text = (
+                            f"Halo {assignee}, pengingat persiapan: *{title}* pada {due_str} "
+                            f"(sisa {lead_text} lagi). Waktunya mulai persiapan ya."
+                        )
                     await send_reminder_to_recipient(
                         client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="kickoff",
                         scheduled_for=due_ts,
@@ -578,10 +584,16 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
 
                 # Trigger if within 5 minutes of due or overdue within recent window
                 if now_ts >= (due_ts - 300):
-                    msg_text = (
-                        f"Halo {assignee}, pengingat deadline: *{title}* ({due_str}). "
-                        "Jika sudah selesai, kabari Helmis ya."
-                    )
+                    if assignee.lower() == "gilang":
+                        msg_text = (
+                            f"Lang, udah masuk jadwal/deadline *{title}* ({due_str}) nih. "
+                            "Kalo udah selesai, kabarin biar gue tandai beres ya."
+                        )
+                    else:
+                        msg_text = (
+                            f"Halo {assignee}, pengingat jadwal: *{title}* ({due_str}). "
+                            "Jika sudah selesai, kabari Helmis ya."
+                        )
                     await send_reminder_to_recipient(
                         client, assignee, msg_text, task_id=str(t.get("task_id", "")), stage="due",
                         scheduled_for=due_ts,
@@ -681,10 +693,16 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
             if not policy and due_reminded and not t.get("followup_checked") and status == "pending":
                 overdue_sec = now_ts - due_ts
                 if 1800 <= overdue_sec <= 7200:
-                    followup_text = (
-                        f"Halo {assignee}, pengingat status: *{title}* tadi jadwalnya {due_str}. "
-                        "Sudah selesai dikerjakan atau mau dijadwalkan ulang?"
-                    )
+                    if assignee.lower() == "gilang":
+                        followup_text = (
+                            f"Lang, cek status *{title}* yang tadi jadwalnya {due_str}. "
+                            "Udah kelar atau mau gue geser jadwalnya?"
+                        )
+                    else:
+                        followup_text = (
+                            f"Halo {assignee}, untuk *{title}* yang tadi jadwalnya {due_str}. "
+                            "Sudah selesai dikerjakan atau mau dijadwalkan ulang?"
+                        )
                     await send_reminder_to_recipient(
                         client, assignee, followup_text, task_id=str(t.get("task_id", "")), stage="followup",
                         scheduled_for=due_ts,
