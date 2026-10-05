@@ -313,7 +313,12 @@ async def dispatch_scheduled_action(
                     task, f"Scheduled job references unregistered/undeclared tool '{tool_name}'"
                 )
 
-            default_sender = task.get("requester") or "Gilang"
+            default_sender = task.get("requester") or task.get("assignee") or "Gilang"
+            if isinstance(tool_args, dict) and tool_args.get("chat_id") == "current":
+                target_chat = _resolve_recipient_chat(default_sender)
+                if target_chat:
+                    tool_args = dict(tool_args)
+                    tool_args["chat_id"] = target_chat
             result = await execute_tool_call(
                 func_name=tool_name,
                 args=tool_args,
@@ -583,17 +588,20 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                     t["last_nudged_at"] = now_ts
                     t["nudge_count"] = 1
                     log_activity(f"Stage 2 due reminder sent to {assignee} for '{title}'")
-                    # Recurring human reminders must also advance, otherwise the
-                    # series dies after its first delivered due reminder.
-                    next_fields = _advance_recurrence(t, due_ts)
-                    if next_fields:
-                        t.update(next_fields)
-                        t["due_reminded"] = False
-                        t["reminded"] = False
-                        t["kickoff_reminded"] = False
-                        t["nudge_count"] = 0
-                        t["nudge_stopped"] = False
-                        t["last_nudged_at"] = None
+                    # Recurring human reminders without an active nag policy advance immediately.
+                    # Tasks with an active nag policy advance only after stand-down or completion,
+                    # preserving the repeat nagging loop.
+                    policy = _resolve_reminder_policy(t)
+                    if not policy:
+                        next_fields = _advance_recurrence(t, due_ts)
+                        if next_fields:
+                            t.update(next_fields)
+                            t["due_reminded"] = False
+                            t["reminded"] = False
+                            t["kickoff_reminded"] = False
+                            t["nudge_count"] = 0
+                            t["nudge_stopped"] = False
+                            t["last_nudged_at"] = None
                     continue
 
             # ---------------------------------------------------------------------
@@ -625,6 +633,15 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                         t["nudge_stopped"] = True
                         t["last_nudged_at"] = now_ts
                         log_activity(f"Reminder stand-down reached ({stood_down_min}m) for '{title}'")
+                        next_fields = _advance_recurrence(t, due_ts)
+                        if next_fields:
+                            t.update(next_fields)
+                            t["due_reminded"] = False
+                            t["reminded"] = False
+                            t["kickoff_reminded"] = False
+                            t["nudge_count"] = 0
+                            t["nudge_stopped"] = False
+                            t["last_nudged_at"] = None
                     else:
                         minutes_overdue = int((now_ts - due_ts) // 60)
                         cross_recipient = str(policy.get("cross_alert_recipient") or "")
@@ -650,6 +667,26 @@ async def handle_proactive_scheduler_tick(client: WahaClient) -> None:
                         t["nudge_count"] = next_count
                         t["last_nudged_at"] = now_ts
                         log_activity(f"Policy nag #{next_count} sent to {assignee} for '{title}'")
+
+            # ---------------------------------------------------------------------
+            # 4. GENTLE POST-DEADLINE CHECK-IN (Proactive Executive Follow-up)
+            # ---------------------------------------------------------------------
+            # For non-nagging pending tasks, if overdue 30m-120m and not yet followed up,
+            # proactively inquire once so tasks are not silently abandoned.
+            if not policy and due_reminded and not t.get("followup_checked") and status == "pending":
+                overdue_sec = now_ts - due_ts
+                if 1800 <= overdue_sec <= 7200:
+                    followup_text = (
+                        f"Halo {assignee}, pengingat status: *{title}* tadi jadwalnya {due_str}. "
+                        "Sudah selesai dikerjakan atau mau dijadwalkan ulang?"
+                    )
+                    await send_reminder_to_recipient(
+                        client, assignee, followup_text, task_id=str(t.get("task_id", "")), stage="followup",
+                        scheduled_for=due_ts,
+                    )
+                    t["followup_checked"] = True
+                    t["last_nudged_at"] = now_ts
+                    log_activity(f"Proactive follow-up sent to {assignee} for '{title}'")
 
         except Exception as task_err:
             log.error("Error evaluating proactive reminder for task '%s': %s", t.get("title"), task_err)

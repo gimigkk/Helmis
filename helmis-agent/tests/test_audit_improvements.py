@@ -97,3 +97,34 @@ def test_skills_dir_writable_fallback() -> None:
     assert writable != ""
     assert os.path.exists(writable)
     assert os.access(writable, os.W_OK)
+
+
+@pytest.mark.asyncio
+async def test_add_task_smart_buffer_override_zero() -> None:
+    from src.tools.tasks import handle_add_task
+
+    res = await handle_add_task(
+        {
+            "title": "Tugas Asah Mandiri",
+            "due": "2026-10-06 20:00 WIB",
+            "assignee": "Gilang",
+            "lead_time_minutes": 0,
+        },
+        default_sender="Gilang",
+    )
+    assert res["status"] == "success"
+    task = res["task"]
+    assert task["lead_time_minutes"] == 120
+
+    res_meet = await handle_add_task(
+        {
+            "title": "Meet Hackaton Diskusi Ide",
+            "due": "2026-10-06 21:00 WIB",
+            "assignee": "Gilang",
+            "lead_time_minutes": 0,
+        },
+        default_sender="Gilang",
+    )
+    assert res_meet["status"] == "success"
+    assert res_meet["task"]["lead_time_minutes"] == 30
+

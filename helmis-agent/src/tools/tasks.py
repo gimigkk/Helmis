@@ -26,14 +26,21 @@ async def handle_add_task(
     assignee = str(args.get("assignee") or default_sender).strip()
     priority = str(args.get("priority", "normal")).strip().lower()
     lead_raw = args.get("lead_time_minutes")
-    if lead_raw is not None:
+    title_lower = title.lower()
+    is_assignment = any(w in title_lower for w in ("tugas", "essay", "esai", "ppt", "laporan", "modul", "praktikum", "proyek", "makalah", "paper", "assignment", "pr"))
+    is_meeting = any(w in title_lower for w in ("meet", "rapat", "zoom", "gmeet", "call"))
+
+    # ponytail: default 120m for assignments and 30m for meetings even if model passes 0
+    if lead_raw is not None and int(lead_raw) > 0:
+        lead_time = int(lead_raw)
+    elif is_assignment:
+        lead_time = 120
+    elif is_meeting:
+        lead_time = 30
+    elif lead_raw is not None:
         lead_time = int(lead_raw)
     else:
-        title_lower = title.lower()
-        if any(w in title_lower for w in ("tugas", "essay", "esai", "ppt", "laporan", "modul", "praktikum", "proyek", "makalah")):
-            lead_time = 120
-        else:
-            lead_time = 0
+        lead_time = 0
     task_type = str(args.get("task_type", "reminder")).strip().lower()
     job = args.get("job")
     identity = args.get("identity_key") or args.get("identity_key_value")
