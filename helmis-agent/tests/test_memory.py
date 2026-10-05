@@ -353,3 +353,28 @@ def test_category_detection_word_verb_beats_course_mention(monkeypatch, tmp_path
     assert _detect_task_category("Kuliah Ekonomi Syariah", None) == "routine"
     assert _detect_task_category("Absen Seminar Akuntansi", None) == "routine"
     assert _detect_task_category("Mengerjakan soal ekonomi syariah", None) == "work"
+
+
+def test_sanitize_due_str_and_past_year_recovery(monkeypatch, tmp_path) -> None:
+    """Hallucinated past year (e.g. 2025 in 2026) must be auto-corrected to current year."""
+    data_dir = tmp_path / "data_due_fix"
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+
+    # Test parser recovery
+    ts = memory.parse_due_timestamp("2025-10-05 21:00 WIB")
+    dt = datetime.fromtimestamp(ts, tz=memory.TZ)
+    current_year = datetime.now(memory.TZ).year
+    assert dt.year >= current_year
+    assert dt.month == 10
+    assert dt.day == 5
+    assert dt.hour == 21
+    assert dt.minute == 0
+
+    # Test task add & update sanitization
+    t = memory.add_task(title="Meet hackaton", due="2025-10-05 21:00 WIB", assignee="Gilang")
+    assert f"{current_year}-10-05 21:00 WIB" in t["due"]
+
+    res = memory.update_task_result(title="Meet hackaton", new_due="2024-10-05 23:59 WIB")
+    assert res["status"] == "applied"
+    assert f"{current_year}-10-05 23:59 WIB" in res["task"]["due"]
+

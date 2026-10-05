@@ -154,6 +154,17 @@ def _save_memory_unlocked(data: dict[str, Any]) -> None:
                 pass
 
 
+def _sanitize_due_str(due_str: str) -> str:
+    """Ensure deadline string does not reference a past year due to model hallucination."""
+    if not due_str:
+        return due_str
+    now_year = datetime.now(TZ).year
+    def _fix_year(m: re.Match) -> str:
+        y = int(m.group(1))
+        return f"{now_year}-" if y < now_year else m.group(0)
+    return re.sub(r"\b(\d{4})-", _fix_year, due_str)
+
+
 def get_time_of_day_info() -> tuple[str, str]:
     """Get current time formatted in WIB and the corresponding Indonesian time-of-day period."""
     now = datetime.now(TZ)
@@ -214,6 +225,7 @@ def get_memory_context_summary() -> str:
     activity_log = cast(
         list[dict[str, Any]], _load_json_records("activity_log", [])
     )
+    now = datetime.now(TZ)
     now_str, period_info = get_time_of_day_info()
 
     recent_activities = activity_log[-4:]
@@ -228,6 +240,7 @@ def get_memory_context_summary() -> str:
 - Current Local Time: {now_str}
 - Current Time of Day: {period_info}
 - Timezone: Asia/Jakarta (WIB, UTC+7)
+- Current Year: {now.year} (CRITICAL: Every task and deadline MUST use year {now.year}. NEVER output past years like {now.year - 1}!)
 - Recent Proactive Alerts Dispatched by Helmis:
 {activity_summary}
 """
@@ -313,7 +326,7 @@ def add_task(
     if not title or not title.strip():
         raise ValueError("Task title cannot be empty")
     clean_title = title.strip()
-    clean_due = due.strip() if due else "No deadline"
+    clean_due = _sanitize_due_str(due.strip()) if due else "No deadline"
     clean_assignee = assignee.strip() if assignee else "Gilang"
     clean_priority = priority.strip().lower() if priority else "normal"
     if clean_priority not in ("urgent", "normal", "low"):
@@ -505,7 +518,7 @@ def _apply_task_update(
             if not identity_key_value:
                 target_task["identity_key"] = identity_key(target_task["title"])
         if new_due:
-            target_task["due"] = new_due.strip()
+            target_task["due"] = _sanitize_due_str(new_due.strip())
             target_task["kickoff_reminded"] = False
             target_task["due_reminded"] = False
             target_task["reminded"] = False
@@ -819,8 +832,8 @@ def parse_due_timestamp(due_str: str) -> float:
             has_time = True
 
     # 3. Date Resolution
-    # A. 'hari ini', 'today'
-    if "hari ini" in clean or "today" in clean:
+    # A. 'hari ini', 'today', 'malam ini', 'sore ini', 'siang ini', 'pagi ini', etc.
+    if any(k in clean for k in ("hari ini", "today", "malam ini", "sore ini", "siang ini", "pagi ini", "nanti malam", "nanti sore", "nanti siang")):
         return now.replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp()
 
     # B. 'besok', 'tomorrow'
@@ -831,32 +844,15 @@ def parse_due_timestamp(due_str: str) -> float:
     if "lusa" in clean:
         return (now + timedelta(days=2)).replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp()
 
-    # D. Day of Week (Senin .. Minggu)
-    id_days = {
-        "senin": 0, "monday": 0, "mon": 0,
-        "selasa": 1, "tuesday": 1, "tue": 1,
-        "rabu": 2, "wednesday": 2, "wed": 2,
-        "kamis": 3, "thursday": 3, "thu": 3,
-        "jumat": 4, "jum'at": 4, "friday": 4, "fri": 4,
-        "sabtu": 5, "saturday": 5, "sat": 5,
-        "minggu": 6, "ahad": 6, "sunday": 6, "sun": 6,
-    }
-    for day_name, day_idx in id_days.items():
-        if re.search(rf"\b{day_name}\b", clean):
-            days_ahead = (day_idx - now.weekday()) % 7
-            if days_ahead == 0:
-                if (hour < now.hour) or (hour == now.hour and minute <= now.minute):
-                    days_ahead = 7
-            return (now + timedelta(days=days_ahead)).replace(
-                hour=hour, minute=minute, second=0, microsecond=0
-            ).timestamp()
-
-    # E. ISO YYYY-MM-DD
+    # D. ISO YYYY-MM-DD (Checked before day-of-week so full dates like 'Senin, 2026-10-12' resolve properly)
     iso_match = re.search(r"(\d{4})-(\d{2})-(\d{2})", clean)
     if iso_match:
         try:
+            year_val = int(iso_match.group(1))
+            if year_val < now.year:
+                year_val = now.year
             return datetime(
-                int(iso_match.group(1)),
+                year_val,
                 int(iso_match.group(2)),
                 int(iso_match.group(3)),
                 hour,
@@ -867,7 +863,7 @@ def parse_due_timestamp(due_str: str) -> float:
         except Exception:
             pass
 
-    # F. Indonesian & English Month Names
+    # E. Indonesian & English Month Names (Checked before day-of-week)
     id_months = {
         "januari": 1, "jan": 1,
         "februari": 2, "feb": 2,
@@ -887,11 +883,35 @@ def parse_due_timestamp(due_str: str) -> float:
         day = int(date_month_match.group(1))
         month_str = date_month_match.group(2).lower()
         year = int(date_month_match.group(3)) if date_month_match.group(3) else now.year
+        if year < now.year:
+            year = now.year
         if month_str in id_months:
             try:
                 return datetime(year, id_months[month_str], day, hour, minute, 0, tzinfo=TZ).timestamp()
             except Exception:
                 pass
+
+    # F. Day of Week (Senin .. Minggu)
+    id_days = {
+        "senin": 0, "monday": 0, "mon": 0,
+        "selasa": 1, "tuesday": 1, "tue": 1,
+        "rabu": 2, "wednesday": 2, "wed": 2,
+        "kamis": 3, "thursday": 3, "thu": 3,
+        "jumat": 4, "jum'at": 4, "friday": 4, "fri": 4,
+        "sabtu": 5, "saturday": 5, "sat": 5,
+        "minggu": 6, "ahad": 6, "sunday": 6, "sun": 6,
+    }
+    for day_name, day_idx in id_days.items():
+        if re.search(rf"\b{day_name}\b", clean):
+            if day_name == "minggu" and "minggu depan" in clean:
+                continue
+            days_ahead = (day_idx - now.weekday()) % 7
+            if days_ahead == 0:
+                if (hour < now.hour) or (hour == now.hour and minute <= now.minute):
+                    days_ahead = 7
+            return (now + timedelta(days=days_ahead)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            ).timestamp()
 
     # G. Fallback: If time was specified but no date, assume today (or tomorrow if time passed)
     if has_time:

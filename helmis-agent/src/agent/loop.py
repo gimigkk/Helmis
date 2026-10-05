@@ -359,6 +359,8 @@ async def run_agentic_react_loop(
 
         system_instruction = load_compact_system_prompt()
         skills_context = load_domain_skills(turn_plan.domain)
+        if skills_context:
+            system_instruction = f"{system_instruction}\n\n{skills_context}"
         tools = get_compact_tools(turn_plan.domain)
         log.info(
             "Compact mode [%s/%s]: %d chars prompt, %d tools",

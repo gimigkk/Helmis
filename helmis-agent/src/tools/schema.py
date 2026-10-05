@@ -19,7 +19,7 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         },
                         "due": {
                             "type": "STRING",
-                            "description": "Initial date/time in the configured timezone, e.g. '2026-08-26 18:00 WIB' or '30 menit lagi'",
+                            "description": "Initial date/time in the configured timezone (e.g. '2026-10-05 18:00 WIB' or 'hari ini 18:00 WIB' or '30 menit lagi'). NEVER use past years.",
                         },
                         "identity_key": {
                             "type": "STRING",
@@ -162,7 +162,7 @@ GEMINI_TOOLS: list[dict[str, Any]] = [
                         },
                         "new_due": {
                             "type": "STRING",
-                            "description": "New deadline in WIB, e.g. '2026-08-25 19:00 WIB'",
+                            "description": "New deadline in WIB for current year 2026 (e.g. '2026-10-05 19:00 WIB' or 'hari ini 19:00 WIB'). NEVER use past years.",
                         },
                         "new_title": {
                             "type": "STRING",
