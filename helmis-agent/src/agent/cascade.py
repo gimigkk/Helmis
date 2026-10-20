@@ -59,33 +59,35 @@ def fetch_available_gemini_models() -> list[str]:
 
     if not discovered:
         # Fallback list if offline or API unreachable.
-        # Proven fast, low-latency models lead; overloaded/dead models sink.
+        # Proven fast, 8/8 online models lead; overloaded/dead models sink.
         return [
+            "gemini-3.6-flash",
+            "gemini-3-flash-preview",
+            "gemini-3.5-flash",
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite-preview",
             "gemini-3.5-flash-lite",
             "gemini-3.7-flash",
-            "gemini-2.5-flash",
-            "gemini-3.1-flash-lite",
-            "gemini-2.5-flash-lite",
             "gemini-3.8-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
+            "gemini-2.5-flash-lite",
             "gemini-flash-latest",
             "gemini-pro-latest",
             "gemini-flash-lite-latest",
         ]
 
-    # Sort: proven fast, stable models first (3.5-flash-lite > 3.7-flash >
-    # 2.5-flash > 3.1-flash-lite > 2.5-flash-lite). Overloaded (3.8-flash 503s)
-    # and slow/timeout models (3.6-flash, 3.5-flash) sink to the end.
+    # Sort: proven fast, stable 8/8 online models first:
+    # 3.6-flash (1.74s) > 3-flash-preview (1.69s) > 3.5-flash (2.10s) > 2.5-flash.
+    # Overloaded/slow models (3.8-flash, 3.7-flash, 3.5-flash-lite) sink behind.
     _PREFERRED = [
-        ("gemini-3.5-flash-lite", 0),
-        ("gemini-3.7-flash", 1),
-        ("gemini-2.5-flash", 2),
-        ("gemini-3.1-flash-lite", 3),
-        ("gemini-2.5-flash-lite", 4),
-        ("gemini-3.8-flash", 20),
-        ("gemini-3.6-flash", 21),
-        ("gemini-3.5-flash", 22),
+        ("gemini-3.6-flash", 0),
+        ("gemini-3-flash-preview", 1),
+        ("gemini-3.5-flash", 2),
+        ("gemini-2.5-flash", 3),
+        ("gemini-3.1-flash-lite-preview", 4),
+        ("gemini-3.5-flash-lite", 5),
+        ("gemini-3.7-flash", 6),
+        ("gemini-3.8-flash", 7),
+        ("gemini-2.5-flash-lite", 8),
     ]
 
     def score_model(m: str) -> int:
@@ -97,14 +99,14 @@ def fetch_available_gemini_models() -> list[str]:
             # Dead alias on current keys (repeat timeouts); last resort only.
             return 90
         elif "flash-lite" in m_lower or "flash_lite" in m_lower:
-            return 6
+            return 12
         elif "flash" in m_lower:
-            return 7
+            return 14
         elif "gemma" in m_lower:
-            return 8
+            return 16
         elif "pro" in m_lower:
-            return 9
-        return 10
+            return 18
+        return 20
 
     discovered.sort(key=score_model)
     return discovered

@@ -25,7 +25,7 @@ def test_fallback_models_include_new_generations(monkeypatch: pytest.MonkeyPatch
     assert "gemini-flash-lite-latest" in models
     assert "gemini-pro-latest" in models
     # Working models lead; dead alias sinks to the end.
-    assert models[0] == "gemini-3.5-flash-lite"
+    assert models[0] == "gemini-3.6-flash"
     assert models[-1] == "gemini-flash-lite-latest"
 
 
