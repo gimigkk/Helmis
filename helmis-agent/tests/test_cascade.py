@@ -248,3 +248,87 @@ async def test_hedged_race_slow_head_fast_second(monkeypatch: pytest.MonkeyPatch
     )
     assert result is not None
     assert result[0] == "gemini-fast"
+
+
+@pytest.mark.asyncio
+async def test_attempt_model_404_rotates_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 404 from one key (e.g. newer project without legacy model access) rotates to next key."""
+    from src.agent import loop as agent_loop
+
+    call_count = 0
+
+    class DummyResponse:
+        def __init__(self, status_code: int):
+            self.status_code = status_code
+            self.text = "Not Found" if status_code == 404 else "OK"
+
+        def json(self) -> dict[str, Any]:
+            return {"candidates": [{"content": {"parts": [{"text": "success"}]}}]}
+
+    class DummyClient:
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def post(self, url: str, **kwargs: Any) -> DummyResponse:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return DummyResponse(404)
+            return DummyResponse(200)
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kw: DummyClient())
+    monkeypatch.setattr(cascade, "mark_model_unavailable", MagicMock())
+    monkeypatch.setattr(agent_loop, "get_next_gemini_key", lambda: "AIzaSyKeyDummy")
+
+    result = await agent_loop._attempt_model(
+        "gemini-test",
+        {"contents": []},
+        timeout_secs=5.0,
+        keys_count=2,
+    )
+    assert result is not None
+    assert result[0] == "gemini-test"
+    assert call_count == 2
+    cascade.mark_model_unavailable.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_attempt_model_400_aborts_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 400 Bad Request indicates client/payload error; do not burn other keys."""
+    from src.agent import loop as agent_loop
+
+    call_count = 0
+
+    class DummyResponse:
+        def __init__(self) -> None:
+            self.status_code = 400
+            self.text = "Function call is missing a thought_signature in functionCall parts"
+
+    class DummyClient:
+        async def __aenter__(self) -> "DummyClient":
+            return self
+
+        async def __aexit__(self, *args: Any) -> None:
+            pass
+
+        async def post(self, url: str, **kwargs: Any) -> DummyResponse:
+            nonlocal call_count
+            call_count += 1
+            return DummyResponse()
+
+    monkeypatch.setattr("httpx.AsyncClient", lambda **kw: DummyClient())
+    monkeypatch.setattr(agent_loop, "get_next_gemini_key", lambda: "AIzaSyKeyDummy")
+
+    result = await agent_loop._attempt_model(
+        "gemini-test",
+        {"contents": []},
+        timeout_secs=5.0,
+        keys_count=3,
+    )
+    assert result is None
+    # Failed on first key and returned None without burning keys 2 and 3
+    assert call_count == 1
+

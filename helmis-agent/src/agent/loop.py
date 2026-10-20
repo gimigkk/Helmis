@@ -143,8 +143,11 @@ async def _attempt_model(
                     cascade.mark_model_unavailable(model)
                     return None
                 elif resp.status_code == 404:
-                    log.warning("Model not found (404) on %s, skipping", model)
-                    cascade.mark_model_unavailable(model)
+                    log.warning("Model not found (404) on %s with key %s..., rotating", model, api_key[:8])
+                    continue
+                elif resp.status_code == 400:
+                    log.error("Gemini API error (400) on %s: %s", model, resp.text[:400])
+                    # 400 Bad Request is request/payload mismatch; rotating keys won't fix it
                     return None
                 else:
                     log.error("Gemini API error (%d) on %s: %s", resp.status_code, model, resp.text[:400])
@@ -431,7 +434,11 @@ async def run_agentic_react_loop(
             "systemInstruction": {"parts": [{"text": full_system_instruction}]},
             "contents": contents,
             "tools": tools,
-            "generationConfig": {"temperature": 0.0, "maxOutputTokens": 2048},
+            "generationConfig": {
+                "temperature": 0.0,
+                "maxOutputTokens": 2048,
+                "thinkingConfig": {"thinkingBudget": 1024},
+            },
         }
 
         # Forced Tool Calling: On first step with unambiguous action plan, force model
@@ -631,7 +638,11 @@ async def run_agentic_react_loop(
             payload = {
                 "systemInstruction": {"parts": [{"text": full_system_instruction}]},
                 "contents": contents,
-                "generationConfig": {"temperature": 0.0, "maxOutputTokens": 256},
+                "generationConfig": {
+                    "temperature": 0.0,
+                    "maxOutputTokens": 256,
+                    "thinkingConfig": {"thinkingBudget": 1024},
+                },
             }
             # Rotate keys/models: the synthesis call must be at least as
             # reliable as the working turn that preceded it. Same hedged
